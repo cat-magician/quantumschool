@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  .btn-primary {
+    @apply transition-opacity duration-150 hover:opacity-90 disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply transition-colors duration-150;
+  }
+
+  .yandex-form-embed iframe,
+  .stage-embed-frame iframe {
+    display: block;
+    border: 0;
+    background: #fff;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-500 to-violet-600;
+  }
+
+  .bg-gradient-radial {
+    background: radial-gradient(ellipse at center, var(--tw-gradient-stops));
+  }
+
+  @keyframes orbit {
+    0% { transform: rotate(0deg) translateX(100px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(100px) rotate(-360deg); }
+  }
+
+  .animate-orbit {
+    animation: orbit 20s linear infinite;
+  }
+}
