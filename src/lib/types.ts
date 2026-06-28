@@ -7,6 +7,7 @@ export interface Instructor {
   specialization: string;
   specializations: string[];
   role: 'lecturer' | 'seminar';
+  sort_order: number;
   created_at: string;
 }
 
@@ -170,7 +171,7 @@ export interface HomeworkSubmission {
   created_at: string;
   updated_at: string;
   assignment?: HomeworkAssignment;
-  student?: Pick<UserProfile, 'id' | 'display_name' | 'email'>;
+  student?: Pick<UserProfile, 'id' | 'display_name' | 'email' | 'avatar_url'>;
 }
 
 export interface CourseProgress {
@@ -202,4 +203,91 @@ export interface SelectionStageConfig {
   contest_published: boolean;
   updated_at: string | null;
   updated_by: string | null;
+}
+
+export interface LandingConfig {
+  id: number;
+  hero_badge_text: string;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export type LessonPageType = 'lecture' | 'seminar';
+
+export type LessonBlockType = 'recording' | 'text' | 'materials' | 'homework_link';
+
+export type LessonBlockContent = {
+  url?: string;
+  body?: string;
+  label?: string;
+  pdf_url?: string;
+  pdf_title?: string;
+};
+
+export interface LessonPageBlock {
+  id: string;
+  page_id: string;
+  block_type: LessonBlockType;
+  sort_order: number;
+  content: LessonBlockContent;
+  created_at: string;
+}
+
+export interface LessonPage {
+  id: string;
+  title: string;
+  lesson_type: LessonPageType;
+  lesson_date: string;
+  cover_url: string | null;
+  is_published: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  blocks?: LessonPageBlock[];
+}
+
+export type HomeworkBlockType = 'text' | 'image' | 'video' | 'yandex_form' | 'contest';
+
+export type HomeworkBlockContent = {
+  body?: string;
+  url?: string;
+  caption?: string;
+  form_id?: string;
+};
+
+export interface HomeworkPageBlock {
+  id: string;
+  page_id: string;
+  block_type: HomeworkBlockType;
+  sort_order: number;
+  content: HomeworkBlockContent;
+  created_at: string;
+}
+
+export interface HomeworkPage {
+  id: string;
+  title: string;
+  due_at: string | null;
+  is_published: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  blocks?: HomeworkPageBlock[];
+}
+
+export interface HomeworkPageSubmission {
+  id: string;
+  page_id: string;
+  user_id: string;
+  answer_text: string;
+  status: HomeworkSubmissionStatus;
+  score: number | null;
+  feedback: string;
+  graded_by: string | null;
+  submitted_at: string | null;
+  graded_at: string | null;
+  created_at: string;
+  updated_at: string;
+  page?: Pick<HomeworkPage, 'id' | 'title'>;
+  student?: Pick<UserProfile, 'id' | 'display_name' | 'email' | 'avatar_url'>;
 }

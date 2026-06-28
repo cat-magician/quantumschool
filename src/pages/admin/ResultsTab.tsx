@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { UserProfile } from '../../lib/types';
-import { studentInitials } from '../../lib/adminUtils';
+import UserAvatar from '../../components/UserAvatar';
 import { adminStageBadgeClass, adminStageLabel } from '../../lib/selectionDisplayUtils';
 
 type StudentRow = UserProfile & { email: string | null };
@@ -143,7 +143,7 @@ export default function ResultsTab() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-[min(72rem,90%)]">
+    <div className="space-y-6 w-full max-w-6xl">
       <div>
         <h2 className="text-xl font-bold text-white mb-1">Отборочные этапы</h2>
         <p className="text-slate-400 text-sm">
@@ -161,7 +161,7 @@ export default function ResultsTab() {
             className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900/60 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {([
             { id: 'all', label: 'Все' },
             { id: 'enrolled', label: 'Зачислены' },
@@ -220,9 +220,7 @@ export default function ResultsTab() {
                       lg:col-start-1 lg:row-start-1
                       2xl:col-start-1 2xl:row-start-1"
                   >
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {studentInitials(d.display_name)}
-                    </div>
+                    <UserAvatar displayName={d.display_name} avatarUrl={d.avatar_url} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-white text-sm leading-snug">{d.display_name}</div>
                       <div className="text-xs text-slate-500 truncate mt-0.5">{d.email ?? '—'}</div>
@@ -258,7 +256,7 @@ export default function ResultsTab() {
                     <button
                       type="button"
                       onClick={() => toggleEnroll(s)}
-                      className={`flex items-center justify-center gap-1.5 min-w-[100px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
+                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[100px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
                         d.is_enrolled
                           ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                           : 'bg-white/5 text-slate-300 border border-white/10 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/20'
@@ -274,7 +272,7 @@ export default function ResultsTab() {
                     <button
                       type="button"
                       onClick={() => toggleReject(s)}
-                      className={`flex items-center justify-center gap-1.5 min-w-[88px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
+                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[88px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
                         d.selection_rejected
                           ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                           : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/20'
@@ -305,7 +303,7 @@ export default function ResultsTab() {
                 {showInfo && (
                   <div
                     data-student-info
-                    className="absolute left-4 top-full mt-2 z-20 w-64 bg-slate-800 border border-white/10 rounded-xl p-4 shadow-xl"
+                    className="absolute left-4 right-4 sm:right-auto sm:w-64 top-full mt-2 z-20 bg-slate-800 border border-white/10 rounded-xl p-4 shadow-xl"
                   >
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">О участнике</p>
                     <div className="space-y-2.5 text-sm">
@@ -350,9 +348,9 @@ function StageField({
   const badgeClass = adminStageBadgeClass(status, score, submittedAt, viewedAt);
 
   return (
-    <div className="flex items-center justify-start gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2.5 w-full 2xl:w-[15rem] 2xl:shrink-0">
+    <div className="flex flex-wrap items-center justify-start gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2.5 w-full 2xl:w-[15rem] 2xl:shrink-0">
       <span className="text-xs text-slate-500 w-10 shrink-0">{label}</span>
-      <span className={`text-xs px-2 py-0.5 rounded-md border whitespace-nowrap shrink-0 ${badgeClass}`}>
+      <span className={`text-xs px-2 py-0.5 rounded-md border shrink-0 max-w-full ${badgeClass}`}>
         {stageLabel}
       </span>
       <div className="flex items-center gap-0.5 shrink-0">

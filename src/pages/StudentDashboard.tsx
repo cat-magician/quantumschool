@@ -1,12 +1,21 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  LogOut, Calendar, BarChart3, Award, Home, Bell, Settings,
+  LogOut, Calendar, BarChart3, Home,
   ClipboardList, FileText, FlaskConical, Lock,
-  CheckCircle, AlertCircle,
+  CheckCircle, AlertCircle, BookOpen, Presentation,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
-import { YANDEX_FORM_EMBED } from '../lib/constants';
+import {
+  dashboardSearchParamsEqual,
+  defaultStudentDashboardState,
+  normalizeStudentDashboardState,
+  parseStudentDashboardSearchParams,
+  profilePathFromDashboardSearch,
+  studentDashboardStateToSearchParams,
+} from '../lib/dashboardNavigation';
+import DashboardHeaderActions from '../components/DashboardHeaderActions';
+import UserAvatar from '../components/UserAvatar';
 import { isContestPublished, isEssayPublished } from '../lib/selectionConfig';
 import { useSelectionConfig } from '../hooks/useSelectionConfig';
 import StageComingSoon from '../components/StageComingSoon';
@@ -14,14 +23,18 @@ import { markStageSubmitted, markStageUnsubmitted, markStageViewed } from '../li
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../lib/types';
 import { canStudentUnsubmit, selectionVerdict, studentStagePhase } from '../lib/selectionDisplayUtils';
+import { loadStudentGroupContext, type StudentGroupContext } from '../lib/groupUtils';
+import StudentGroupInfo from '../components/StudentGroupInfo';
 import StudentScheduleTab from './student/ScheduleTab';
-import StudentLearningTab from './student/LearningTab';
+import StudentLearningTab, { type LearningSubTab } from './student/LearningTab';
 import StudentProgressTab from './student/ProgressTab';
-import StudentAchievementsTab from './student/AchievementsTab';
 import YandexFormEmbed from '../components/YandexFormEmbed';
 import StageEmbedFrame from '../components/StageEmbedFrame';
+import DashboardHomePanel from '../components/DashboardHomePanel';
+import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
+import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 
-type Tab = 'selection' | 'learning' | 'schedule' | 'progress' | 'achievements';
+type Tab = 'home' | 'selection' | 'learning' | 'schedule' | 'progress';
 type SelectionSubTab = 'stage1' | 'stage2' | 'results';
 
 const SELECTION_SUB_NAV: { id: SelectionSubTab; label: string; shortLabel: string; icon: typeof FileText }[] = [
@@ -36,14 +49,41 @@ const SELECTION_HEADER: Record<SelectionSubTab, string> = {
   results: 'Результаты',
 };
 
+const LEARNING_SUB_NAV: { id: LearningSubTab; label: string; icon: typeof Presentation }[] = [
+  { id: 'lectures', label: 'Лекции', icon: Presentation },
+  { id: 'seminars', label: 'Семинары', icon: Presentation },
+  { id: 'homework', label: 'Домашние задания', icon: BookOpen },
+];
+
+const LEARNING_HEADER: Record<LearningSubTab, string> = {
+  lectures: 'Лекции',
+  seminars: 'Семинары',
+  homework: 'Домашние задания',
+};
+
 export default function StudentDashboard() {
   const { user, profile, signOut, refreshProfile } = useAuth();
-  const [tab, setTab] = useState<Tab>('selection');
-  const [selectionSubTab, setSelectionSubTab] = useState<SelectionSubTab>('stage1');
-  const [selectionExpanded, setSelectionExpanded] = useState(true);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isEnrolled = profile?.is_enrolled ?? false;
+  const [tab, setTab] = useState<Tab>('home');
+  const [selectionSubTab, setSelectionSubTab] = useState<SelectionSubTab>('stage1');
+  const [selectionExpanded, setSelectionExpanded] = useState(false);
+  const [learningSubTab, setLearningSubTab] = useState<LearningSubTab>('lectures');
+  const [learningExpanded, setLearningExpanded] = useState(false);
+  const [viewReady, setViewReady] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const displayName = profile?.display_name || user?.email?.split('@')[0] || 'Участник';
-  const enrolledBootstrapped = useRef(false);
+  const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
+
+  const closeMobileNav = () => setMobileNavOpen(false);
+
+  const openHome = () => {
+    setTab('home');
+    setSelectionExpanded(false);
+    setLearningExpanded(false);
+    closeMobileNav();
+  };
 
   const selectionSubNav = useMemo(
     () => (isEnrolled ? SELECTION_SUB_NAV.filter((s) => s.id === 'results') : SELECTION_SUB_NAV),
@@ -51,36 +91,92 @@ export default function StudentDashboard() {
   );
 
   useEffect(() => {
-    refreshProfile();
+    if (!user || !isEnrolled) {
+      setGroupContext(null);
+      return;
+    }
+    loadStudentGroupContext(supabase, user.id).then(setGroupContext);
+  }, [user, isEnrolled]);
+
+  useEffect(() => {
+    const parsed = parseStudentDashboardSearchParams(searchParams);
+    const next = normalizeStudentDashboardState(
+      parsed ?? defaultStudentDashboardState(isEnrolled),
+      isEnrolled,
+    );
+    setTab(next.tab);
+    setSelectionSubTab(next.selectionSubTab ?? (isEnrolled ? 'results' : 'stage1'));
+    setLearningSubTab(next.learningSubTab ?? 'lectures');
+    setSelectionExpanded(next.tab === 'selection');
+    setLearningExpanded(next.tab === 'learning');
+    setViewReady(true);
+  }, [searchParams, isEnrolled]);
+
+  useEffect(() => {
+    void refreshProfile();
   }, [refreshProfile]);
 
   useEffect(() => {
-    if (profile && isEnrolled && !enrolledBootstrapped.current) {
-      enrolledBootstrapped.current = true;
-      setTab('learning');
-      setSelectionSubTab('results');
-      setSelectionExpanded(false);
+    if (!viewReady) return;
+
+    const params = studentDashboardStateToSearchParams(
+      normalizeStudentDashboardState(
+        { tab, selectionSubTab, learningSubTab },
+        isEnrolled,
+      ),
+    );
+
+    if (!dashboardSearchParamsEqual(params, searchParams)) {
+      setSearchParams(params, { replace: true });
     }
-  }, [profile, isEnrolled]);
+  }, [tab, selectionSubTab, learningSubTab, isEnrolled, viewReady, searchParams, setSearchParams]);
+
+
+  const openProfile = () => {
+    navigate(profilePathFromDashboardSearch(searchParams));
+  };
 
   const navItems: { id: Tab; icon: typeof Home; label: string; locked: boolean }[] = [
     { id: 'selection', icon: ClipboardList, label: 'Отборочный этап', locked: false },
-    { id: 'learning', icon: Home, label: 'Обучение', locked: !isEnrolled },
     { id: 'schedule', icon: Calendar, label: 'Расписание', locked: !isEnrolled },
+    { id: 'learning', icon: Home, label: 'Обучение', locked: !isEnrolled },
     { id: 'progress', icon: BarChart3, label: 'Прогресс', locked: !isEnrolled },
-    { id: 'achievements', icon: Award, label: 'Достижения', locked: !isEnrolled },
   ];
 
   const handleTabClick = (id: Tab, locked: boolean) => {
     if (locked) return;
     setTab(id);
     if (id !== 'selection') setSelectionExpanded(false);
+    if (id !== 'learning') setLearningExpanded(false);
+    closeMobileNav();
   };
 
   const openSelection = (sub: SelectionSubTab) => {
     setTab('selection');
     setSelectionSubTab(sub);
     setSelectionExpanded(true);
+    setLearningExpanded(false);
+    closeMobileNav();
+  };
+
+  const openLearning = (sub: LearningSubTab) => {
+    if (!isEnrolled) return;
+    setTab('learning');
+    setLearningSubTab(sub);
+    setLearningExpanded(true);
+    setSelectionExpanded(false);
+    closeMobileNav();
+  };
+
+  const toggleLearningSection = () => {
+    if (!isEnrolled) return;
+    if (tab === 'learning') {
+      setLearningExpanded((v) => !v);
+    } else {
+      setTab('learning');
+      setLearningExpanded(true);
+      setSelectionExpanded(false);
+    }
   };
 
   const toggleSelectionSection = () => {
@@ -89,6 +185,7 @@ export default function StudentDashboard() {
     } else {
       setTab('selection');
       setSelectionExpanded(true);
+      setLearningExpanded(false);
     }
   };
 
@@ -96,10 +193,15 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-slate-950 text-white flex">
       <aside className="hidden lg:flex flex-col w-64 bg-slate-900/80 border-r border-white/5 backdrop-blur-sm fixed h-full z-20">
         <div className="p-6 border-b border-white/5">
-          <Link to="/" className="flex items-center gap-3 group">
-            <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-9 h-9 brightness-0 invert" />
+          <button
+            type="button"
+            onClick={openHome}
+            className="flex items-center gap-3 w-full text-left rounded-xl hover:bg-white/5 transition-colors -m-2 p-2"
+            title="Личный кабинет"
+          >
+            <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-9 h-9 brightness-0 invert shrink-0" />
             <span className="font-bold text-white">Квантовый кружок</span>
-          </Link>
+          </button>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
@@ -153,6 +255,70 @@ export default function StudentDashboard() {
               );
             }
 
+            if (item.id === 'learning') {
+              if (item.locked) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 cursor-not-allowed"
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                    <Lock className="w-3.5 h-3.5 ml-auto text-slate-600" />
+                  </button>
+                );
+              }
+
+              const isLearningActive = tab === 'learning';
+              const showLearningSubs = learningExpanded && isLearningActive;
+              return (
+                <div key={item.id}>
+                  <button
+                    type="button"
+                    onClick={toggleLearningSection}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
+                      isLearningActive
+                        ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                  <div
+                    className={`grid transition-all duration-200 ${
+                      showLearningSubs ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0'
+                    }`}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="space-y-1">
+                        {LEARNING_SUB_NAV.map((sub) => {
+                          const isSubActive = isLearningActive && learningSubTab === sub.id;
+                          return (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              onClick={() => openLearning(sub.id)}
+                              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                                isSubActive
+                                  ? 'bg-blue-600/25 text-blue-200 border border-blue-500/25 shadow-sm shadow-blue-500/10'
+                                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+                              }`}
+                            >
+                              <sub.icon className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span>{sub.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <button
                 key={item.id}
@@ -184,14 +350,24 @@ export default function StudentDashboard() {
         )}
 
         <div className="p-4 border-t border-white/5">
-          <div className="flex items-center gap-3 mb-4 px-2">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center text-sm font-bold">
-              {displayName[0].toUpperCase()}
-            </div>
+          <button
+            type="button"
+            onClick={openProfile}
+            className="w-full flex items-center gap-3 mb-4 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors text-left group"
+            title="Открыть профиль"
+          >
+            <UserAvatar
+              displayName={displayName}
+              avatarUrl={profile?.avatar_url}
+              size="xs"
+            />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
               <div className="text-xs text-slate-500 truncate">{user?.email}</div>
             </div>
+          </button>
+          <div className="mb-2">
+            <DashboardSiteHomeLink />
           </div>
           <button
             onClick={signOut}
@@ -203,71 +379,167 @@ export default function StudentDashboard() {
         </div>
       </aside>
 
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-slate-900/95 backdrop-blur-md border-t border-white/5 flex">
-        {navItems.map((item) => (
+      <DashboardMobileNav
+        items={navItems.map((item) => ({
+          id: item.id,
+          label: item.label,
+          shortLabel:
+            item.id === 'selection' ? 'Отбор' : item.id === 'progress' ? 'Прогресс' : item.label.split(' ')[0],
+          icon: item.icon,
+          active: tab === item.id,
+          disabled: item.locked,
+          onClick: () => {
+            if (item.locked) return;
+            if (item.id === 'selection') {
+              openSelection(selectionSubTab);
+            } else if (item.id === 'learning') {
+              openLearning(learningSubTab);
+            } else {
+              handleTabClick(item.id, item.locked);
+            }
+          },
+        }))}
+        menuOpen={mobileNavOpen}
+        onMenuOpenChange={setMobileNavOpen}
+        menuTitle="Разделы кабинета"
+      >
+        {navItems.map((item) => {
+          if (item.id === 'selection') {
+            const isSelectionActive = tab === 'selection';
+            return (
+              <MobileMenuCollapsibleSection
+                key={item.id}
+                active={isSelectionActive}
+                expanded={selectionExpanded && isSelectionActive}
+                onToggle={toggleSelectionSection}
+                icon={item.icon}
+                label={item.label}
+              >
+                {selectionSubNav.map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => openSelection(sub.id)}
+                    className={mobileMenuSubBtn(isSelectionActive && selectionSubTab === sub.id)}
+                  >
+                    <sub.icon className="w-3.5 h-3.5 shrink-0" />
+                    {sub.label}
+                  </button>
+                ))}
+              </MobileMenuCollapsibleSection>
+            );
+          }
+          if (item.id === 'learning') {
+            const isLearningActive = tab === 'learning';
+            return (
+              <MobileMenuCollapsibleSection
+                key={item.id}
+                active={isLearningActive}
+                expanded={learningExpanded && isLearningActive}
+                onToggle={toggleLearningSection}
+                icon={item.icon}
+                label={item.label}
+                disabled={item.locked}
+                trailing={item.locked ? <Lock className="w-4 h-4 shrink-0 text-slate-600" /> : undefined}
+              >
+                {LEARNING_SUB_NAV.map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => openLearning(sub.id)}
+                    className={mobileMenuSubBtn(isLearningActive && learningSubTab === sub.id)}
+                  >
+                    <sub.icon className="w-3.5 h-3.5 shrink-0" />
+                    {sub.label}
+                  </button>
+                ))}
+              </MobileMenuCollapsibleSection>
+            );
+          }
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleTabClick(item.id, item.locked)}
+              disabled={item.locked}
+              className={`${mobileMenuBtn(tab === item.id)} ${item.locked ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <item.icon className="w-5 h-5 shrink-0" />
+              {item.label}
+              {item.locked && <Lock className="w-4 h-4 ml-auto shrink-0" />}
+            </button>
+          );
+        })}
+        {!isEnrolled && (
+          <p className="text-xs text-slate-500 leading-relaxed px-4 py-2">
+            Разделы обучения откроются после зачисления на курс
+          </p>
+        )}
+        <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
           <button
-            key={item.id}
             type="button"
-            onClick={() => {
-              if (item.locked) return;
-              if (item.id === 'selection') {
-                if (tab === 'selection') setSelectionExpanded((v) => !v);
-                else openSelection(selectionSubTab);
-              } else {
-                handleTabClick(item.id, item.locked);
-              }
-            }}
-            disabled={item.locked}
-            className={`flex-1 flex flex-col items-center py-3 gap-1 text-xs transition-colors ${
-              item.locked ? 'text-slate-700' : tab === item.id ? 'text-blue-400' : 'text-slate-500'
-            }`}
+            onClick={() => { openProfile(); closeMobileNav(); }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors text-left"
           >
-            <item.icon className="w-5 h-5" />
-            {item.label.split(' ')[0]}
+            <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-white truncate">{displayName}</div>
+              <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+            </div>
           </button>
-        ))}
-      </div>
+          <DashboardSiteHomeLink />
+          <button type="button" onClick={signOut} className={mobileMenuBtn(false)}>
+            <LogOut className="w-5 h-5 shrink-0" />
+            Выйти
+          </button>
+        </div>
+      </DashboardMobileNav>
 
-      <main className="flex-1 lg:ml-64 min-h-screen">
-        <header className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-white/5 px-6 lg:px-8 h-16 flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-white">
+      <main className="flex-1 lg:ml-64 min-h-screen min-w-0">
+        <header className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-white/5 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={openHome}
+            className="flex-1 min-w-0 text-lg font-semibold text-white truncate text-left hover:text-blue-200 transition-colors"
+          >
+            {tab === 'home' && 'Личный кабинет'}
             {tab === 'selection' && SELECTION_HEADER[selectionSubTab]}
-            {tab === 'learning' && 'Обучение'}
+            {tab === 'learning' && LEARNING_HEADER[learningSubTab]}
             {tab === 'schedule' && 'Расписание'}
             {tab === 'progress' && 'Прогресс'}
-            {tab === 'achievements' && 'Достижения'}
-          </h1>
-          <div className="flex items-center gap-3">
-            <button className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors">
-              <Bell className="w-4 h-4 text-slate-400" />
-            </button>
-            <button className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors">
-              <Settings className="w-4 h-4 text-slate-400" />
-            </button>
+          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {profile && user && (
+              <DashboardHeaderActions
+                profile={profile}
+                userId={user.id}
+                onOpenProfile={openProfile}
+              />
+            )}
           </div>
         </header>
 
-        {tab === 'selection' && selectionExpanded && (
-          <div className="lg:hidden border-b border-white/5 px-4 py-3 space-y-1">
-            {selectionSubNav.map((sub) => (
-              <button
-                key={sub.id}
-                type="button"
-                onClick={() => openSelection(sub.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  selectionSubTab === sub.id
-                    ? 'bg-blue-600/25 text-blue-200 border border-blue-500/25'
-                    : 'text-slate-400 border border-transparent'
-                }`}
-              >
-                <sub.icon className="w-3.5 h-3.5" />
-                {sub.label}
-              </button>
-            ))}
-          </div>
+        {tab === 'selection' && (
+          <MobileSubNavBar
+            items={selectionSubNav}
+            activeId={selectionSubTab}
+            onSelect={(id) => openSelection(id as SelectionSubTab)}
+          />
         )}
 
-        <div className="p-6 lg:p-8 pb-24 lg:pb-8">
+        {tab === 'learning' && isEnrolled && (
+          <MobileSubNavBar
+            items={LEARNING_SUB_NAV}
+            activeId={learningSubTab}
+            onSelect={(id) => openLearning(id as LearningSubTab)}
+          />
+        )}
+
+        <div className="p-4 sm:p-6 lg:p-8 pb-28 lg:pb-8">
+          {isEnrolled && groupContext && tab !== 'home' && <StudentGroupInfo context={groupContext} />}
+          {tab === 'home' && (
+            <DashboardHomePanel role="student" displayName={displayName} />
+          )}
           {tab === 'selection' && profile && (
             <SelectionTab
               profile={profile}
@@ -275,10 +547,9 @@ export default function StudentDashboard() {
               onRefresh={refreshProfile}
             />
           )}
-          {tab === 'learning' && isEnrolled && <StudentLearningTab />}
+          {tab === 'learning' && isEnrolled && <StudentLearningTab subTab={learningSubTab} />}
           {tab === 'schedule' && isEnrolled && <StudentScheduleTab />}
           {tab === 'progress' && isEnrolled && <StudentProgressTab />}
-          {tab === 'achievements' && isEnrolled && <StudentAchievementsTab />}
         </div>
       </main>
     </div>
@@ -445,14 +716,12 @@ function SelectionTab({
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
             <h3 className="font-semibold text-white mb-5">Контест</h3>
             {contestPublished ? (
-              <StageEmbedFrame minHeight={420}>
+              <StageEmbedFrame flush minHeight={420}>
                 <iframe
                   src={config.contest_url}
                   title="Яндекс.Контест — этап 2"
-                  width={YANDEX_FORM_EMBED.width}
                   frameBorder={0}
-                  className="block border-0 bg-white"
-                  style={{ width: YANDEX_FORM_EMBED.width }}
+                  className="block w-full border-0 bg-white"
                   allow="clipboard-write"
                 />
               </StageEmbedFrame>
@@ -552,7 +821,7 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
             <h3 className="text-xl font-bold text-white mb-2">Вы зачислены!</h3>
             <p className="text-sm text-emerald-200/90 max-w-md mx-auto leading-relaxed">
               Поздравляем! Вы прошли отбор и зачислены на обучение в «Квантовый кружок».
-              Разделы «Обучение», «Расписание», «Прогресс» и «Достижения» теперь доступны.
+              Разделы «Обучение», «Расписание» и «Прогресс» теперь доступны.
             </p>
           </div>
         </div>

@@ -65,11 +65,11 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
 
       {confirmState && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
           onClick={() => closeConfirm(false)}
         >
           <div
-            className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl"
+            className="w-full max-w-md max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto scrollbar-site bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3 mb-4">
@@ -86,7 +86,7 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
                 )}
               </div>
             </div>
-            <div className="flex gap-3 justify-end">
+            <div className="flex flex-wrap gap-3 justify-end sm:flex-nowrap">
               <button
                 type="button"
                 onClick={() => closeConfirm(false)}

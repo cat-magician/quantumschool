@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { GraduationCap, Loader2, LogOut, RefreshCw, UserX } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
+import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 
 type Mode = 'pending' | 'rejected';
 
@@ -65,7 +65,7 @@ export default function TeacherApplicationGate({ mode }: { mode: Mode }) {
           <LogOut className="w-4 h-4" />
           Выйти
         </button>
-        <Link to="/" className="text-sm text-slate-500 hover:text-slate-300">На главную</Link>
+        <DashboardSiteHomeLink className="justify-center" />
       </GateShell>
     );
   }
@@ -99,6 +99,7 @@ export default function TeacherApplicationGate({ mode }: { mode: Mode }) {
         <LogOut className="w-4 h-4" />
         Выйти
       </button>
+      <DashboardSiteHomeLink className="justify-center" />
       <p className="text-[11px] text-slate-600 leading-relaxed">
         Статус обновляется автоматически раз в минуту, пока эта страница открыта.
       </p>

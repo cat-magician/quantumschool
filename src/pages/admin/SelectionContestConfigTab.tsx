@@ -7,7 +7,6 @@ import {
   saveSelectionConfig,
 } from '../../lib/selectionConfig';
 import StageEmbedFrame from '../../components/StageEmbedFrame';
-import { YANDEX_FORM_EMBED } from '../../lib/constants';
 
 export default function SelectionContestConfigTab() {
   const { user } = useAuth();
@@ -143,14 +142,12 @@ export default function SelectionContestConfigTab() {
       {previewPublished && savedUrl && (
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
           <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
-          <StageEmbedFrame minHeight={420}>
+          <StageEmbedFrame flush minHeight={420}>
             <iframe
               src={savedUrl}
               title="Яндекс.Контест — предпросмотр"
-              width={YANDEX_FORM_EMBED.width}
               frameBorder={0}
-              className="block border-0 bg-white"
-              style={{ width: YANDEX_FORM_EMBED.width }}
+              className="block w-full border-0 bg-white"
               allow="clipboard-write"
             />
           </StageEmbedFrame>

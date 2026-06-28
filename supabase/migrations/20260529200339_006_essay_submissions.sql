@@ -12,6 +12,7 @@
 
   2. Storage
     - Creates the `essay-uploads` bucket (private)
+    - Creates the `avatars` bucket (public, one file per user in `{user_id}/`)
 
   3. Security
     - RLS enabled on essay_submissions
@@ -77,4 +78,51 @@ CREATE POLICY "Users update own files"
     bucket_id = 'essay-uploads'
     AND (storage.foldername(name))[1] = 'essays'
     AND (storage.foldername(name))[2] = auth.uid()::text
+  );
+
+-- User avatars (public bucket, one folder per user)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Public read avatars"
+  ON storage.objects FOR SELECT
+  TO public
+  USING (bucket_id = 'avatars');
+
+CREATE POLICY "Users read own avatar"
+  ON storage.objects FOR SELECT
+  TO authenticated
+  USING (
+    bucket_id = 'avatars'
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+CREATE POLICY "Users upload own avatar"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+CREATE POLICY "Users update own avatar"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (
+    bucket_id = 'avatars'
+    AND split_part(name, '/', 1) = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+CREATE POLICY "Users delete own avatar"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'avatars'
+    AND split_part(name, '/', 1) = auth.uid()::text
   );

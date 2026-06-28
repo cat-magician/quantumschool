@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 function translateAuthError(msg: string) {
   if (msg.includes('Invalid login credentials')) {
-    return 'Неверный email или пароль. Проверьте: 1) в .env указан тот же Supabase-проект, где запускали fix_test_users.sql; 2) после смены .env перезапустите npm run dev.';
+    return 'Неверный email или пароль. Проверьте: 1) в .env тот же Supabase-проект, где запускали demo/apply.sql; 2) после смены .env перезапустите npm run dev; 3) при необходимости снова demo/remove.sql → demo/apply.sql.';
   }
   if (msg.includes('Email not confirmed')) {
     return 'Подтвердите email — проверьте почту или отключите подтверждение в настройках Supabase Auth.';
@@ -56,9 +56,9 @@ export default function AuthModal({ onClose, initialMode = 'login' }: AuthModalP
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" onClick={onClose}>
       <div
-        className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-8 shadow-2xl shadow-violet-900/20"
+        className="relative w-full max-w-md max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto scrollbar-site bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl shadow-violet-900/20 my-auto"
         onClick={e => e.stopPropagation()}
       >
         <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors">
@@ -133,7 +133,7 @@ export default function AuthModal({ onClose, initialMode = 'login' }: AuthModalP
           </div>
 
           {error && (
-            <div className="px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+            <div className="px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm break-words">
               {error}
             </div>
           )}

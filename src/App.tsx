@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { useAuth } from './lib/AuthContext';
 import { Instructor } from './lib/types';
+import { DEFAULT_LANDING_CONFIG, fetchLandingConfig } from './lib/landingConfig';
 import AuthModal from './components/AuthModal';
 import PrivacyConsent from './components/PrivacyConsent';
-import Dashboard from './pages/Dashboard';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TeacherJoin from './pages/TeacherJoin';
-import SetupBanner from './components/SetupBanner';
+import QuantumBrandTitle from './components/QuantumBrandTitle';
+import HeroQuantumDecor from './components/HeroQuantumDecor';
+import HeroBadgePill from './components/HeroBadgePill';
+import LessonCoverImage from './components/LessonCoverImage';
+import InstructorCardPreview from './components/InstructorCardPreview';
 import { PRIVACY_POLICY_VERSION } from './lib/privacy';
 import {
   getApplicationSuggestions,
@@ -32,11 +34,26 @@ import {
   UserPlus,
   Eye,
   EyeOff,
+  Handshake,
 } from 'lucide-react';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TeacherJoin = lazy(() => import('./pages/TeacherJoin'));
+
+function RouteFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="w-10 h-10 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+    </div>
+  );
+}
 
 
 function App() {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [heroBadgeText, setHeroBadgeText] = useState(DEFAULT_LANDING_CONFIG.hero_badge_text);
   const [loading, setLoading] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -46,9 +63,13 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const instructorsRes = await supabase.from('instructors').select('*').order('sort_order');
+      const [instructorsRes, landingConfig] = await Promise.all([
+        supabase.from('instructors').select('*').order('sort_order'),
+        fetchLandingConfig(),
+      ]);
 
       if (instructorsRes.data) setInstructors(instructorsRes.data);
+      setHeroBadgeText(landingConfig.hero_badge_text);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -59,28 +80,30 @@ function App() {
   const [showAuth, setShowAuth] = useState(false);
 
   return (
-    <Routes>
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/join/teacher" element={<TeacherJoin />} />
-      <Route path="/privacy" element={<PrivacyPolicy />} />
-      <Route path="*" element={
-        <div className="min-h-screen bg-slate-50">
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/join/teacher" element={<TeacherJoin />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="*" element={
+          <div className="min-h-screen bg-slate-50">
 
-          <SetupBanner />
-          <Header isMenuOpen={isMenuOpen} setIsMenuOpen={setIsMenuOpen} onLoginClick={() => setShowAuth(true)} />
-          <Hero onLoginClick={() => setShowAuth(true)} />
+            <Header isMenuOpen={isMenuOpen} setIsMenuOpen={setIsMenuOpen} onLoginClick={() => setShowAuth(true)} />
+            <Hero onLoginClick={() => setShowAuth(true)} heroBadgeText={heroBadgeText} />
 
-          <Partners />
-          <Timeline />
-          <About />
-          <Features />
-          <Instructors instructors={instructors} loading={loading} />
-          <ApplicationForm />
-          <Footer />
-          {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
-        </div>
-      } />
-    </Routes>
+            <Partners />
+            <Timeline />
+            <About />
+            <Features />
+            <Instructors instructors={instructors} loading={loading} />
+            <ApplicationForm />
+            <Footer />
+            {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+          </div>
+        } />
+      </Routes>
+    </Suspense>
   );
 }
 
@@ -102,6 +125,16 @@ function Header({
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const actionBase =
+    'inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200';
+  const actionGhost = scrolled
+    ? `${actionBase} text-slate-600 hover:text-slate-900 hover:bg-slate-100`
+    : `${actionBase} text-white/85 hover:text-white hover:bg-white/10`;
+  const actionOutline = scrolled
+    ? `${actionBase} border border-slate-200 text-slate-700 hover:border-blue-400 hover:text-blue-700`
+    : `${actionBase} border border-white/25 text-white hover:border-white/45 hover:bg-white/5`;
+  const actionPrimary = `${actionBase} bg-gradient-to-r from-blue-600 to-purple-700 text-white shadow-sm hover:opacity-90`;
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -117,7 +150,7 @@ function Header({
             </span>
           </a>
 
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden lg:flex items-center gap-8">
             {[
               { name: 'Главная', href: '#home' },
               { name: 'О нас', href: '#about' },
@@ -136,47 +169,39 @@ function Header({
             ))}
           </nav>
 
-          <div className="hidden md:flex items-center gap-3">
-            <a
-              href="/join/teacher"
-              className={`text-sm font-medium transition-colors hover:text-cyan-500 ${scrolled ? 'text-slate-600' : 'text-white/70'}`}
-            >
+          <div className="hidden lg:flex items-center gap-2">
+            <a href="/join/teacher" className={actionGhost}>
               Для преподавателей
             </a>
             {user ? (
               <>
-                <a
-                  href="/dashboard"
-                  className={`text-sm font-medium flex items-center gap-1.5 px-4 py-2 rounded-xl border transition-colors ${scrolled ? 'border-slate-200 text-slate-700 hover:border-blue-400' : 'border-white/20 text-white hover:border-white/50'}`}
-                >
-                  <LogIn className="w-4 h-4" /> Кабинет
+                <a href="/dashboard" className={actionOutline}>
+                  <LogIn className="w-4 h-4 shrink-0" />
+                  Кабинет
                 </a>
-                <button
-                  onClick={signOut}
-                  className={`text-sm font-medium transition-colors ${scrolled ? 'text-slate-500 hover:text-slate-900' : 'text-white/60 hover:text-white'}`}
-                >
+                <button type="button" onClick={signOut} className={actionGhost}>
                   Выйти
                 </button>
               </>
             ) : (
               <>
-                <button
-                  onClick={onLoginClick}
-                  className={`text-sm font-medium flex items-center gap-1.5 px-4 py-2 rounded-xl border transition-colors ${scrolled ? 'border-slate-200 text-slate-700 hover:border-blue-400' : 'border-white/20 text-white hover:border-white/50'}`}
-                >
-                  <LogIn className="w-4 h-4" /> Войти
+                <button type="button" onClick={onLoginClick} className={actionOutline}>
+                  <LogIn className="w-4 h-4 shrink-0" />
+                  Войти
                 </button>
-                <a
-                  href="#contact"
-                  className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-700 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity"
-                >
+                <a href="#contact" className={actionPrimary}>
                   Записаться
                 </a>
               </>
             )}
           </div>
 
-          <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden p-2">
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="lg:hidden w-11 h-11 rounded-xl flex items-center justify-center hover:bg-black/5"
+            aria-label={isMenuOpen ? 'Закрыть меню' : 'Открыть меню'}
+          >
             {isMenuOpen ? (
               <X className={`w-6 h-6 ${scrolled ? 'text-slate-900' : 'text-white'}`} />
             ) : (
@@ -187,7 +212,7 @@ function Header({
       </div>
 
       {isMenuOpen && (
-        <div className="md:hidden bg-white border-t">
+        <div className="lg:hidden bg-white border-t">
           <div className="px-4 py-6 space-y-4">
             {[
               { name: 'Главная', href: '#home' },
@@ -205,12 +230,55 @@ function Header({
               </a>
             ))}
             <a
+              href="/join/teacher"
+              onClick={() => setIsMenuOpen(false)}
+              className="block w-full text-center h-11 leading-[2.75rem] rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
+            >
+              Для преподавателей
+            </a>
+            <a
               href="#contact"
               onClick={() => setIsMenuOpen(false)}
-              className="block w-full text-center px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-700 text-white font-semibold rounded-xl"
+              className="block w-full text-center h-11 leading-[2.75rem] rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-semibold text-sm"
             >
               Записаться
             </a>
+            <div className="pt-4 border-t border-slate-100 space-y-2">
+              {user ? (
+                <>
+                  <a
+                    href="/dashboard"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
+                  >
+                    <LogIn className="w-4 h-4 shrink-0" />
+                    Личный кабинет
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      signOut();
+                      setIsMenuOpen(false);
+                    }}
+                    className="block w-full h-11 rounded-xl text-slate-600 font-medium text-sm hover:text-slate-900"
+                  >
+                    Выйти
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLoginClick();
+                    setIsMenuOpen(false);
+                  }}
+                  className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
+                >
+                  <LogIn className="w-4 h-4 shrink-0" />
+                  Войти
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -218,7 +286,7 @@ function Header({
   );
 }
 
-function Hero({ onLoginClick }: { onLoginClick: () => void }) {
+function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroBadgeText: string }) {
   const { user } = useAuth();
   return (
     <section
@@ -226,23 +294,25 @@ function Hero({ onLoginClick }: { onLoginClick: () => void }) {
       className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950"
     >
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/3 left-1/3 w-[500px] h-[500px] bg-blue-500/15 rounded-full blur-3xl animate-pulse-slow"></div>
-        <div className="absolute bottom-1/3 right-1/3 w-[500px] h-[500px] bg-purple-500/15 rounded-full blur-3xl animate-pulse-slow delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-gradient-radial from-blue-900/30 to-transparent rounded-full"></div>
+        <div className="absolute top-1/3 left-1/3 w-[500px] h-[500px] bg-blue-500/15 rounded-full blur-3xl animate-pulse-slow" />
+        <div className="absolute bottom-1/3 right-1/3 w-[500px] h-[500px] bg-purple-500/15 rounded-full blur-3xl animate-pulse-slow delay-1000" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-gradient-radial from-blue-900/30 to-transparent rounded-full" />
 
         <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-20 left-20 w-2 h-2 bg-blue-400 rounded-full animate-float"></div>
-          <div className="absolute top-40 right-40 w-3 h-3 bg-purple-400 rounded-full animate-float delay-500"></div>
-          <div className="absolute bottom-40 left-1/3 w-2 h-2 bg-violet-300 rounded-full animate-float delay-1000"></div>
-          <div className="absolute bottom-20 right-20 w-4 h-4 bg-blue-300 rounded-full animate-float delay-1500"></div>
-          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-purple-300 rounded-full animate-float"></div>
+          <div className="absolute top-20 left-20 w-2 h-2 bg-blue-400 rounded-full animate-float" />
+          <div className="absolute top-48 left-[8%] w-1.5 h-1.5 bg-cyan-400 rounded-full animate-float delay-500" />
+          <div className="absolute top-40 right-40 w-3 h-3 bg-purple-400 rounded-full animate-float delay-500" />
+          <div className="absolute bottom-40 left-[6%] w-2 h-2 bg-violet-300 rounded-full animate-float delay-1000" />
+          <div className="absolute bottom-20 right-20 w-4 h-4 bg-blue-300 rounded-full animate-float delay-1500" />
+          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-purple-300 rounded-full animate-float" />
+          <div className="absolute bottom-[32%] left-[14%] w-1 h-1 bg-blue-300 rounded-full animate-float delay-700" />
         </div>
 
         <div className="absolute top-1/3 left-10 w-48 h-48 opacity-50">
           <div className="relative w-full h-full animate-spin" style={{ animationDuration: '8s' }}>
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-400 rounded-full"></div>
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-purple-400 rounded-full"></div>
-            <div className="absolute top-1/2 right-0 w-2 h-2 bg-violet-400 rounded-full"></div>
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-400 rounded-full" />
+            <div className="absolute bottom-0 right-0 w-3 h-3 bg-purple-400 rounded-full" />
+            <div className="absolute top-1/2 right-0 w-2 h-2 bg-violet-400 rounded-full" />
             <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" fill="none" stroke="url(#gradient2)" strokeWidth="0.5" opacity="0.4">
               <defs>
                 <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -259,34 +329,31 @@ function Hero({ onLoginClick }: { onLoginClick: () => void }) {
           </div>
         </div>
 
-        <div className="absolute bottom-0 right-0 w-[420px] h-auto opacity-95 animate-bounce" style={{ animationDuration: '4s' }}>
-          <img src="/image.svg" alt="Quantum Cat" className="w-full h-auto" />
+        <HeroQuantumDecor />
+
+        <div className="absolute bottom-0 right-0 w-[160px] sm:w-[280px] md:w-[340px] lg:w-[420px] h-auto opacity-95 animate-bounce pointer-events-none max-sm:opacity-70" style={{ animationDuration: '4s' }}>
+          <img src="/image.svg" alt="Quantum Cat" className="w-full h-auto" loading="lazy" decoding="async" />
         </div>
-        <div className="absolute bottom-6 right-44 text-sm text-blue-300 opacity-70 font-medium">запутан в квантах</div>
+        <div className="absolute bottom-6 right-28 md:right-44 text-sm text-blue-300 opacity-70 font-medium hidden sm:block pointer-events-none">
+          запутан в квантах
+        </div>
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-32 text-center">
-        <div className="inline-flex items-center gap-3 px-6 py-3 bg-white/10 backdrop-blur-sm rounded-full text-blue-300 text-base font-semibold mb-8 animate-fade-in tracking-wide">
-          <Atom className="w-5 h-5" />
-          <span>ОТКРЫТ НАБОР НА КУРС 2026-2027 ГОДА</span>
-        </div>
+        <HeroBadgePill text={heroBadgeText} className="mb-8 animate-fade-in mx-auto" />
 
-        <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-4 leading-tight animate-slide-up">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-2 leading-tight animate-slide-up">
+          <span className="sr-only">Квантовый кружок — </span>
           Онлайн-школа МФТИ и РКЦ
           <br />
           <span className="text-gradient">
             по квантовым технологиям
           </span>
-          <br />
-          <span
-            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl"
-            style={{ fontFamily: "'Rubik Vinyl', cursive", letterSpacing: '0.02em', color: '#ffffff' }}
-          >
-            «Квантовый кружок»
-          </span>
         </h1>
 
-        <p className="text-xl text-slate-300 max-w-3xl mx-auto mb-12 leading-relaxed">
+        <QuantumBrandTitle />
+
+        <p className="text-xl text-slate-300 max-w-3xl mx-auto mb-12 leading-relaxed animate-fade-in">
           Первая в России онлайн-школа по квантовым технологиям и смежным областям для школьников 9–11 классов
         </p>
 
@@ -315,15 +382,15 @@ function Hero({ onLoginClick }: { onLoginClick: () => void }) {
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-8">
-          <div className="flex items-center gap-4 text-slate-200 whitespace-nowrap">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-8 max-w-2xl mx-auto">
+          <div className="flex items-center gap-4 text-slate-200 text-center sm:text-left">
             <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center flex-shrink-0">
               <GraduationCap className="w-5 h-5 text-blue-400" />
             </div>
             <span className="text-base font-medium">Лекции от лучших учёных России и мира</span>
           </div>
-          <div className="hidden sm:block w-px h-10 bg-white/15" />
-          <div className="flex items-center gap-4 text-slate-200 whitespace-nowrap">
+          <div className="hidden sm:block w-px h-10 bg-white/15 shrink-0" />
+          <div className="flex items-center gap-4 text-slate-200 text-center sm:text-left">
             <div className="w-10 h-10 rounded-full bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center flex-shrink-0">
               <Users className="w-5 h-5 text-cyan-400" />
             </div>
@@ -333,7 +400,7 @@ function Hero({ onLoginClick }: { onLoginClick: () => void }) {
       </div>
 
       <a
-        href="#courses"
+        href="#about"
         className="absolute bottom-8 left-1/2 -translate-x-1/2 w-8 h-12 border-2 border-white/30 rounded-full flex items-start justify-center p-2 animate-bounce"
       >
         <div className="w-1.5 h-3 bg-white rounded-full"></div>
@@ -343,39 +410,69 @@ function Hero({ onLoginClick }: { onLoginClick: () => void }) {
 }
 
 
-const PARTNERS = [
-  { name: 'МФТИ', logo: '/Лого_МФТИ.png', url: '#', imgClass: 'w-96 h-32' },
-  { name: 'РКЦ', logo: '/rossiyskiy_kvantovyy_centr.jpg', url: '#', imgClass: 'w-48 h-16' },
-  { name: 'Росатом', logo: '/logo-2.jpg', url: '#', imgClass: 'w-48 h-16' },
+const FCK_SUPPORT = {
+  shortName: 'ФЦК МФТИ',
+  logo: '/fck_mfti_logo_small.png',
+  description: 'Проект реализуется при поддержке Фонда целевого капитала МФТИ',
+};
+
+const PARTNER_LOGOS = [
+  {
+    name: 'МФТИ',
+    logo: '/Лого_МФТИ.png',
+    imgClass: 'h-full w-auto max-w-none object-contain scale-[1.7] sm:scale-[1.85]',
+    cellClass: 'overflow-hidden',
+  },
+  {
+    name: 'Российский квантовый центр',
+    logo: '/rossiyskiy_kvantovyy_centr.jpg',
+    imgClass: 'max-h-full max-w-full object-contain',
+  },
+  {
+    name: 'Росатом',
+    logo: '/logo-2.jpg',
+    imgClass: 'max-h-full max-w-full object-contain',
+  },
 ];
 
 function Partners() {
   return (
-    <section className="py-16 bg-white border-y border-slate-100">
+    <section id="partners" className="py-20 sm:py-24 bg-gradient-to-b from-slate-100/90 via-slate-50 to-blue-50/30 border-b border-slate-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <p className="text-center text-base font-semibold uppercase tracking-widest text-slate-400 mb-12">
-          Партнёры и поддерживающие организации
-        </p>
-        <div className="flex flex-col items-center gap-6 mb-14">
-          <p className="text-center text-slate-400 text-lg">
-            Проект реализуется при поддержке Фонда целевого капитала МФТИ
-          </p>
-          <img
-            src="/fck_mfti_logo_small.png"
-            alt="ФЦК МФТИ"
-            className="h-28 object-contain bg-white rounded-xl px-8 py-4"
-          />
+        <div className="text-center mb-10 sm:mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100/90 border border-blue-200/80 rounded-full text-blue-700 text-sm font-medium mb-5">
+            <Handshake className="w-4 h-4" />
+            <span>Партнёрство</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900">
+            Партнёры и поддерживающие организации
+          </h2>
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-x-16 gap-y-10">
-          {PARTNERS.map((p) => (
-            <a
-              key={p.name}
-              href={p.url}
-              className="group opacity-80 hover:opacity-100 transition-opacity duration-300 flex items-center justify-center w-56"
-            >
-              <img src={p.logo} alt={p.name} className={`${p.imgClass} object-contain transition-all duration-300`} />
-            </a>
-          ))}
+
+        <div className="max-w-5xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 px-6 py-8 sm:px-12 sm:py-10">
+          <div className="text-center">
+            <p className="text-slate-500 text-sm leading-relaxed mb-3 max-w-2xl mx-auto">
+              {FCK_SUPPORT.description}
+            </p>
+            <img
+              src={FCK_SUPPORT.logo}
+              alt={FCK_SUPPORT.shortName}
+              className="h-28 sm:h-32 md:h-36 w-auto max-w-[400px] sm:max-w-[460px] object-contain mx-auto"
+            />
+          </div>
+
+          <div className="my-7 sm:my-8 mx-auto max-w-2xl sm:max-w-3xl border-t border-slate-200" aria-hidden />
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-y-8 gap-x-10 sm:gap-x-12 lg:gap-x-14 max-w-3xl mx-auto">
+            {PARTNER_LOGOS.map((p) => (
+              <div
+                key={p.name}
+                className={`flex h-16 sm:h-20 items-center justify-center ${p.cellClass ?? ''}`}
+              >
+                <img src={p.logo} alt={p.name} className={p.imgClass} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
@@ -673,103 +770,192 @@ function Features() {
   );
 }
 
-function InstructorCard({ instructor }: { instructor: Instructor }) {
-  const [expanded, setExpanded] = useState(false);
+const INSTRUCTOR_CAROUSEL_GAP = 20;
+const INSTRUCTOR_MAX_VISIBLE = 4;
+const INSTRUCTOR_MAX_CARD_W = 258;
+const INSTRUCTOR_MIN_CARD_W = 188;
+/** 2×w-10 buttons + gap-2 between them + gap-1.5 before carousel */
+const INSTRUCTOR_CAROUSEL_NAV_RESERVED = 94;
+
+function computeCarouselLayout(available: number) {
+  let cardW = Math.floor((available - (INSTRUCTOR_MAX_VISIBLE - 1) * INSTRUCTOR_CAROUSEL_GAP) / INSTRUCTOR_MAX_VISIBLE);
+  let visibleCount = INSTRUCTOR_MAX_VISIBLE;
+
+  if (cardW > INSTRUCTOR_MAX_CARD_W) {
+    cardW = INSTRUCTOR_MAX_CARD_W;
+  } else if (cardW < INSTRUCTOR_MIN_CARD_W) {
+    visibleCount = Math.max(
+      1,
+      Math.min(
+        INSTRUCTOR_MAX_VISIBLE,
+        Math.floor((available + INSTRUCTOR_CAROUSEL_GAP) / (INSTRUCTOR_MIN_CARD_W + INSTRUCTOR_CAROUSEL_GAP)),
+      ),
+    );
+    cardW = Math.floor((available - (visibleCount - 1) * INSTRUCTOR_CAROUSEL_GAP) / visibleCount);
+    cardW = Math.min(INSTRUCTOR_MAX_CARD_W, Math.max(INSTRUCTOR_MIN_CARD_W, cardW));
+  }
+
+  const viewportWidth = visibleCount * cardW + (visibleCount - 1) * INSTRUCTOR_CAROUSEL_GAP;
+  return {
+    viewportWidth,
+    cardWidth: cardW,
+    endSpacer: Math.max(0, viewportWidth - cardW),
+  };
+}
+
+function InstructorCard({ instructor, cardWidth }: { instructor: Instructor; cardWidth: number }) {
   return (
-    <div className="group flex-shrink-0 w-72 bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-500 transform hover:-translate-y-2">
-      <div className="relative h-64 overflow-hidden">
-        <img
-          src={instructor.image_url}
-          alt={instructor.name}
-          className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
+    <div className="flex-shrink-0 snap-start pb-3" style={{ width: cardWidth }} data-instructor-card>
+      <div className="group h-full transition-all duration-500 hover:-translate-y-1">
+        <InstructorCardPreview
+          name={instructor.name}
+          title={instructor.title}
+          bio={instructor.bio}
+          imageUrl={instructor.image_url}
+          width={cardWidth}
+          interactive
+          className="transition-all duration-500 group-hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,0.18)] group-hover:border-slate-300"
+          imageClassName="transform group-hover:scale-105 transition-transform duration-700"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent"></div>
-        <div className="absolute bottom-4 left-4 right-4 flex flex-wrap gap-2">
-          {(instructor.specializations?.length ? instructor.specializations : [instructor.specialization]).map((spec) => (
-            <div key={spec} className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/90 backdrop-blur-sm rounded-full text-white text-xs font-medium">
-              <Atom className="w-3 h-3 flex-shrink-0" />
-              {spec}
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="p-6">
-        <h3 className="text-lg font-bold text-slate-900 mb-1">{instructor.name}</h3>
-        <p className="text-cyan-600 font-medium text-sm mb-3">{instructor.title}</p>
-        <p className={`text-slate-600 text-sm leading-relaxed transition-all duration-300 ${expanded ? '' : 'line-clamp-3'}`}>
-          {instructor.bio}
-        </p>
-        {instructor.bio && instructor.bio.length > 120 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="mt-2 text-cyan-600 hover:text-cyan-700 text-xs font-medium transition-colors duration-200"
-          >
-            {expanded ? 'Свернуть' : 'Читать далее'}
-          </button>
-        )}
       </div>
     </div>
   );
 }
 
 function Instructors({ instructors, loading }: { instructors: Instructor[]; loading: boolean }) {
+  const measureRef = React.useRef<HTMLDivElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<{
+    viewportWidth: number;
+    cardWidth: number;
+    endSpacer: number;
+  } | null>(null);
+
+  const measureViewport = useCallback(() => {
+    const container = measureRef.current;
+    if (!container) return;
+
+    const available = container.clientWidth - INSTRUCTOR_CAROUSEL_NAV_RESERVED;
+    if (available <= 0) return;
+
+    setLayout(computeCarouselLayout(available));
+  }, []);
+
+  useEffect(() => {
+    measureViewport();
+    const container = measureRef.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver(measureViewport);
+    ro.observe(container);
+    window.addEventListener('resize', measureViewport);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureViewport);
+    };
+  }, [instructors, loading, measureViewport]);
+
+  const scrollToCard = (card: HTMLElement, isLast: boolean) => {
+    const scroll = scrollRef.current;
+    if (!scroll || !layout) return;
+
+    const left = isLast
+      ? card.offsetLeft + card.offsetWidth - layout.viewportWidth
+      : card.offsetLeft;
+
+    scroll.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  };
 
   const scroll = (dir: 'left' | 'right') => {
-    if (!scrollRef.current) return;
-    scrollRef.current.scrollBy({ left: dir === 'left' ? -300 : 300, behavior: 'smooth' });
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !layout) return;
+
+    const cards = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-instructor-card]'));
+    if (!cards.length) return;
+
+    let currentIndex = 0;
+    for (let i = 0; i < cards.length; i++) {
+      if (cards[i].offsetLeft + cards[i].offsetWidth / 2 >= scrollEl.scrollLeft) {
+        currentIndex = i;
+        break;
+      }
+      currentIndex = i;
+    }
+
+    const nextIndex =
+      dir === 'right'
+        ? Math.min(cards.length - 1, currentIndex + 1)
+        : Math.max(0, currentIndex - 1);
+
+    scrollToCard(cards[nextIndex], nextIndex === cards.length - 1);
   };
 
   return (
-    <section id="instructors" className="py-24 bg-slate-50">
+    <section id="instructors" className="py-24 bg-slate-100/90">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between mb-16">
-          <div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-2">
-              Команда школы
-            </h2>
-            <p className="text-slate-600 text-lg max-w-2xl">
-              Учитесь у ведущих специалистов в области квантовых вычислений и информатики
-            </p>
+        <div className="mb-6">
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-2">
+            Команда школы
+          </h2>
+          <p className="text-slate-600 text-lg max-w-2xl">
+            Учитесь у ведущих специалистов в области квантовых вычислений и информатики
+          </p>
+        </div>
+
+        <div ref={measureRef} className="w-full">
+          <div className="flex items-start gap-1.5 w-max max-w-full" data-carousel-row>
+            <div
+              className="min-w-0 flex-shrink-0"
+              style={{ width: layout?.viewportWidth }}
+            >
+              <div
+                ref={scrollRef}
+                className="flex gap-5 overflow-x-auto scroll-smooth snap-x snap-mandatory pt-2 pb-10 max-w-full"
+                style={{
+                  width: '100%',
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                }}
+              >
+              {(loading ? [1, 2, 3, 4] : instructors).map((item, index) => {
+                const cardWidth = layout?.cardWidth ?? INSTRUCTOR_MAX_CARD_W;
+                return loading ? (
+                  <div key={index} className="flex-shrink-0 snap-start pb-3" style={{ width: cardWidth }} data-instructor-card>
+                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] p-6 animate-pulse">
+                      <div className={`w-full bg-slate-200 rounded-xl mb-4 ${cardWidth < 248 ? 'h-40' : 'h-44'}`}></div>
+                      <div className="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
+                      <div className="h-4 bg-slate-200 rounded w-1/2 mb-3"></div>
+                      <div className="h-3 bg-slate-200 rounded w-full"></div>
+                    </div>
+                  </div>
+                ) : (
+                  <InstructorCard key={(item as Instructor).id} instructor={item as Instructor} cardWidth={cardWidth} />
+                );
+              })}
+              {layout && (
+                <div aria-hidden className="flex-shrink-0" style={{ width: layout.endSpacer }} />
+              )}
+            </div>
           </div>
-          <div className="flex gap-2 flex-shrink-0 ml-8">
+
+          <div className="flex gap-2 flex-shrink-0 pt-2" data-carousel-nav>
             <button
+              type="button"
               onClick={() => scroll('left')}
               className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
             >
               <ChevronRight className="w-5 h-5 rotate-180" />
             </button>
             <button
+              type="button"
               onClick={() => scroll('right')}
               className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
+          </div>
         </div>
-
-        {loading ? (
-          <div className="flex gap-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex-shrink-0 w-72 bg-white rounded-2xl p-6 animate-pulse">
-                <div className="w-full h-48 bg-slate-200 rounded-xl mb-4"></div>
-                <div className="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-slate-200 rounded w-1/2 mb-3"></div>
-                <div className="h-3 bg-slate-200 rounded w-full"></div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div
-            ref={scrollRef}
-            className="flex gap-6 overflow-x-auto pb-4 scroll-smooth"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-          >
-            {instructors.map((instructor) => (
-              <InstructorCard key={instructor.id} instructor={instructor} />
-            ))}
-          </div>
-        )}
       </div>
     </section>
   );
@@ -1052,7 +1238,7 @@ function ApplicationForm() {
                   <p className="text-xs text-slate-400 mt-1">Запомните пароль — он понадобится для входа на сайт</p>
                 </div>
 
-                <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Город</label>
                     <input
@@ -1145,71 +1331,41 @@ function ApplicationForm() {
 
 function Footer() {
   return (
-    <footer className="bg-slate-900 text-white pt-16 pb-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
-          <div>
-            <div className="flex items-center gap-3 mb-6">
-              <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-10 h-10 brightness-0 invert" />
-              <span className="text-xl font-bold">Квантовый кружок</span>
+    <footer className="bg-slate-900 text-white py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-10 h-10 flex-shrink-0 brightness-0 invert" />
+            <div className="min-w-0">
+              <p className="text-lg font-semibold leading-tight">Квантовый кружок</p>
+              <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-sm">
+                Лидирующая онлайн-школа в области квантовых технологий. Готовим специалистов будущего.
+              </p>
             </div>
-            <p className="text-slate-400 text-sm leading-relaxed mb-6">
-              Лидирующая онлайн-школа в области квантовых технологий. Готовим специалистов будущего.
-            </p>
           </div>
 
-          <div>
-            <h3 className="font-semibold text-lg mb-4">Программы</h3>
-            <ul className="space-y-2">
-              {['Квантовые вычисления', 'Квантовая криптография', 'Квантовые алгоритмы', 'Квантовые сети'].map(
-                (item) => (
-                  <li key={item}>
-                    <a href="#courses" className="text-slate-400 hover:text-blue-400 transition-colors text-sm">
-                      {item}
-                    </a>
-                  </li>
-                )
-              )}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold text-lg mb-4">Компания</h3>
-            <ul className="space-y-2">
-              {['О нас', 'Преподаватели', 'Отзывы', 'Блог', 'Контакты'].map((item) => (
-                <li key={item}>
-                  <a href="#" className="text-slate-400 hover:text-blue-400 transition-colors text-sm">
-                    {item}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold text-lg mb-4">Контакты</h3>
-            <ul className="space-y-3">
-              <li className="flex items-center gap-3 text-slate-400 text-sm">
-                <Mail className="w-4 h-4" />
-                quantumclub@rqc.ru
-              </li>
-              <li className="flex items-center gap-3 text-slate-400 text-sm">
-                <MapPin className="w-4 h-4" />
-                Москва, Сколково, Большой бульвар 30с1
-              </li>
-            </ul>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-x-5 gap-y-2 text-sm text-slate-400">
+            <a
+              href="mailto:quantumclub@rqc.ru"
+              className="inline-flex items-center gap-2 hover:text-blue-400 transition-colors break-all"
+            >
+              <Mail className="w-4 h-4 flex-shrink-0" />
+              quantumclub@rqc.ru
+            </a>
+            <span className="inline-flex items-start sm:items-center gap-2 break-words">
+              <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+              Москва, Сколково, Большой бульвар 30с1
+            </span>
           </div>
         </div>
 
-        <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-slate-400 text-sm">
-            © 2024 Квантовый кружок. Все права защищены.
-          </p>
-          <div className="flex items-center gap-6">
-            <a href="/privacy" className="text-slate-400 hover:text-blue-400 transition-colors text-sm">
+        <div className="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-400">
+          <p>© 2024 Квантовый кружок</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <a href="/privacy" className="hover:text-blue-400 transition-colors">
               Политика конфиденциальности
             </a>
-            <a href="/privacy#contacts" className="text-slate-400 hover:text-blue-400 transition-colors text-sm">
+            <a href="/privacy#contacts" className="hover:text-blue-400 transition-colors">
               Обработка персональных данных
             </a>
           </div>

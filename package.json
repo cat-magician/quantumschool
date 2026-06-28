@@ -9,14 +9,21 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "seed:users": "node scripts/seed-test-users.mjs"
+    "seed:users": "node scripts/seed-test-users.mjs",
+    "db:schema": "node scripts/build-schema.mjs",
+    "db:demo": "node scripts/build-demo-bundle.mjs",
+    "db:build": "npm run db:schema && npm run db:demo"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "katex": "^0.17.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.15.1"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.15.1",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

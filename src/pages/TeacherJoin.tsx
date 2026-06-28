@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Atom, Eye, EyeOff, GraduationCap, Loader2 } from 'lucide-react';
+import { ArrowLeft, Atom, Eye, EyeOff, GraduationCap, Loader2 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -43,15 +43,24 @@ export default function TeacherJoin() {
   if (done) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-3xl p-8 text-center">
-          <GraduationCap className="w-12 h-12 text-blue-400 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-white mb-2">Заявка отправлена</h1>
-          <p className="text-slate-400 text-sm leading-relaxed mb-6">
-            Суперадмин одобрит заявку и назначит вас в учебную группу. После этого войдите в личный кабинет — откроются разделы «Ученики» и «Домашние задания».
-          </p>
-          <Link to="/dashboard" className="inline-flex items-center justify-center w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold mb-3">
-            Войти в кабинет
+        <div className="max-w-md w-full">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 text-slate-400 hover:text-white text-sm font-medium transition-colors mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            На главную
           </Link>
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 text-center">
+            <GraduationCap className="w-12 h-12 text-blue-400 mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-white mb-2">Заявка отправлена</h1>
+            <p className="text-slate-400 text-sm leading-relaxed mb-6">
+              Суперадмин одобрит заявку и назначит вас в учебную группу. После этого войдите в личный кабинет — откроются разделы «Ученики» и «Домашние задания».
+            </p>
+            <Link to="/dashboard" className="inline-flex items-center justify-center w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold">
+              Войти в кабинет
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -59,7 +68,15 @@ export default function TeacherJoin() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-3xl p-8">
+      <div className="max-w-md w-full">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-slate-400 hover:text-white text-sm font-medium transition-colors mb-4"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          На главную
+        </Link>
+        <div className="bg-slate-900 border border-white/10 rounded-3xl p-8">
         <div className="flex justify-center mb-6">
           <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-violet-700 rounded-2xl flex items-center justify-center">
             <Atom className="w-7 h-7 text-white" />
@@ -127,6 +144,7 @@ export default function TeacherJoin() {
             Войти в кабинет
           </button>
         </p>
+        </div>
       </div>
     </div>
   );

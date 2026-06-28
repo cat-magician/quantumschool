@@ -5,10 +5,16 @@ import { supabase } from '../../lib/supabase';
 import type { ScheduleEvent } from '../../lib/types';
 import {
   EVENT_TYPE_LABELS,
+  eventMatchesScheduleFilter,
   formatDuration,
+  formatEventDate,
   formatEventTime,
+  getScheduleEmptyMessage,
+  getScheduleRefHint,
   groupEventsByDate,
-  isEventUpcoming,
+  isEventActive,
+  sortScheduleEventsAscending,
+  sortScheduleEventsForList,
 } from '../../lib/scheduleUtils';
 
 type Filter = 'upcoming' | 'all';
@@ -16,7 +22,7 @@ type Filter = 'upcoming' | 'all';
 export default function StudentScheduleTab() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>('upcoming');
+  const [filter, setFilter] = useState<Filter>('all');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -32,26 +38,31 @@ export default function StudentScheduleTab() {
   }, []);
 
   const filtered = useMemo(() => {
-    let list = filter === 'all' ? events : events.filter((e) => isEventUpcoming(e.scheduled_at));
-    if (selectedDate) {
-      list = list.filter((e) => {
-        const d = new Date(e.scheduled_at);
-        return (
-          d.getFullYear() === selectedDate.getFullYear() &&
-          d.getMonth() === selectedDate.getMonth() &&
-          d.getDate() === selectedDate.getDate()
-        );
-      });
-    }
-    return list;
+    const list = events.filter((e) =>
+      eventMatchesScheduleFilter(e, filter === 'all' ? 'all' : 'upcoming', selectedDate),
+    );
+    return filter === 'all'
+      ? sortScheduleEventsForList(list)
+      : sortScheduleEventsAscending(list);
   }, [events, filter, selectedDate]);
+
+  const refHint = useMemo(() => getScheduleRefHint(filter, selectedDate), [filter, selectedDate]);
 
   const grouped = useMemo(() => groupEventsByDate(filtered), [filtered]);
 
   const nextEvent = useMemo(
-    () => events.find((e) => isEventUpcoming(e.scheduled_at)),
+    () => sortScheduleEventsAscending(
+      events.filter((e) => isEventActive(e.scheduled_at, e.duration_minutes)),
+    )[0],
     [events],
   );
+
+  const emptyMessage = useMemo(() => {
+    if (events.length === 0 && !selectedDate) {
+      return 'Расписание пока пустое — преподаватель добавит занятия';
+    }
+    return getScheduleEmptyMessage(filter === 'all' ? 'all' : 'upcoming', selectedDate, 'занятий');
+  }, [filter, selectedDate, events.length]);
 
   if (loading) {
     return (
@@ -68,14 +79,15 @@ export default function StudentScheduleTab() {
           <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-2">Ближайшее занятие</p>
           <h2 className="text-xl font-bold text-white mb-2">{nextEvent.title}</h2>
           <div className="flex flex-wrap gap-4 text-sm text-slate-300">
+            <span className="inline-flex items-center gap-1.5 capitalize">
+              <Calendar className="w-4 h-4 text-blue-400 flex-shrink-0" />
+              {formatEventDate(nextEvent.scheduled_at)}
+            </span>
             <span className="inline-flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-blue-400" />
+              <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
               {formatEventTime(nextEvent.scheduled_at)}
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-blue-400" />
-              {formatDuration(nextEvent.duration_minutes)}
-            </span>
+            <span className="text-slate-400">{formatDuration(nextEvent.duration_minutes)}</span>
             <span className="text-violet-300">{EVENT_TYPE_LABELS[nextEvent.event_type]}</span>
           </div>
           {nextEvent.meeting_url && (
@@ -92,33 +104,12 @@ export default function StudentScheduleTab() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[300px_1fr] gap-6">
-        <div className="space-y-4">
-          <MonthCalendar
-            events={events}
-            month={calendarMonth}
-            onMonthChange={setCalendarMonth}
-            selectedDate={selectedDate}
-            onSelectDate={(d) => setSelectedDate((prev) =>
-              prev && prev.getTime() === d.getTime() ? null : d
-            )}
-          />
-          {selectedDate && (
-            <button
-              type="button"
-              onClick={() => setSelectedDate(null)}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              Показать все даты
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-6">
+      <div className="grid lg:grid-cols-[1fr_300px] gap-6">
+        <div className="space-y-6 min-w-0">
       <div className="flex gap-2">
         {([
-          ['upcoming', 'Предстоящие'],
           ['all', 'Все'],
+          ['upcoming', 'Предстоящие'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -137,7 +128,7 @@ export default function StudentScheduleTab() {
       {grouped.length === 0 ? (
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center">
           <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">Расписание пока пустое — преподаватель добавит занятия</p>
+          <p className="text-slate-400 text-sm">{emptyMessage}</p>
         </div>
       ) : (
         <div className="space-y-8">
@@ -173,7 +164,7 @@ export default function StudentScheduleTab() {
                       {event.description && (
                         <p className="text-sm text-slate-400 leading-relaxed">{event.description}</p>
                       )}
-                      {event.meeting_url && isEventUpcoming(event.scheduled_at) && (
+                      {event.meeting_url && isEventActive(event.scheduled_at, event.duration_minutes) && (
                         <a
                           href={event.meeting_url}
                           target="_blank"
@@ -192,6 +183,32 @@ export default function StudentScheduleTab() {
           ))}
         </div>
       )}
+        </div>
+
+        <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          <MonthCalendar
+            events={events}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            selectedDate={selectedDate}
+            onSelectDate={(d) => {
+              setSelectedDate((prev) =>
+                prev && prev.getTime() === d.getTime() ? null : d,
+              );
+            }}
+          />
+          {refHint && (
+            <p className="text-xs text-slate-500 text-center leading-snug">{refHint}</p>
+          )}
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              {filter === 'all' ? 'Показать все даты' : 'Вернуться к сегодня'}
+            </button>
+          )}
         </div>
       </div>
     </div>

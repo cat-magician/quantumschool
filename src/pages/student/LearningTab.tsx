@@ -1,92 +1,55 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../lib/AuthContext';
-import HomeworkCards from '../../components/HomeworkCards';
-import type { HomeworkAssignment, HomeworkSubmission } from '../../lib/types';
-import { maybeGrantAchievement } from '../../lib/homeworkUtils';
-import { homeworkLoadError } from '../../lib/homeworkLoadError';
+import { StudentLessonList, StudentLessonPageView } from '../../components/StudentLessonViews';
+import { StudentHomeworkList, StudentHomeworkPageView } from '../../components/StudentHomeworkViews';
 
-export default function StudentLearningTab() {
-  const { user } = useAuth();
-  const [assignments, setAssignments] = useState<HomeworkAssignment[]>([]);
-  const [submissions, setSubmissions] = useState<Record<string, HomeworkSubmission>>({});
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [submitError, setSubmitError] = useState('');
+export type LearningSubTab = 'lectures' | 'seminars' | 'homework';
 
-  const load = async () => {
-    if (!user) return;
-    setLoading(true);
-    setLoadError(null);
-    const [aRes, sRes] = await Promise.all([
-      supabase
-        .from('homework_assignments')
-        .select('*, schedule_event:schedule_events(id, title, scheduled_at)')
-        .eq('is_published', true)
-        .order('created_at', { ascending: false }),
-      supabase.from('homework_submissions').select('*').eq('user_id', user.id),
-    ]);
-    if (aRes.error) setLoadError(homeworkLoadError(aRes.error.message));
-    else setAssignments((aRes.data ?? []) as HomeworkAssignment[]);
-    if (sRes.data) {
-      setSubmissions(Object.fromEntries(sRes.data.map((s) => [s.assignment_id, s])));
-    }
-    setLoading(false);
-  };
+const SUB_DESCRIPTIONS: Record<LearningSubTab, string> = {
+  lectures: 'Записи, материалы и конспекты лекций.',
+  seminars: 'Записи, материалы и конспекты семинаров.',
+  homework: 'Домашние задания — условие, сдача через форму или контест и подтверждение отправки.',
+};
 
-  useEffect(() => { load(); }, [user]);
+export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab }) {
+  const [openLessonId, setOpenLessonId] = useState<string | null>(null);
+  const [openHomeworkId, setOpenHomeworkId] = useState<string | null>(null);
 
-  const upsertSubmission = async (assignmentId: string, status: 'draft' | 'submitted', answer: string) => {
-    if (!user) return;
-    setSaving(true);
-    setSubmitError('');
-    const existing = submissions[assignmentId];
-    const now = new Date().toISOString();
-    const payload = {
-      assignment_id: assignmentId,
-      user_id: user.id,
-      answer_text: answer,
-      status,
-      submitted_at: status === 'submitted' ? now : existing?.submitted_at ?? null,
-      updated_at: now,
-    };
+  useEffect(() => {
+    setOpenLessonId(null);
+    setOpenHomeworkId(null);
+  }, [subTab]);
 
-    const result = existing
-      ? await supabase.from('homework_submissions').update(payload).eq('id', existing.id)
-      : await supabase.from('homework_submissions').insert(payload);
+  if (openLessonId) {
+    return (
+      <StudentLessonPageView
+        pageId={openLessonId}
+        onBack={() => setOpenLessonId(null)}
+      />
+    );
+  }
 
-    setSaving(false);
-    if (result.error) {
-      setSubmitError('Не удалось сохранить ответ');
-      return;
-    }
-    if (status === 'submitted') {
-      await maybeGrantAchievement(supabase, user.id, 'Первое ДЗ', 'Вы отправили работу на проверку', 'send');
-    }
-    load();
-  };
+  if (openHomeworkId) {
+    return (
+      <StudentHomeworkPageView
+        pageId={openHomeworkId}
+        onBack={() => setOpenHomeworkId(null)}
+      />
+    );
+  }
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-2">Домашние задания</h2>
-        <p className="text-slate-400 text-sm leading-relaxed">
-          Карточки заданий к занятиям. Откройте задание, изучите материалы и отправьте ответ на проверку.
-        </p>
-      </div>
+      <p className="text-slate-400 text-sm leading-relaxed">{SUB_DESCRIPTIONS[subTab]}</p>
 
-      <HomeworkCards
-        assignments={assignments}
-        submissions={submissions}
-        loading={loading}
-        loadError={loadError}
-        emptyMessage="Преподаватель ещё не опубликовал задания"
-        saving={saving}
-        submitError={submitError}
-        onSaveDraft={(id, answer) => upsertSubmission(id, 'draft', answer)}
-        onSubmit={(id, answer) => upsertSubmission(id, 'submitted', answer)}
-      />
+      {subTab === 'lectures' && (
+        <StudentLessonList lessonType="lecture" onOpen={setOpenLessonId} />
+      )}
+      {subTab === 'seminars' && (
+        <StudentLessonList lessonType="seminar" onOpen={setOpenLessonId} />
+      )}
+      {subTab === 'homework' && (
+        <StudentHomeworkList onOpen={setOpenHomeworkId} />
+      )}
     </div>
   );
 }

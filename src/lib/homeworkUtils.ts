@@ -45,9 +45,9 @@ export async function syncProgressFromGrade(
       course_id: courseId,
       module_title: moduleTitle,
       module_index: moduleIndex,
-      completed: score >= 6,
+      completed: true,
       score: score * 10,
-      completed_at: score >= 6 ? new Date().toISOString() : null,
+      completed_at: new Date().toISOString(),
     },
     { onConflict: 'user_id,course_id,module_index' },
   );

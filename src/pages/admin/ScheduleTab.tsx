@@ -3,15 +3,31 @@ import {
   Calendar, Clock, Loader2, Pencil, Plus, Trash2, Video, X,
 } from 'lucide-react';
 import MonthCalendar from '../../components/MonthCalendar';
+import {
+  FormDatetime,
+  FormLabel,
+  FormNumber,
+  FormSelect,
+  FormText,
+  FormTextarea,
+} from '../../components/FormControls';
 import { supabase } from '../../lib/supabase';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import type { Group, ScheduleEvent, ScheduleEventType } from '../../lib/types';
 import {
   EVENT_TYPE_LABELS,
   EVENT_TYPE_OPTIONS,
+  eventMatchesScheduleFilter,
   formatDuration,
   formatEventDateTime,
-  isEventUpcoming,
+  getScheduleEmptyMessage,
+  getScheduleRefHint,
+  isEventActive,
+  isEventEnded,
+  isEventOngoing,
+  sortScheduleEventsAscending,
+  sortScheduleEventsDescending,
+  sortScheduleEventsForList,
   toDatetimeLocalValue,
 } from '../../lib/scheduleUtils';
 
@@ -33,7 +49,7 @@ export default function ScheduleTab() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<Filter>('upcoming');
+  const [filter, setFilter] = useState<Filter>('all');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -66,26 +82,35 @@ export default function ScheduleTab() {
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => {
-    const now = new Date();
-    return events.filter((e) => {
-      const d = new Date(e.scheduled_at);
-      if (selectedDate) {
-        const same =
-          d.getFullYear() === selectedDate.getFullYear() &&
-          d.getMonth() === selectedDate.getMonth() &&
-          d.getDate() === selectedDate.getDate();
-        if (!same) return false;
-      }
-      const upcoming = d >= now;
-      if (filter === 'upcoming') return upcoming;
-      if (filter === 'past') return !upcoming;
-      return true;
-    });
+    const list = events.filter((e) => eventMatchesScheduleFilter(e, filter, selectedDate));
+    if (filter === 'upcoming') return sortScheduleEventsAscending(list);
+    if (filter === 'past') return sortScheduleEventsDescending(list);
+    return sortScheduleEventsForList(list);
   }, [events, filter, selectedDate]);
 
+  const refHint = useMemo(() => getScheduleRefHint(filter, selectedDate), [filter, selectedDate]);
+
   const upcomingPreview = useMemo(
-    () => events.filter((e) => isEventUpcoming(e.scheduled_at)).slice(0, 4),
+    () => events.filter((e) => isEventActive(e.scheduled_at, e.duration_minutes)).slice(0, 4),
     [events],
+  );
+
+  const emptyMessage = useMemo(
+    () => getScheduleEmptyMessage(filter, selectedDate, 'событий'),
+    [filter, selectedDate],
+  );
+
+  const groupOptions = useMemo(
+    () => [
+      { value: '', label: 'Все зачисленные ученики' },
+      ...groups.map((g) => ({ value: g.id, label: g.name })),
+    ],
+    [groups],
+  );
+
+  const eventTypeOptions = useMemo(
+    () => EVENT_TYPE_OPTIONS.map((t) => ({ value: t, label: EVENT_TYPE_LABELS[t] })),
+    [],
   );
 
   const openCreate = () => {
@@ -116,6 +141,15 @@ export default function ScheduleTab() {
     setForm(EMPTY_FORM);
     setError('');
   };
+
+  useEffect(() => {
+    if (!showForm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeForm();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showForm]);
 
   const save = async () => {
     if (!form.title.trim()) {
@@ -195,50 +229,13 @@ export default function ScheduleTab() {
         </button>
       </div>
 
-      <div className="grid lg:grid-cols-[300px_1fr] gap-6">
-        <div className="space-y-4">
-          <MonthCalendar
-            events={events}
-            month={calendarMonth}
-            onMonthChange={setCalendarMonth}
-            selectedDate={selectedDate}
-            onSelectDate={(d) => setSelectedDate((prev) =>
-              prev && prev.getTime() === d.getTime() ? null : d
-            )}
-          />
-          {upcomingPreview.length > 0 && (
-            <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider">Ближайшие</p>
-              {upcomingPreview.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  onClick={() => openEdit(e)}
-                  className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                >
-                  <div className="text-sm font-medium text-white truncate">{e.title}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{formatEventDateTime(e.scheduled_at)}</div>
-                </button>
-              ))}
-            </div>
-          )}
-          {selectedDate && (
-            <button
-              type="button"
-              onClick={() => setSelectedDate(null)}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              Сбросить фильтр по дате
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-4">
+      <div className="grid lg:grid-cols-[1fr_300px] gap-6">
+        <div className="space-y-4 min-w-0">
       <div className="flex flex-wrap gap-2">
         {([
+          ['all', 'Все'],
           ['upcoming', 'Предстоящие'],
           ['past', 'Прошедшие'],
-          ['all', 'Все'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -261,12 +258,12 @@ export default function ScheduleTab() {
       ) : filtered.length === 0 ? (
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center">
           <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">
-            {filter === 'upcoming' ? 'Нет предстоящих событий' : 'Событий пока нет'}
-          </p>
-          <button onClick={openCreate} className="mt-4 text-sm text-blue-400 hover:text-blue-300">
-            Создать первое занятие
-          </button>
+          <p className="text-slate-400 text-sm">{emptyMessage}</p>
+          {filter === 'all' && !selectedDate && (
+            <button onClick={openCreate} className="mt-4 text-sm text-blue-400 hover:text-blue-300">
+              Создать первое занятие
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -280,7 +277,12 @@ export default function ScheduleTab() {
                   <span className="text-xs px-2.5 py-1 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25">
                     {EVENT_TYPE_LABELS[event.event_type]}
                   </span>
-                  {!isEventUpcoming(event.scheduled_at) && (
+                  {isEventOngoing(event.scheduled_at, event.duration_minutes) && (
+                    <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
+                      Идёт сейчас
+                    </span>
+                  )}
+                  {isEventEnded(event.scheduled_at, event.duration_minutes) && (
                     <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-500/15 text-slate-400 border border-slate-500/20">
                       Завершено
                     </span>
@@ -343,13 +345,65 @@ export default function ScheduleTab() {
         </div>
       )}
         </div>
+
+        <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          <MonthCalendar
+            events={events}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            selectedDate={selectedDate}
+            onSelectDate={(d) => {
+              setSelectedDate((prev) =>
+                prev && prev.getTime() === d.getTime() ? null : d,
+              );
+            }}
+          />
+          {refHint && (
+            <p className="text-xs text-slate-500 text-center leading-snug">{refHint}</p>
+          )}
+          {upcomingPreview.length > 0 && (
+            <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider">Ближайшие</p>
+              {upcomingPreview.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => openEdit(e)}
+                  className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <div className="text-sm font-medium text-white truncate">{e.title}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{formatEventDateTime(e.scheduled_at)}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              {filter === 'all' ? 'Сбросить фильтр по дате' : 'Вернуться к сегодня'}
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+          onClick={closeForm}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-site"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schedule-form-title"
+          >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-white">
+              <h2 id="schedule-form-title" className="text-lg font-bold text-white">
                 {editingId ? 'Редактировать событие' : 'Новое событие'}
               </h2>
               <button onClick={closeForm} className="p-2 rounded-lg hover:bg-white/5 text-slate-400">
@@ -359,88 +413,72 @@ export default function ScheduleTab() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Название *</label>
-                <input
+                <FormLabel>Название *</FormLabel>
+                <FormText
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="Введение в квантовые вычисления"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1.5">Тип</label>
-                  <select
+                  <FormLabel>Тип</FormLabel>
+                  <FormSelect
                     value={form.event_type}
-                    onChange={(e) => setForm({ ...form, event_type: e.target.value as ScheduleEventType })}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500"
-                  >
-                    {EVENT_TYPE_OPTIONS.map((t) => (
-                      <option key={t} value={t} className="bg-slate-900">
-                        {EVENT_TYPE_LABELS[t]}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setForm({ ...form, event_type: v as ScheduleEventType })}
+                    options={eventTypeOptions}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1.5">Длительность (мин)</label>
-                  <input
-                    type="number"
-                    min={15}
+                  <FormLabel>Длительность (мин)</FormLabel>
+                  <FormNumber
+                    min={1}
                     max={480}
-                    step={15}
                     value={form.duration_minutes}
-                    onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500"
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (!Number.isNaN(n)) {
+                        setForm({ ...form, duration_minutes: Math.min(480, Math.max(1, n)) });
+                      }
+                    }}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Дата и время *</label>
-                <input
-                  type="datetime-local"
+                <FormLabel>Дата и время *</FormLabel>
+                <FormDatetime
                   value={form.scheduled_at}
-                  onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+                  onChange={(v) => setForm({ ...form, scheduled_at: v })}
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Группа</label>
-                <select
+                <FormLabel>Группа</FormLabel>
+                <FormSelect
                   value={form.group_id}
-                  onChange={(e) => setForm({ ...form, group_id: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="" className="bg-slate-900">Все зачисленные ученики</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id} className="bg-slate-900">
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setForm({ ...form, group_id: v })}
+                  options={groupOptions}
+                />
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Описание</label>
-                <textarea
+                <FormLabel>Описание</FormLabel>
+                <FormTextarea
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={3}
                   placeholder="Тема занятия, что подготовить..."
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Ссылка на трансляцию</label>
-                <input
+                <FormLabel>Ссылка на трансляцию</FormLabel>
+                <FormText
                   value={form.meeting_url}
                   onChange={(e) => setForm({ ...form, meeting_url: e.target.value })}
                   placeholder="https://..."
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 />
               </div>
 

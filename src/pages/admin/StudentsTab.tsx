@@ -6,7 +6,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import type { Group, GroupMember, UserProfile } from '../../lib/types';
-import { studentInitials } from '../../lib/adminUtils';
+import UserAvatar from '../../components/UserAvatar';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import {
   buildGroupsWithDetails,
@@ -76,10 +76,6 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
       ),
     );
 
-    if (!isSuperAdmin && visibleGroups.length > 0 && activeView === 'enrolled') {
-      setActiveView(visibleGroups[0].id);
-    }
-
     if (silent) setRefreshing(false);
     else setInitialLoading(false);
   };
@@ -133,9 +129,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     subtitle: s.email,
     searchText: `${s.display_name} ${s.email ?? ''}`,
     leading: (
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-xs font-bold shrink-0">
-        {studentInitials(s.display_name)}
-      </div>
+      <UserAvatar displayName={s.display_name} avatarUrl={s.avatar_url} size="chip" />
     ),
     trailing: groupNameByStudentId.has(s.id) ? (
       <span className="text-xs text-amber-400 shrink-0">переместить</span>
@@ -175,9 +169,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     subtitle: `${a.email ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`,
     searchText: `${a.display_name} ${a.email ?? ''} ${a.role}`,
     leading: (
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-xs font-bold shrink-0">
-        {studentInitials(a.display_name)}
-      </div>
+      <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="chip" />
     ),
   })), [staffNotInGroup, user?.id]);
 
@@ -220,35 +212,95 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   };
 
   const addStudentToGroup = async (studentId: string, groupId: string) => {
+    const student = enrolledStudents.find((s) => s.id === studentId);
+    if (!student) return;
+
     const existing = groups.flatMap((g) => g.members).find((m) => m.user_id === studentId);
     if (existing) {
-      await supabase.from('group_members').delete().eq('id', existing.id);
+      const { error: moveError } = await supabase.from('group_members').delete().eq('id', existing.id);
+      if (moveError) {
+        toast(`Не удалось переместить ученика: ${moveError.message}`, 'error');
+        return;
+      }
     }
-    await supabase.from('group_members').insert({ group_id: groupId, user_id: studentId });
+
+    const { data: inserted, error } = await supabase
+      .from('group_members')
+      .insert({ group_id: groupId, user_id: studentId })
+      .select('*')
+      .single();
+
+    if (error || !inserted) {
+      toast(`Не удалось добавить ученика: ${error?.message ?? 'ошибка'}`, 'error');
+      load({ silent: true });
+      return;
+    }
+
+    setGroups((prev) => prev.map((g) => ({
+      ...g,
+      members: g.id === groupId
+        ? [...g.members.filter((m) => m.user_id !== studentId), { ...inserted, profile: student }]
+        : g.members.filter((m) => m.user_id !== studentId),
+    })));
+
     setShowAddStudent(false);
     setAssignStudent(null);
-    load({ silent: true });
   };
 
   const removeStudent = async (memberId: string) => {
-    await supabase.from('group_members').delete().eq('id', memberId);
-    load({ silent: true });
+    const snapshot = groups;
+    setGroups((prev) => prev.map((g) => ({
+      ...g,
+      members: g.members.filter((m) => m.id !== memberId),
+    })));
+
+    const { error } = await supabase.from('group_members').delete().eq('id', memberId);
+    if (error) {
+      setGroups(snapshot);
+      toast(`Не удалось убрать ученика: ${error.message}`, 'error');
+    }
   };
 
   const addTeacherToGroup = async (teacherId: string, groupId: string) => {
-    await supabase.from('group_teachers').insert({ group_id: groupId, user_id: teacherId });
+    const teacher = groupStaff.find((a) => a.id === teacherId);
+    const { data: inserted, error } = await supabase
+      .from('group_teachers')
+      .insert({ group_id: groupId, user_id: teacherId })
+      .select('*')
+      .single();
+
+    if (error || !inserted || !teacher) {
+      toast(`Не удалось назначить преподавателя: ${error?.message ?? 'ошибка'}`, 'error');
+      return;
+    }
+
+    setGroups((prev) => prev.map((g) => {
+      if (g.id !== groupId) return g;
+      if (g.teachers.some((t) => t.id === teacherId)) return g;
+      return {
+        ...g,
+        teachers: [...g.teachers, teacher],
+        teacher_id: g.teacher_id ?? teacherId,
+      };
+    }));
     setShowAddTeacher(false);
-    load({ silent: true });
   };
 
   const removeTeacherFromGroup = async (groupId: string, teacherId: string) => {
     const group = groups.find((g) => g.id === groupId);
-    if (!group || group.teachers.length <= 1) {
-      toast('В группе должен остаться хотя бы один преподаватель', 'warning');
-      return;
-    }
+    if (!group) return;
 
-    const remainingIds = group.teachers.map((t) => t.id).filter((id) => id !== teacherId);
+    const snapshot = groups;
+    const remainingTeachers = group.teachers.filter((t) => t.id !== teacherId);
+    const nextLegacyTeacherId = group.teacher_id === teacherId
+      ? (remainingTeachers[0]?.id ?? null)
+      : group.teacher_id;
+
+    setGroups((prev) => prev.map((g) => (
+      g.id === groupId
+        ? { ...g, teachers: remainingTeachers, teacher_id: nextLegacyTeacherId }
+        : g
+    )));
 
     const { error: unlinkError } = await supabase
       .from('group_teachers')
@@ -257,6 +309,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
       .eq('user_id', teacherId);
 
     if (unlinkError) {
+      setGroups(snapshot);
       toast(`Не удалось снять преподавателя: ${unlinkError.message}`, 'error');
       return;
     }
@@ -264,16 +317,14 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     if (group.teacher_id === teacherId) {
       const { error: legacyError } = await supabase
         .from('groups')
-        .update({ teacher_id: remainingIds[0] })
+        .update({ teacher_id: nextLegacyTeacherId })
         .eq('id', groupId);
 
       if (legacyError) {
+        setGroups(snapshot);
         toast(`Не удалось обновить группу: ${legacyError.message}`, 'error');
-        return;
       }
     }
-
-    load({ silent: true });
   };
 
   const toggleNewGroupTeacher = (id: string) => {
@@ -296,9 +347,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   };
 
   const navItems: { id: ActiveView; label: string; count: number; variant: 'enrolled' | 'group' }[] = [
-    ...(isSuperAdmin
-      ? [{ id: 'enrolled' as const, label: ENROLLED_GROUP_LABEL, count: enrolledStudents.length, variant: 'enrolled' as const }]
-      : []),
+    { id: 'enrolled', label: ENROLLED_GROUP_LABEL, count: enrolledStudents.length, variant: 'enrolled' },
     ...groups.map((g) => ({
       id: g.id,
       label: g.name,
@@ -308,22 +357,23 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   ];
 
   return (
-    <div className="space-y-5 w-full max-w-[min(72rem,90%)]">
+    <div className="space-y-5 w-full max-w-6xl">
       <div>
         <h2 className="text-xl font-bold text-white mb-1">Ученики и группы</h2>
         <p className="text-slate-400 text-sm">
           {isSuperAdmin
             ? 'Зачисленные ученики и учебные группы'
-            : 'Учебные группы, в которых вы назначены преподавателем'}
+            : 'Все зачисленные ученики и ваши учебные группы'}
         </p>
       </div>
 
-      {!isSuperAdmin && groups.length === 0 ? (
-        <div className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
-          Вас ещё не назначили преподавателем ни в одну группу. Обратитесь к суперадмину.
+      {!isSuperAdmin && groups.length === 0 && (
+        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-200/90">
+          Вас ещё не назначили преподавателем ни в одну группу — ниже доступен общий список зачисленных. Обратитесь к суперадмину для назначения в группу.
         </div>
-      ) : (
-        <div className="grid lg:grid-cols-[minmax(220px,260px)_1fr] gap-6 items-start">
+      )}
+
+      <div className="grid lg:grid-cols-[minmax(220px,260px)_1fr] gap-6 items-start">
           <GroupNavigation
             items={navItems}
             activeView={activeView}
@@ -332,17 +382,23 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
             onCreateGroup={() => setShowCreate(true)}
           />
 
-          <div className={`min-w-0 space-y-5 relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
+          <div className="min-w-0 space-y-5 relative">
             {refreshing && (
               <div className="absolute top-0 right-0 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/90 border border-white/10 text-xs text-slate-400">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Обновление…
               </div>
             )}
-      {activeView === 'enrolled' && isSuperAdmin && (
+      {activeView === 'enrolled' && (
         <StudentList
           title={ENROLLED_GROUP_LABEL}
-          description="Все зачисленные ученики. Кнопка справа на карточке — добавить или переместить в группу."
+          description={
+            isSuperAdmin
+              ? 'Все зачисленные ученики. Кнопка справа на карточке — добавить или переместить в группу.'
+              : groups.length > 0
+                ? 'Все зачисленные ученики. Кнопка справа — добавить или переместить в вашу группу.'
+                : 'Все зачисленные ученики курса.'
+          }
           students={enrolledStudents}
           emptyText="Нет зачисленных учеников. Зачислите учеников во вкладке «Отборочные этапы»."
           infoStudentId={infoStudentId}
@@ -405,7 +461,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                   >
                     {t.display_name}
                     {t.id === user?.id && <span className="text-blue-300/80 text-xs">(вы)</span>}
-                    {isSuperAdmin && activeGroup.teachers.length > 1 && (
+                    {isSuperAdmin && (
                       <button
                         type="button"
                         onClick={() => removeTeacherFromGroup(activeGroup.id, t.id)}
@@ -422,9 +478,11 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
           </div>
 
           {activeGroup.members.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
-              Группа пуста. Добавьте учеников из списка зачисленных.
-            </div>
+            <StudentCardGrid>
+              <div className="col-span-full flex items-center justify-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
+                Группа пуста. Добавьте учеников из списка зачисленных.
+              </div>
+            </StudentCardGrid>
           ) : (
             <StudentCardGrid>
               {activeGroup.members.map((m) => (
@@ -452,7 +510,6 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
       )}
           </div>
         </div>
-      )}
 
       {showCreate && (
         <Modal onClose={() => setShowCreate(false)} title="Создать учебную группу" wide>
@@ -628,7 +685,7 @@ function GroupNavItem({
       }`}
     >
       <span className="truncate font-medium">{label}</span>
-      <span className={`text-xs tabular-nums flex-shrink-0 px-2 py-0.5 rounded-md ${
+      <span className={`text-xs tabular-nums flex-shrink-0 min-w-[1.75rem] text-center px-2 py-0.5 rounded-md ${
         active ? 'bg-black/20' : 'bg-white/5 text-slate-500'
       }`}
       >
@@ -716,9 +773,7 @@ function StudentCard({
           onClick={onToggleInfo}
           className="flex items-center gap-3 min-w-0 flex-1 text-left rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 transition-colors"
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
-            {studentInitials(student.display_name)}
-          </div>
+          <UserAvatar displayName={student.display_name} avatarUrl={student.avatar_url} size="md" />
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-white truncate text-sm leading-snug">{student.display_name}</div>
             <div className="text-xs text-slate-500 truncate mt-0.5">{student.email ?? '—'}</div>
@@ -739,7 +794,7 @@ function StudentCard({
       {showInfo && (
         <div
           data-student-info
-          className="absolute left-4 top-full mt-2 z-20 w-64 bg-slate-800 border border-white/10 rounded-xl p-4 shadow-xl"
+          className="absolute left-4 right-4 sm:right-auto sm:w-64 top-full mt-2 z-20 bg-slate-800 border border-white/10 rounded-xl p-4 shadow-xl"
         >
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">О участнике</p>
           <div className="space-y-2.5 text-sm">
@@ -759,7 +814,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: typeof MapPin; label: str
       <Icon className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
       <div>
         <div className="text-xs text-slate-500">{label}</div>
-        <div className="text-white">{value?.trim() || '—'}</div>
+        <div className="text-white break-words">{value?.trim() || '—'}</div>
       </div>
     </div>
   );
@@ -776,7 +831,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`w-full ${wide ? 'max-w-lg' : 'max-w-md'} bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl`}
+        className={`w-full ${wide ? 'max-w-lg' : 'max-w-md'} max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto scrollbar-site bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">

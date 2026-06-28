@@ -14,6 +14,9 @@ interface MonthCalendarProps {
   onMonthChange: (d: Date) => void;
   onSelectDate?: (d: Date) => void;
   selectedDate?: Date | null;
+  /** Дни не кликабельны (например, при фильтре не «Все»). */
+  dateSelectionDisabled?: boolean;
+  disabledHint?: string;
 }
 
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -24,6 +27,8 @@ export default function MonthCalendar({
   onMonthChange,
   onSelectDate,
   selectedDate,
+  dateSelectionDisabled = false,
+  disabledHint,
 }: MonthCalendarProps) {
   const { cells, label } = useMemo(() => {
     const y = month.getFullYear();
@@ -55,7 +60,11 @@ export default function MonthCalendar({
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
   return (
-    <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4">
+    <div
+      className={`bg-slate-900/60 border border-white/5 rounded-2xl p-4 transition-opacity ${
+        dateSelectionDisabled ? 'opacity-60' : ''
+      }`}
+    >
       <div className="flex items-center justify-between mb-4">
         <button type="button" onClick={prev} className="p-2 rounded-lg hover:bg-white/5 text-slate-400">
           <ChevronLeft className="w-4 h-4" />
@@ -81,13 +90,16 @@ export default function MonthCalendar({
             <button
               key={key}
               type="button"
-              onClick={() => onSelectDate?.(date)}
+              disabled={dateSelectionDisabled}
+              onClick={() => !dateSelectionDisabled && onSelectDate?.(date)}
               className={`aspect-square rounded-lg text-sm relative transition-colors ${
-                isSelected
-                  ? 'bg-blue-600 text-white'
-                  : isToday
-                    ? 'bg-blue-600/20 text-blue-300'
-                    : 'text-slate-300 hover:bg-white/5'
+                dateSelectionDisabled
+                  ? 'text-slate-500 cursor-not-allowed'
+                  : isSelected
+                    ? 'bg-blue-600 text-white'
+                    : isToday
+                      ? 'bg-blue-600/20 text-blue-300'
+                      : 'text-slate-300 hover:bg-white/5'
               }`}
             >
               {date.getDate()}
@@ -98,6 +110,9 @@ export default function MonthCalendar({
           );
         })}
       </div>
+      {dateSelectionDisabled && disabledHint && (
+        <p className="mt-3 text-xs text-slate-500 text-center leading-snug">{disabledHint}</p>
+      )}
     </div>
   );
 }
