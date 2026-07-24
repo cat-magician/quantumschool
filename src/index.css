@@ -98,6 +98,18 @@ body {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-500 to-violet-600;
   }
 
+  .quantum-brand-line {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-500 to-violet-600;
+    display: block;
+    line-height: 1.05;
+    padding-block: 0.04em;
+    text-wrap: balance;
+  }
+
+  .hero-subtitle-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500;
+  }
+
   .bg-gradient-radial {
     background: radial-gradient(ellipse at center, var(--tw-gradient-stops));
   }
@@ -112,7 +124,8 @@ body {
   }
 
   .font-brand {
-    font-family: 'Fredoka', 'Inter', system-ui, sans-serif;
+    font-family: 'Unbounded', 'Inter', system-ui, sans-serif;
+    font-weight: 900;
   }
 
   .quantum-brand-glow {
@@ -126,9 +139,72 @@ body {
     );
     border-radius: 9999px;
     filter: blur(28px);
+    transform-origin: center center;
+  }
+
+  @keyframes quantum-brand-glow-breathe {
+    0%,
+    100% {
+      opacity: 0.28;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.38;
+      transform: scale(1.05);
+    }
+  }
+
+  .quantum-brand-glow-alive {
+    animation: quantum-brand-glow-breathe 4.5s ease-in-out infinite;
+  }
+
+  /* Brand title sizing */
+
+  .quantum-brand-line-size {
+    font-size: clamp(2.25rem, 6.8vw, 4.5rem);
+    letter-spacing: -0.035em;
+  }
+
+  .quantum-brand-line-size-tight {
+    margin-top: -0.125rem;
+  }
+
+  .quantum-brand-fx-fade {
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      black 5%,
+      black 95%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
+  }
+
+  .quantum-brand-charline {
+    display: block;
+    line-height: 1.05;
+    padding-block: 0.04em;
+  }
+
+  .quantum-brand-char {
+    display: inline-block;
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    will-change: transform, opacity, filter;
+  }
+
+  @media (min-width: 640px) {
+    .quantum-brand-line-size-tight {
+      margin-top: -0.25rem;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .quantum-brand-glow-alive {
+      animation: none;
+    }
+
     .hero-quantum-decor *,
     .hero-quantum-decor {
       animation: none !important;

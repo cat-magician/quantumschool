@@ -11,12 +11,16 @@ import {
   HOMEWORK_STATUS_LABELS,
 } from '../../lib/progressUtils';
 import { collectEarnedKeys } from '../../lib/achievementUtils';
+import {
+  computeWeightedHomeworkAvg,
+  formatHomeworkScoreValue,
+  SUBMISSION_STATUS_LABELS,
+} from '../../lib/homeworkUtils';
 import AchievementBadgeStrip from '../../components/achievements/AchievementBadgeStrip';
-import { SUBMISSION_STATUS_LABELS } from '../../lib/homeworkUtils';
 
 export default function StudentProgressTab() {
   const { user } = useAuth();
-  const [publishedPages, setPublishedPages] = useState<Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[]>([]);
+  const [publishedPages, setPublishedPages] = useState<Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[]>([]);
   const [submissions, setSubmissions] = useState<HomeworkPageSubmission[]>([]);
   const [modules, setModules] = useState<CourseProgress[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -26,13 +30,13 @@ export default function StudentProgressTab() {
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      supabase.from('homework_pages').select('id, title, due_at').eq('is_published', true).order('due_at'),
+      supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true).order('created_at'),
       supabase.from('homework_page_submissions').select('*').eq('user_id', user.id),
       supabase.from('course_progress').select('*').eq('user_id', user.id).order('module_index'),
       supabase.from('achievements').select('*').eq('user_id', user.id).order('earned_at', { ascending: false }),
       supabase.from('lesson_pages').select('id, lesson_type').eq('is_published', true),
     ]).then(([pagesRes, subsRes, progRes, achRes, lessonsRes]) => {
-      if (pagesRes.data) setPublishedPages(pagesRes.data as Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[]);
+      if (pagesRes.data) setPublishedPages(pagesRes.data as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[]);
       if (subsRes.data) setSubmissions(subsRes.data as HomeworkPageSubmission[]);
       if (progRes.data) setModules(progRes.data);
       if (achRes.data) setAchievements(achRes.data);
@@ -60,10 +64,11 @@ export default function StudentProgressTab() {
   const stats = useMemo(() => {
     const graded = homeworkPages.filter((p) => p.status === 'graded');
     const submitted = homeworkPages.filter((p) => p.status === 'submitted');
-    const gradedScores = graded.map((p) => p.score).filter((s): s is number => s !== null);
-    const avg = gradedScores.length
-      ? Math.round((gradedScores.reduce((a, b) => a + b, 0) / gradedScores.length) * 10) / 10
-      : null;
+    const avg = computeWeightedHomeworkAvg(
+      graded
+        .filter((p) => p.score !== null)
+        .map((p) => ({ score: p.score as number, maxScore: p.maxScore })),
+    );
     return {
       graded: graded.length,
       submitted: submitted.length,
@@ -85,7 +90,7 @@ export default function StudentProgressTab() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
         <StatCard label="Проверено" value={String(stats.graded)} icon={CheckCircle} />
         <StatCard label="На проверке" value={String(stats.submitted)} icon={Send} />
-        <StatCard label="Средняя" value={stats.avg !== null ? `${stats.avg}/10` : '—'} icon={BarChart3} />
+        <StatCard label="Средняя" value={stats.avg !== null ? `${formatHomeworkScoreValue(stats.avg)}/10` : '—'} icon={BarChart3} />
       </div>
 
       {user && (
@@ -141,8 +146,8 @@ export default function StudentProgressTab() {
                 <div className="flex items-center gap-2.5 flex-shrink-0">
                   {p.score !== null && (
                     <div className="text-right tabular-nums leading-none">
-                      <span className="text-xl font-bold text-white">{p.score}</span>
-                      <span className="text-sm text-slate-500">/10</span>
+                      <span className="text-xl font-bold text-white">{formatHomeworkScoreValue(p.score)}</span>
+                      <span className="text-sm text-slate-500">/{formatHomeworkScoreValue(p.maxScore)}</span>
                     </div>
                   )}
                   <span className={`text-[11px] px-2 py-0.5 rounded-md border ${HOMEWORK_STATUS_COLORS[p.status]}`}>

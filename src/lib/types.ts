@@ -268,6 +268,7 @@ export interface HomeworkPage {
   id: string;
   title: string;
   due_at: string | null;
+  max_score: number;
   is_published: boolean;
   created_by: string | null;
   created_at: string;
@@ -288,6 +289,6 @@ export interface HomeworkPageSubmission {
   graded_at: string | null;
   created_at: string;
   updated_at: string;
-  page?: Pick<HomeworkPage, 'id' | 'title'>;
+  page?: Pick<HomeworkPage, 'id' | 'title' | 'max_score'>;
   student?: Pick<UserProfile, 'id' | 'display_name' | 'email' | 'avatar_url'>;
 }

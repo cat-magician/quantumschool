@@ -11,6 +11,11 @@ import {
   TOTAL_ACHIEVEMENTS_POSSIBLE,
   type AchievementIconKey,
 } from './achievementUtils';
+import {
+  computeWeightedHomeworkAvg,
+  DEFAULT_HOMEWORK_MAX_SCORE,
+  formatHomeworkScoreValue,
+} from './homeworkUtils';
 
 export {
   ACHIEVEMENT_CATALOG,
@@ -23,6 +28,7 @@ export type HomeworkPageProgress = {
   pageId: string;
   title: string;
   dueAt: string | null;
+  maxScore: number;
   status: 'none' | 'draft' | 'submitted' | 'graded';
   score: number | null;
   submittedAt: string | null;
@@ -85,18 +91,20 @@ export function computeProgressPercent(pages: HomeworkPageProgress[]) {
 }
 
 export function buildHomeworkPageProgress(
-  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[],
+  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[],
   submissions: HomeworkPageSubmission[],
   userId: string,
 ): HomeworkPageProgress[] {
   const byPage = new Map(submissions.filter((s) => s.user_id === userId).map((s) => [s.page_id, s]));
   return publishedPages.map((page) => {
+    const maxScore = page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE;
     const sub = byPage.get(page.id);
     if (!sub) {
       return {
         pageId: page.id,
         title: page.title,
         dueAt: page.due_at,
+        maxScore,
         status: 'none',
         score: null,
         submittedAt: null,
@@ -107,6 +115,7 @@ export function buildHomeworkPageProgress(
       pageId: page.id,
       title: page.title,
       dueAt: page.due_at,
+      maxScore,
       status: sub.status,
       score: sub.score,
       submittedAt: sub.submitted_at,
@@ -124,7 +133,7 @@ export function countOverdueMissing(pages: HomeworkPageProgress[]) {
 
 export function buildStudentProgressSnapshot(
   student: UserProfile,
-  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[],
+  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[],
   submissions: HomeworkPageSubmission[],
   modules: CourseProgress[],
   achievements: Achievement[],
@@ -135,10 +144,11 @@ export function buildStudentProgressSnapshot(
   const graded = homeworkPages.filter((p) => p.status === 'graded');
   const submitted = homeworkPages.filter((p) => p.status === 'submitted');
   const drafts = homeworkPages.filter((p) => p.status === 'draft');
-  const gradedScores = graded.map((p) => p.score).filter((s): s is number => s !== null);
-  const avgScore = gradedScores.length
-    ? Math.round((gradedScores.reduce((a, b) => a + b, 0) / gradedScores.length) * 10) / 10
-    : null;
+  const avgScore = computeWeightedHomeworkAvg(
+    graded
+      .filter((p) => p.score !== null)
+      .map((p) => ({ score: p.score as number, maxScore: p.maxScore })),
+  );
   const stage1 = student.stage1_score;
   const stage2 = student.stage2_score;
   const selectionTotal = stage1 !== null || stage2 !== null
@@ -194,7 +204,9 @@ export function rankMetricValue(snapshot: StudentProgressSnapshot, metric: RankM
 export function formatRankMetricValue(snapshot: StudentProgressSnapshot, metric: RankMetric) {
   switch (metric) {
     case 'avg_score':
-      return snapshot.avgScore !== null ? `${snapshot.avgScore}/10` : '—';
+      return snapshot.avgScore !== null
+        ? `${formatHomeworkScoreValue(snapshot.avgScore)}/10`
+        : '—';
     case 'graded_count':
       return `${snapshot.gradedCount}/${snapshot.totalPublished}`;
     case 'progress_percent':

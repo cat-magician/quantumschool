@@ -1,4 +1,4 @@
-import type { HomeworkBlockContent, HomeworkBlockType } from './types';
+import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage } from './types';
 import { formatDueDate } from './homeworkUtils';
 import { toDatetimeLocalValue } from './scheduleUtils';
 
@@ -71,6 +71,27 @@ export const HOMEWORK_STUDENT_LIST_ORDER = [
   'due_at ASC NULLS LAST',
   'updated_at DESC',
 ] as const;
+
+export type HomeworkListSort = 'date' | 'deadline';
+
+/** По умолчанию — порядок публикации; по клику — по сроку сдачи. */
+export function sortHomeworkPagesForStudent<T extends Pick<HomeworkPage, 'created_at' | 'due_at' | 'updated_at'>>(
+  pages: T[],
+  sort: HomeworkListSort,
+): T[] {
+  const sorted = [...pages];
+  if (sort === 'deadline') {
+    return sorted.sort((a, b) => {
+      const aDue = a.due_at ? new Date(a.due_at).getTime() : Number.POSITIVE_INFINITY;
+      const bDue = b.due_at ? new Date(b.due_at).getTime() : Number.POSITIVE_INFINITY;
+      if (aDue !== bDue) return aDue - bDue;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  }
+  return sorted.sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+}
 
 export type HomeworkDueUrgency = 'overdue' | 'burning';
 

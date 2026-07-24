@@ -1,6 +1,8 @@
 import { CheckCircle, Loader2, Save, Send } from 'lucide-react';
 import type { HomeworkPageSubmission } from '../lib/types';
 import {
+  formatHomeworkScoreShort,
+  formatHomeworkScoreValue,
   SUBMISSION_STATUS_COLORS,
   SUBMISSION_STATUS_LABELS,
 } from '../lib/homeworkUtils';
@@ -17,6 +19,7 @@ function formatSubmissionWhen(iso: string | null | undefined) {
 
 export default function HomeworkSubmissionSection({
   submission,
+  maxScore = 10,
   preview = false,
   saving = false,
   submitError = '',
@@ -24,6 +27,7 @@ export default function HomeworkSubmissionSection({
   onSubmit,
 }: {
   submission?: HomeworkPageSubmission | null;
+  maxScore?: number;
   preview?: boolean;
   saving?: boolean;
   submitError?: string;
@@ -65,8 +69,10 @@ export default function HomeworkSubmissionSection({
 
       {submission?.status === 'graded' && submission.score !== null && (
         <div className="flex items-end gap-2">
-          <span className="text-3xl font-bold text-white tabular-nums">{submission.score}</span>
-          <span className="text-slate-500 text-sm pb-1">из 10</span>
+          <span className="text-3xl font-bold text-white tabular-nums">
+            {formatHomeworkScoreValue(submission.score)}
+          </span>
+          <span className="text-slate-500 text-sm pb-1">из {formatHomeworkScoreValue(maxScore)}</span>
         </div>
       )}
 
@@ -116,11 +122,17 @@ export default function HomeworkSubmissionSection({
   );
 }
 
-export function HomeworkSubmissionStatusBadge({ submission }: { submission: HomeworkPageSubmission }) {
+export function HomeworkSubmissionStatusBadge({
+  submission,
+  maxScore = 10,
+}: {
+  submission: HomeworkPageSubmission;
+  maxScore?: number;
+}) {
   return (
     <span className={`text-[10px] px-2 py-0.5 rounded-md border ${SUBMISSION_STATUS_COLORS[submission.status]}`}>
       {SUBMISSION_STATUS_LABELS[submission.status]}
-      {submission.score !== null && ` · ${submission.score}/10`}
+      {submission.score !== null && ` · ${formatHomeworkScoreShort(submission.score, maxScore)}`}
     </span>
   );
 }

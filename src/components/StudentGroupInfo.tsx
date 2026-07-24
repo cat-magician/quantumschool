@@ -3,7 +3,7 @@ import UserAvatar from './UserAvatar';
 import type { StudentGroupContext } from '../lib/groupUtils';
 
 export default function StudentGroupInfo({ context }: { context: StudentGroupContext }) {
-  const teacherLabel = context.teachers.length > 1 ? 'Преподаватели' : 'Преподаватель';
+  const teacherLabel = context.teachers.length > 1 ? 'Наставники' : 'Наставник';
 
   return (
     <div className="mb-6 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-4 px-4 py-3 rounded-2xl bg-slate-900/60 border border-white/5">
@@ -41,7 +41,7 @@ export default function StudentGroupInfo({ context }: { context: StudentGroupCon
           </div>
         </>
       ) : (
-        <p className="text-xs text-slate-500 sm:ml-1">Преподаватель группы пока не назначен</p>
+        <p className="text-xs text-slate-500 sm:ml-1">Наставник группы пока не назначен</p>
       )}
     </div>
   );

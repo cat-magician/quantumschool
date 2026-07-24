@@ -30,6 +30,7 @@ import {
   type StudentProgressSnapshot,
   buildStudentProgressSnapshot,
 } from '../../lib/progressUtils';
+import { formatHomeworkScoreShort, formatHomeworkScoreValue } from '../../lib/homeworkUtils';
 import AchievementBadgeStrip from '../../components/achievements/AchievementBadgeStrip';
 import type { Achievement, CourseProgress, Group, GroupMember, HomeworkPage, HomeworkPageSubmission, UserProfile } from '../../lib/types';
 
@@ -57,7 +58,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
     const [enrolledRes, pagesRes, subsRes, progressRes, achievementsRes, groupsRes, membersRes, gtRows] =
       await Promise.all([
         supabase.from('user_profiles').select('*').eq('role', 'student').eq('is_enrolled', true).order('display_name'),
-        supabase.from('homework_pages').select('id, title, due_at').eq('is_published', true).order('due_at'),
+        supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true).order('due_at'),
         supabase.from('homework_page_submissions').select('*'),
         supabase.from('course_progress').select('*'),
         supabase.from('achievements').select('*'),
@@ -67,7 +68,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
       ]);
 
     const enrolled = (enrolledRes.data ?? []) as UserProfile[];
-    const publishedPages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[];
+    const publishedPages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[];
     const submissions = (subsRes.data ?? []) as HomeworkPageSubmission[];
     const modules = (progressRes.data ?? []) as CourseProgress[];
     const achievements = (achievementsRes.data ?? []) as Achievement[];
@@ -288,7 +289,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
           <SummaryCard
             icon={BarChart3}
             label="Средняя оценка"
-            value={summary.avgScore !== null ? `${summary.avgScore}/10` : '—'}
+            value={summary.avgScore !== null ? `${formatHomeworkScoreValue(summary.avgScore)}/10` : '—'}
             hint={summary.avgScore !== null ? `по ${gradedInSlice} ученикам с оценками` : 'ещё нет проверенных работ'}
             compact
           />
@@ -561,7 +562,7 @@ function BreakdownTable({
                   <td className="py-2 pr-3 text-white">{r.name}</td>
                   <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.count}</td>
                   <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
-                  <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${r.avgScore}/10` : '—'}</td>
+                  <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${formatHomeworkScoreValue(r.avgScore)}/10` : '—'}</td>
                 </tr>
               );
             }
@@ -570,7 +571,7 @@ function BreakdownTable({
                 <td className="py-2 pr-3 text-white">{r.name}</td>
                 <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.count}</td>
                 <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
-                <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${r.avgScore}/10` : '—'}</td>
+                <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${formatHomeworkScoreValue(r.avgScore)}/10` : '—'}</td>
               </tr>
             );
           })}
@@ -640,7 +641,7 @@ function TeacherStudentRow({
         </div>
         <div className="text-right flex-shrink-0">
           <div className="text-sm font-semibold text-white">
-            {snapshot.avgScore !== null ? `${snapshot.avgScore}/10` : '—'}
+            {snapshot.avgScore !== null ? `${formatHomeworkScoreValue(snapshot.avgScore)}/10` : '—'}
           </div>
           <div className="text-[10px] text-slate-600">средняя</div>
         </div>
@@ -660,7 +661,7 @@ function StudentDetail({
   return (
     <div className="px-3 pb-3 pt-0 border-t border-white/5 space-y-2">
       <div className="flex flex-wrap items-center gap-2 pt-2 text-sm">
-        <InlineStat label="Средняя" value={snapshot.avgScore !== null ? `${snapshot.avgScore}/10` : '—'} />
+        <InlineStat label="Средняя" value={snapshot.avgScore !== null ? `${formatHomeworkScoreValue(snapshot.avgScore)}/10` : '—'} />
         {variant === 'admin' ? (
           <InlineStat label="Просрочено" value={String(snapshot.overdueMissing)} />
         ) : (
@@ -681,7 +682,11 @@ function StudentDetail({
             <div key={p.pageId} className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/5">
               <span className="text-xs text-white truncate">{p.title}</span>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                {p.score !== null && <span className="text-[11px] text-slate-400">{p.score}/10</span>}
+                {p.score !== null && (
+                  <span className="text-[11px] text-slate-400">
+                    {formatHomeworkScoreShort(p.score, p.maxScore)}
+                  </span>
+                )}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded border ${HOMEWORK_STATUS_COLORS[p.status]}`}>
                   {HOMEWORK_STATUS_LABELS[p.status]}
                 </span>

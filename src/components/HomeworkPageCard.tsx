@@ -1,7 +1,7 @@
 import { BookOpen, ChevronRight } from 'lucide-react';
 import type { HomeworkPage, HomeworkPageSubmission } from '../lib/types';
 import { homeworkListDueText } from '../lib/homeworkPageUtils';
-import { SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '../lib/homeworkUtils';
+import { DEFAULT_HOMEWORK_MAX_SCORE, formatHomeworkScoreShort, SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '../lib/homeworkUtils';
 import HomeworkDueBadge from './HomeworkDueBadge';
 
 export default function HomeworkPageCard({
@@ -10,11 +10,13 @@ export default function HomeworkPageCard({
   showPublishStatus = true,
   submission,
 }: {
-  page: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'is_published'>;
+  page: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'is_published' | 'max_score'>;
   onClick: () => void;
   showPublishStatus?: boolean;
   submission?: Pick<HomeworkPageSubmission, 'status' | 'score'> | null;
 }) {
+  const maxScore = page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE;
+
   return (
     <button
       type="button"
@@ -35,7 +37,7 @@ export default function HomeworkPageCard({
           {submission && (
             <span className={`text-[10px] px-2 py-0.5 rounded-md border ${SUBMISSION_STATUS_COLORS[submission.status]}`}>
               {SUBMISSION_STATUS_LABELS[submission.status]}
-              {submission.score !== null && ` · ${submission.score}/10`}
+              {submission.score !== null && ` · ${formatHomeworkScoreShort(submission.score, maxScore)}`}
             </span>
           )}
         </div>

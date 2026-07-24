@@ -6,6 +6,10 @@ import {
   studentGroupMap,
 } from './groupUtils';
 import { homeworkDueUrgency } from './homeworkPageUtils';
+import {
+  DEFAULT_HOMEWORK_MAX_SCORE,
+  formatHomeworkScoreShort,
+} from './homeworkUtils';
 import { studentStagePhase } from './selectionDisplayUtils';
 import type { Group, HomeworkPage, HomeworkPageSubmission, LessonPageType, UserProfile } from './types';
 
@@ -88,7 +92,7 @@ async function loadStudentNotifications(
 
   const subsPromise = supabase
     .from('homework_page_submissions')
-    .select('*, page:homework_pages(id, title, due_at)')
+    .select('*, page:homework_pages(id, title, due_at, max_score)')
     .eq('user_id', userId)
     .order('updated_at', { ascending: false });
 
@@ -125,7 +129,9 @@ async function loadStudentNotifications(
       items.push({
         id: `hw-grade-${s.id}`,
         title: `Оценка за «${s.page?.title ?? 'ДЗ'}»`,
-        body: s.score != null ? `Получена оценка: ${s.score} из 10` : 'Работа проверена',
+        body: s.score != null
+          ? `Получена оценка: ${formatHomeworkScoreShort(s.score, s.page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE)}`
+          : 'Работа проверена',
         createdAt: s.graded_at,
       });
     }

@@ -15,6 +15,11 @@ import {
   homeworkDueInputValue,
   normalizeHomeworkMarkdown,
 } from '../../lib/homeworkPageUtils';
+import {
+  DEFAULT_HOMEWORK_MAX_SCORE,
+  formatHomeworkScoreValue,
+  parseHomeworkMaxScore,
+} from '../../lib/homeworkUtils';
 import { parseYandexFormId, normalizeContestUrl } from '../../lib/selectionConfig';
 import { YANDEX_FORM_EMBED } from '../../lib/constants';
 import { homeworkPageLoadError, homeworkPageSaveError } from '../../lib/homeworkPageLoadError';
@@ -39,6 +44,7 @@ type EditorState = {
   id: string | null;
   title: string;
   due_at: string;
+  max_score: string;
   is_published: boolean;
   blocks: EditorBlock[];
 };
@@ -48,6 +54,7 @@ function emptyEditor(): EditorState {
     id: null,
     title: '',
     due_at: '',
+    max_score: String(DEFAULT_HOMEWORK_MAX_SCORE),
     is_published: false,
     blocks: createDefaultHomeworkBlocks().map((b, i) => ({
       id: crypto.randomUUID(),
@@ -132,6 +139,7 @@ export default function HomeworkPagesTab() {
       id: page.id,
       title: page.title,
       due_at: homeworkDueInputValue(page.due_at),
+      max_score: formatHomeworkScoreValue(page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE),
       is_published: page.is_published,
       blocks: blocksFromRows((blocksRes.data ?? []) as HomeworkPageBlock[]),
     });
@@ -151,6 +159,11 @@ export default function HomeworkPagesTab() {
       setMessage('Укажите название задания');
       return;
     }
+    const maxScore = parseHomeworkMaxScore(editor.max_score);
+    if (maxScore === null) {
+      setMessage('Укажите максимальный балл (например, 10 или 20)');
+      return;
+    }
 
     setSaving(true);
     setMessage('');
@@ -164,6 +177,7 @@ export default function HomeworkPagesTab() {
         .insert({
           title: editor.title.trim(),
           due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
+          max_score: maxScore,
           is_published: isPublished,
           created_by: user.id,
           updated_at: now,
@@ -182,6 +196,7 @@ export default function HomeworkPagesTab() {
         .update({
           title: editor.title.trim(),
           due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
+          max_score: maxScore,
           is_published: isPublished,
           updated_at: now,
         })
@@ -382,6 +397,23 @@ export default function HomeworkPagesTab() {
                   onChange={(e) => setEditor({ ...editor, due_at: e.target.value })}
                   className="w-full max-w-xs px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm [color-scheme:dark]"
                 />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs text-slate-500">Максимальный балл</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editor.max_score}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(',', '.');
+                    if (next === '' || /^\d{0,4}(\.\d{0,2})?$/.test(next)) {
+                      setEditor({ ...editor, max_score: next });
+                    }
+                  }}
+                  className="w-full max-w-xs px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+                  placeholder="10"
+                />
+                <p className="text-[11px] text-slate-600">Можно дробное значение, например 10 или 25. Средний балл считается по сумме.</p>
               </label>
             </div>
 

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import type { HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../lib/types';
 import { homeworkPageLoadError } from '../lib/homeworkPageLoadError';
-import { formatHomeworkDueAt } from '../lib/homeworkPageUtils';
-import { maybeGrantAchievement } from '../lib/homeworkUtils';
+import { formatHomeworkDueAt, sortHomeworkPagesForStudent, type HomeworkListSort } from '../lib/homeworkPageUtils';
+import { DEFAULT_HOMEWORK_MAX_SCORE, maybeGrantAchievement } from '../lib/homeworkUtils';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
 import HomeworkDueBadge from './HomeworkDueBadge';
@@ -17,6 +17,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
   const [submissions, setSubmissions] = useState<Record<string, HomeworkPageSubmission>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sort, setSort] = useState<HomeworkListSort>('date');
 
   useEffect(() => {
     if (!user) return;
@@ -27,8 +28,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
         .from('homework_pages')
         .select('*')
         .eq('is_published', true)
-        .order('due_at', { ascending: true, nullsFirst: false })
-        .order('updated_at', { ascending: false }),
+        .order('created_at', { ascending: true }),
       supabase.from('homework_page_submissions').select('*').eq('user_id', user.id),
     ]).then(([pagesRes, subsRes]) => {
       if (pagesRes.error) setLoadError(homeworkPageLoadError(pagesRes.error.message));
@@ -39,6 +39,11 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
       setLoading(false);
     });
   }, [user]);
+
+  const sortedPages = useMemo(
+    () => sortHomeworkPagesForStudent(pages, sort),
+    [pages, sort],
+  );
 
   if (loading) {
     return (
@@ -59,14 +64,35 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
   if (pages.length === 0) {
     return (
       <p className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
-        Преподаватель ещё не опубликовал задания
+        Наставник ещё не опубликовал задания
       </p>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {pages.map((page) => (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        {([
+          ['date', 'По дате'],
+          ['deadline', 'По сроку'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSort(id)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              sort === id
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+      {sortedPages.map((page) => (
         <HomeworkPageCard
           key={page.id}
           page={page}
@@ -75,6 +101,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
           onClick={() => onOpen(page.id)}
         />
       ))}
+      </div>
     </div>
   );
 }
@@ -197,7 +224,12 @@ export function StudentHomeworkPageView({
             <p className="text-sm text-slate-500">Без срока</p>
           )}
           <HomeworkDueBadge dueAt={page.due_at} submission={submission} />
-          {submission && <HomeworkSubmissionStatusBadge submission={submission} />}
+          {submission && (
+            <HomeworkSubmissionStatusBadge
+              submission={submission}
+              maxScore={page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE}
+            />
+          )}
         </div>
         <h2 className="text-2xl font-bold text-white mt-1">{page.title}</h2>
       </div>
@@ -206,6 +238,7 @@ export function StudentHomeworkPageView({
 
       <HomeworkSubmissionSection
         submission={submission}
+        maxScore={page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE}
         saving={saving}
         submitError={submitError}
         onSaveDraft={() => upsertSubmission('draft')}

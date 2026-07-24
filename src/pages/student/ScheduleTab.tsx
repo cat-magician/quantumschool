@@ -10,19 +10,93 @@ import {
   formatEventDate,
   formatEventTime,
   getScheduleEmptyMessage,
-  getScheduleRefHint,
   groupEventsByDate,
   isEventActive,
+  isEventEnded,
   sortScheduleEventsAscending,
-  sortScheduleEventsForList,
+  sortScheduleEventsDescending,
 } from '../../lib/scheduleUtils';
 
-type Filter = 'upcoming' | 'all';
+type DateGroup = ReturnType<typeof groupEventsByDate<ScheduleEvent>>[number];
+
+function ScheduleEventCard({ event, isPast }: { event: ScheduleEvent; isPast: boolean }) {
+  return (
+    <div
+      className={
+        isPast
+          ? 'bg-slate-950/40 border border-white/[0.03] rounded-2xl p-5 flex gap-4 opacity-75'
+          : 'bg-slate-900/60 border border-white/5 rounded-2xl p-5 flex gap-4'
+      }
+    >
+      <div className="w-14 flex-shrink-0 text-center">
+        <div className={`text-lg font-bold leading-none ${isPast ? 'text-slate-500' : 'text-white'}`}>
+          {formatEventTime(event.scheduled_at)}
+        </div>
+        <div className="text-xs text-slate-500 mt-1">{formatDuration(event.duration_minutes)}</div>
+      </div>
+      <div className="flex-1 min-w-0 border-l border-white/5 pl-4">
+        <div className="flex flex-wrap items-center gap-2 mb-1">
+          <span
+            className={
+              isPast
+                ? 'text-xs px-2 py-0.5 rounded-md bg-slate-600/15 text-slate-500'
+                : 'text-xs px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300'
+            }
+          >
+            {EVENT_TYPE_LABELS[event.event_type]}
+          </span>
+          {event.group?.name && (
+            <span className="text-xs text-slate-500">{event.group.name}</span>
+          )}
+        </div>
+        <h4 className={`font-semibold mb-1 ${isPast ? 'text-slate-400' : 'text-white'}`}>{event.title}</h4>
+        {event.description && (
+          <p className={`text-sm leading-relaxed ${isPast ? 'text-slate-500' : 'text-slate-400'}`}>
+            {event.description}
+          </p>
+        )}
+        {event.meeting_url && isEventActive(event.scheduled_at, event.duration_minutes) && (
+          <a
+            href={event.meeting_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 mt-2 text-sm text-blue-400 hover:text-blue-300"
+          >
+            <Video className="w-3.5 h-3.5" />
+            Ссылка на занятие
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleDateGroups({ groups, isPast }: { groups: DateGroup[]; isPast: boolean }) {
+  return (
+    <>
+      {groups.map(({ dateLabel, items }) => (
+        <div key={dateLabel}>
+          <h3
+            className={`text-sm font-semibold uppercase tracking-wider mb-3 capitalize ${
+              isPast ? 'text-slate-500' : 'text-slate-400'
+            }`}
+          >
+            {dateLabel}
+          </h3>
+          <div className="space-y-3">
+            {items.map((event) => (
+              <ScheduleEventCard key={event.id} event={event} isPast={isPast} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 export default function StudentScheduleTab() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>('all');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -37,18 +111,18 @@ export default function StudentScheduleTab() {
       });
   }, []);
 
-  const filtered = useMemo(() => {
-    const list = events.filter((e) =>
-      eventMatchesScheduleFilter(e, filter === 'all' ? 'all' : 'upcoming', selectedDate),
-    );
-    return filter === 'all'
-      ? sortScheduleEventsForList(list)
-      : sortScheduleEventsAscending(list);
-  }, [events, filter, selectedDate]);
+  const { upcomingGroups, pastGroups } = useMemo(() => {
+    const list = events.filter((e) => eventMatchesScheduleFilter(e, 'all', selectedDate));
+    const upcoming = list.filter((e) => isEventActive(e.scheduled_at, e.duration_minutes));
+    const past = list.filter((e) => isEventEnded(e.scheduled_at, e.duration_minutes));
+    return {
+      upcomingGroups: groupEventsByDate(sortScheduleEventsAscending(upcoming)),
+      pastGroups: groupEventsByDate(sortScheduleEventsDescending(past)),
+    };
+  }, [events, selectedDate]);
 
-  const refHint = useMemo(() => getScheduleRefHint(filter, selectedDate), [filter, selectedDate]);
-
-  const grouped = useMemo(() => groupEventsByDate(filtered), [filtered]);
+  const hasEvents = upcomingGroups.length > 0 || pastGroups.length > 0;
+  const showPastDivider = upcomingGroups.length > 0 && pastGroups.length > 0;
 
   const nextEvent = useMemo(
     () => sortScheduleEventsAscending(
@@ -59,10 +133,10 @@ export default function StudentScheduleTab() {
 
   const emptyMessage = useMemo(() => {
     if (events.length === 0 && !selectedDate) {
-      return 'Расписание пока пустое — преподаватель добавит занятия';
+      return 'Расписание пока пустое — наставник добавит занятия';
     }
-    return getScheduleEmptyMessage(filter === 'all' ? 'all' : 'upcoming', selectedDate, 'занятий');
-  }, [filter, selectedDate, events.length]);
+    return getScheduleEmptyMessage('all', selectedDate, 'занятий');
+  }, [selectedDate, events.length]);
 
   if (loading) {
     return (
@@ -106,81 +180,24 @@ export default function StudentScheduleTab() {
 
       <div className="grid lg:grid-cols-[1fr_300px] gap-6">
         <div className="space-y-6 min-w-0">
-      <div className="flex gap-2">
-        {([
-          ['all', 'Все'],
-          ['upcoming', 'Предстоящие'],
-        ] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setFilter(id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              filter === id
-                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-                : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {grouped.length === 0 ? (
+      {!hasEvents ? (
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center">
           <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
           <p className="text-slate-400 text-sm">{emptyMessage}</p>
         </div>
       ) : (
         <div className="space-y-8">
-          {grouped.map(({ dateLabel, items }) => (
-            <div key={dateLabel}>
-              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 capitalize">
-                {dateLabel}
-              </h3>
-              <div className="space-y-3">
-                {items.map((event) => (
-                  <div
-                    key={event.id}
-                    className="bg-slate-900/60 border border-white/5 rounded-2xl p-5 flex gap-4"
-                  >
-                    <div className="w-14 flex-shrink-0 text-center">
-                      <div className="text-lg font-bold text-white leading-none">
-                        {formatEventTime(event.scheduled_at)}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        {formatDuration(event.duration_minutes)}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0 border-l border-white/5 pl-4">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-xs px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300">
-                          {EVENT_TYPE_LABELS[event.event_type]}
-                        </span>
-                        {event.group?.name && (
-                          <span className="text-xs text-slate-500">{event.group.name}</span>
-                        )}
-                      </div>
-                      <h4 className="font-semibold text-white mb-1">{event.title}</h4>
-                      {event.description && (
-                        <p className="text-sm text-slate-400 leading-relaxed">{event.description}</p>
-                      )}
-                      {event.meeting_url && isEventActive(event.scheduled_at, event.duration_minutes) && (
-                        <a
-                          href={event.meeting_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 mt-2 text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          <Video className="w-3.5 h-3.5" />
-                          Ссылка на занятие
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <ScheduleDateGroups groups={upcomingGroups} isPast={false} />
+          {showPastDivider && (
+            <div className="flex items-center gap-4 py-1">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-xs text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                Прошедшие
+              </span>
+              <div className="flex-1 h-px bg-white/10" />
             </div>
-          ))}
+          )}
+          <ScheduleDateGroups groups={pastGroups} isPast />
         </div>
       )}
         </div>
@@ -197,16 +214,13 @@ export default function StudentScheduleTab() {
               );
             }}
           />
-          {refHint && (
-            <p className="text-xs text-slate-500 text-center leading-snug">{refHint}</p>
-          )}
           {selectedDate && (
             <button
               type="button"
               onClick={() => setSelectedDate(null)}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors w-full text-center"
             >
-              {filter === 'all' ? 'Показать все даты' : 'Вернуться к сегодня'}
+              Показать все даты
             </button>
           )}
         </div>

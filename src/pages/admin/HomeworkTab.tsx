@@ -11,9 +11,15 @@ import {
   studentGroupMap,
 } from '../../lib/groupUtils';
 import {
+  formatHomeworkScoreShort,
+  formatHomeworkScoreValue,
+  isExcellentHomeworkScore,
   maybeGrantAchievement,
+  normalizeHomeworkScoreInput,
+  parseHomeworkScore,
   SUBMISSION_STATUS_COLORS,
   syncProgressFromGrade,
+  DEFAULT_HOMEWORK_MAX_SCORE,
 } from '../../lib/homeworkUtils';
 import UserAvatar from '../../components/UserAvatar';
 import { homeworkPageLoadError } from '../../lib/homeworkPageLoadError';
@@ -29,14 +35,9 @@ function formatSubmissionWhen(iso: string | null | undefined) {
   }).format(new Date(iso));
 }
 
-/** Пустое поле — не оценка; «0»–«10» — допустимо. */
-function parseGradeScore(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (trimmed === '') return null;
-  if (!/^\d{1,2}$/.test(trimmed)) return null;
-  const n = Number(trimmed);
-  if (!Number.isInteger(n) || n < 0 || n > 10) return null;
-  return n;
+/** Пустое поле — не оценка. */
+function submissionMaxScore(s: HomeworkPageSubmission) {
+  return s.page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE;
 }
 
 function submissionHasGrade(s: HomeworkPageSubmission) {
@@ -74,7 +75,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
         .order('due_at', { ascending: true, nullsFirst: false }),
       supabase
         .from('homework_page_submissions')
-        .select('*, page:homework_pages(id, title)')
+        .select('*, page:homework_pages(id, title, max_score)')
         .in('status', ['submitted', 'graded'])
         .order('submitted_at', { ascending: false }),
       supabase.from('groups').select('*').eq('group_type', 'teacher').order('name'),
@@ -164,7 +165,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
 
   const getGradeDraft = (s: HomeworkPageSubmission) =>
     gradeDrafts[s.id] ?? {
-      score: s.score?.toString() ?? '',
+      score: s.score != null ? formatHomeworkScoreValue(s.score) : '',
       feedback: s.feedback ?? '',
     };
 
@@ -175,7 +176,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   ) => {
     setGradeDrafts((prev) => {
       const current = prev[id] ?? {
-        score: fallback?.score?.toString() ?? '',
+        score: fallback?.score != null ? formatHomeworkScoreValue(fallback.score) : '',
         feedback: fallback?.feedback ?? '',
       };
       return { ...prev, [id]: { ...current, ...patch } };
@@ -184,9 +185,10 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
 
   const gradeSubmission = async (s: HomeworkPageSubmission) => {
     const draft = getGradeDraft(s);
-    const score = parseGradeScore(draft.score);
+    const maxScore = submissionMaxScore(s);
+    const score = parseHomeworkScore(draft.score, maxScore);
     if (score === null) {
-      toast('Укажите оценку от 0 до 10', 'warning');
+      toast(`Укажите оценку от 0 до ${formatHomeworkScoreValue(maxScore)}`, 'warning');
       return;
     }
     const feedback = draft.feedback.trim().slice(0, 1000);
@@ -203,7 +205,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
         updated_at: new Date().toISOString(),
       })
       .eq('id', s.id)
-      .select('*, page:homework_pages(id, title)')
+      .select('*, page:homework_pages(id, title, max_score)')
       .single();
 
     if (err || !updated) {
@@ -214,16 +216,17 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
 
     const title = s.page?.title ?? 'Домашнее задание';
     const idx = pages.findIndex((p) => p.id === s.page_id);
-    await syncProgressFromGrade(supabase, s.user_id, title, idx >= 0 ? idx : 0, score);
-    if (score >= 8) {
-      await maybeGrantAchievement(supabase, s.user_id, 'Отличная работа', `Оценка ${score}/10 за «${title}»`, 'star');
+    await syncProgressFromGrade(supabase, s.user_id, title, idx >= 0 ? idx : 0, score, maxScore);
+    const scoreLabel = formatHomeworkScoreShort(score, maxScore);
+    if (isExcellentHomeworkScore(score, maxScore)) {
+      await maybeGrantAchievement(supabase, s.user_id, 'Отличная работа', `Оценка ${scoreLabel} за «${title}»`, 'star');
     }
-    await maybeGrantAchievement(supabase, s.user_id, 'ДЗ проверено', `Получена оценка ${score}/10 за «${title}»`, 'check');
+    await maybeGrantAchievement(supabase, s.user_id, 'ДЗ проверено', `Получена оценка ${scoreLabel} за «${title}»`, 'check');
 
     const row = updated as HomeworkPageSubmission;
     setGradeDrafts((prev) => ({
       ...prev,
-      [s.id]: { score: String(score), feedback },
+      [s.id]: { score: formatHomeworkScoreValue(score), feedback },
     }));
     setAllSubmissions((prev) =>
       prev.map((sub) => (
@@ -385,10 +388,13 @@ function SubmissionGradeCard({
   const submittedWhen = formatSubmissionWhen(s.submitted_at);
   const gradedWhen = formatSubmissionWhen(s.graded_at);
   const saving = gradingId === s.id;
-  const scoreValue = parseGradeScore(draft.score);
+  const maxScore = submissionMaxScore(s);
+  const scoreValue = parseHomeworkScore(draft.score, maxScore);
   const canSave = scoreValue !== null && !saving;
   const badgeClass = hasGrade ? SUBMISSION_STATUS_COLORS.graded : SUBMISSION_STATUS_COLORS.submitted;
-  const badgeLabel = hasGrade && s.score !== null ? `${s.score}/10` : 'Без оценки';
+  const badgeLabel = hasGrade && s.score !== null
+    ? formatHomeworkScoreShort(s.score, maxScore)
+    : 'Без оценки';
 
   return (
     <div className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden">
@@ -443,19 +449,22 @@ function SubmissionGradeCard({
             <span className="text-xs text-slate-500">Оценка</span>
             <input
               type="text"
-              inputMode="numeric"
-              maxLength={2}
+              inputMode="decimal"
+              maxLength={7}
               value={draft.score}
-              onChange={(e) => onScoreChange(e.target.value.replace(/\D/g, '').slice(0, 2))}
-              className={`w-11 h-9 px-1 rounded-lg bg-slate-950/80 border text-white text-sm text-center font-semibold tabular-nums focus:outline-none [appearance:textfield] ${
+              onChange={(e) => {
+                const next = normalizeHomeworkScoreInput(e.target.value);
+                if (next !== null) onScoreChange(next);
+              }}
+              className={`w-16 h-9 px-1 rounded-lg bg-slate-950/80 border text-white text-sm text-center font-semibold tabular-nums focus:outline-none [appearance:textfield] ${
                 draft.score.trim() !== '' && scoreValue === null
                   ? 'border-rose-500/50 focus:border-rose-500/60'
                   : 'border-white/10 focus:border-blue-500/60'
               }`}
-              aria-label="Оценка от 0 до 10"
+              aria-label={`Оценка от 0 до ${formatHomeworkScoreValue(maxScore)}`}
               aria-invalid={draft.score.trim() !== '' && scoreValue === null}
             />
-            <span className="text-sm text-slate-500">/ 10</span>
+            <span className="text-sm text-slate-500">/ {formatHomeworkScoreValue(maxScore)}</span>
           </div>
           <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
             {!canSave && !saving && draft.score.trim() === '' && (

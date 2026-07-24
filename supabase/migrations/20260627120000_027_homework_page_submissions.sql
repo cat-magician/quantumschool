@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS public.homework_page_submissions (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   answer_text text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'graded')),
-  score smallint CHECK (score IS NULL OR (score >= 0 AND score <= 10)),
+  score numeric(6,2) CHECK (score IS NULL OR (score >= 0 AND score <= 1000)),
   feedback text NOT NULL DEFAULT '',
   graded_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   submitted_at timestamptz,
@@ -50,3 +50,13 @@ CREATE POLICY "Students update own homework page submissions" ON public.homework
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_page ON public.homework_page_submissions (page_id);
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_user ON public.homework_page_submissions (user_id);
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_status ON public.homework_page_submissions (status);
+
+ALTER TABLE public.homework_page_submissions
+  DROP CONSTRAINT IF EXISTS homework_page_submissions_score_check;
+
+ALTER TABLE public.homework_page_submissions
+  ALTER COLUMN score TYPE numeric(6,2) USING score::numeric(6,2);
+
+ALTER TABLE public.homework_page_submissions
+  ADD CONSTRAINT homework_page_submissions_score_check
+    CHECK (score IS NULL OR (score >= 0 AND score <= 1000));

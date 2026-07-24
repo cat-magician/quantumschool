@@ -1668,6 +1668,7 @@ CREATE TABLE IF NOT EXISTS public.homework_pages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
   due_at timestamptz,
+  max_score numeric(6,2) NOT NULL DEFAULT 10 CHECK (max_score > 0 AND max_score <= 1000),
   is_published boolean NOT NULL DEFAULT false,
   created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -1688,6 +1689,9 @@ ALTER TABLE public.homework_page_blocks ENABLE ROW LEVEL SECURITY;
 
 CREATE INDEX IF NOT EXISTS idx_homework_pages_due_at ON public.homework_pages (due_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_homework_page_blocks_page ON public.homework_page_blocks (page_id, sort_order);
+
+ALTER TABLE public.homework_pages
+  ADD COLUMN IF NOT EXISTS max_score numeric(6,2) NOT NULL DEFAULT 10;
 
 DROP POLICY IF EXISTS "Staff manage homework pages" ON public.homework_pages;
 DROP POLICY IF EXISTS "Staff manage homework pages" ON public.homework_pages;
@@ -1755,7 +1759,7 @@ CREATE TABLE IF NOT EXISTS public.homework_page_submissions (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   answer_text text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'graded')),
-  score smallint CHECK (score IS NULL OR (score >= 0 AND score <= 10)),
+  score numeric(6,2) CHECK (score IS NULL OR (score >= 0 AND score <= 1000)),
   feedback text NOT NULL DEFAULT '',
   graded_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   submitted_at timestamptz,
@@ -1802,6 +1806,16 @@ CREATE POLICY "Students update own homework page submissions" ON public.homework
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_page ON public.homework_page_submissions (page_id);
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_user ON public.homework_page_submissions (user_id);
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_status ON public.homework_page_submissions (status);
+
+ALTER TABLE public.homework_page_submissions
+  DROP CONSTRAINT IF EXISTS homework_page_submissions_score_check;
+
+ALTER TABLE public.homework_page_submissions
+  ALTER COLUMN score TYPE numeric(6,2) USING score::numeric(6,2);
+
+ALTER TABLE public.homework_page_submissions
+  ADD CONSTRAINT homework_page_submissions_score_check
+    CHECK (score IS NULL OR (score >= 0 AND score <= 1000));
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260628120000_028_homework_submission_blocks.sql

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS public.homework_pages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
   due_at timestamptz,
+  max_score numeric(6,2) NOT NULL DEFAULT 10 CHECK (max_score > 0 AND max_score <= 1000),
   is_published boolean NOT NULL DEFAULT false,
   created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -26,6 +27,9 @@ ALTER TABLE public.homework_page_blocks ENABLE ROW LEVEL SECURITY;
 
 CREATE INDEX IF NOT EXISTS idx_homework_pages_due_at ON public.homework_pages (due_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_homework_page_blocks_page ON public.homework_page_blocks (page_id, sort_order);
+
+ALTER TABLE public.homework_pages
+  ADD COLUMN IF NOT EXISTS max_score numeric(6,2) NOT NULL DEFAULT 10;
 
 DROP POLICY IF EXISTS "Staff manage homework pages" ON public.homework_pages;
 CREATE POLICY "Staff manage homework pages" ON public.homework_pages
