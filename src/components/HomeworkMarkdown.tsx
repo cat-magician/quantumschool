@@ -15,6 +15,7 @@ const PROSE =
   '[&_pre]:my-3 [&_pre]:p-3 [&_pre]:rounded-xl [&_pre]:bg-slate-950 [&_pre]:border [&_pre]:border-white/10 [&_pre]:overflow-x-auto ' +
   '[&_blockquote]:border-l-2 [&_blockquote]:border-blue-500/40 [&_blockquote]:pl-4 [&_blockquote]:text-slate-400 ' +
   '[&_a]:text-blue-400 [&_a]:hover:underline ' +
+  '[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-xl [&_img]:border [&_img]:border-white/10 ' +
   '[&_.katex]:inline [&_.katex-display]:my-4 [&_.katex-display]:overflow-x-auto';
 
 /** Markdown + inline LaTeX ($…$) для блоков домашних заданий. */

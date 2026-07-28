@@ -20,7 +20,6 @@ import {
   type StudentRow,
 } from '../../lib/groupUtils';
 import { SearchableActionList, SearchableCheckboxList, type PickerRow } from '../../components/SearchablePicker';
-
 type ActiveView = 'enrolled' | string;
 
 export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {

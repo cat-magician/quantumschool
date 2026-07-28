@@ -238,7 +238,7 @@ export default function ProfilePage() {
               <input
                 value={form.display_name}
                 onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
-                placeholder="Как вас зовут — необязательно"
+                placeholder="Как вас зовут"
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
               />
               <p className="text-xs text-slate-500 leading-relaxed">
@@ -261,7 +261,7 @@ export default function ProfilePage() {
               <MapPin className="w-3.5 h-3.5" />
               О себе
             </h2>
-            <p className="text-sm text-slate-500">Необязательно. Преподаватели видят эти поля в карточке участника.</p>
+            <p className="text-sm text-slate-500">Преподаватели видят эти поля в карточке участника.</p>
             {editing ? (
               <div className="space-y-3">
                 <input

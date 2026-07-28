@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar, GraduationCap, Loader2, UserCheck, UserX,
 } from 'lucide-react';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
@@ -213,6 +215,7 @@ export default function TeachersTab() {
         <p className="text-slate-400 text-sm">
           Мониторинг штата преподавания — в первую очередь работы на проверке.
         </p>
+        <SectionHint text={SECTION_HINT.admin.teachers} className="mt-1.5" />
       </div>
 
       <section className="space-y-3">

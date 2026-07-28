@@ -32,7 +32,6 @@ export async function markStageSubmitted(
   supabase: import('@supabase/supabase-js').SupabaseClient,
   userId: string,
   stage: 1 | 2,
-  options?: { essayPublished?: boolean; contestPublished?: boolean },
 ) {
   const field = stage === 1 ? 'stage1_status' : 'stage2_status';
   const atField = stage === 1 ? 'stage1_submitted_at' : 'stage2_submitted_at';
@@ -47,14 +46,6 @@ export async function markStageSubmitted(
 
   const current = (data as ProfileFields | null)?.[field];
   if (current !== 'pending') return { error: 'Уже отмечено' };
-
-  if (stage === 1 && !options?.essayPublished) {
-    return { error: 'Форма ещё не опубликована' };
-  }
-
-  if (stage === 2 && !options?.contestPublished) {
-    return { error: 'Контест ещё не опубликован' };
-  }
 
   return supabase.from('user_profiles').update({
     [field]: 'submitted',

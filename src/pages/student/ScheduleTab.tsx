@@ -16,7 +16,6 @@ import {
   sortScheduleEventsAscending,
   sortScheduleEventsDescending,
 } from '../../lib/scheduleUtils';
-
 type DateGroup = ReturnType<typeof groupEventsByDate<ScheduleEvent>>[number];
 
 function ScheduleEventCard({ event, isPast }: { event: ScheduleEvent; isPast: boolean }) {

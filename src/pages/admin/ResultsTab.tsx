@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle, GraduationCap, Loader2, MapPin, Save, School, Search, UserPlus, UserX,
 } from 'lucide-react';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import { supabase } from '../../lib/supabase';
 import type { UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
@@ -166,6 +168,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
         <p className="text-slate-400 text-sm">
           {students.length} участников · выставляйте оценки и принимайте решение о зачислении
         </p>
+        <SectionHint text={SECTION_HINT.admin.results} className="mt-1.5" />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">

@@ -3,16 +3,26 @@ import { ChevronDown, ChevronUp, Loader2, Plus, Save, Trash2 } from 'lucide-reac
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import { DEFAULT_LANDING_CONFIG, fetchLandingConfig, formatHeroBadgeText, saveLandingConfig } from '../../lib/landingConfig';
+import {
+  DEFAULT_COMMUNITY_CONFIG,
+  fetchCommunityConfig,
+  normalizeTelegramInviteUrl,
+  saveCommunityConfig,
+} from '../../lib/communityConfig';
 import HeroBadgePill from '../../components/HeroBadgePill';
 import {
   clampInstructorField,
   INSTRUCTOR_BIO_EXPAND_HINT,
   INSTRUCTOR_FIELD_LIMITS,
+  COMMUNITY_FIELD_LIMITS,
 } from '../../lib/siteContentLimits';
 import { supabase } from '../../lib/supabase';
 import type { Instructor } from '../../lib/types';
 import LessonCoverImage from '../../components/LessonCoverImage';
 import InstructorCardPreview, { INSTRUCTOR_CARD_WIDTH } from '../../components/InstructorCardPreview';
+import ImageSourceInput from '../../components/ImageSourceInput';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 
 type InstructorDraft = {
   id?: string;
@@ -37,12 +47,15 @@ export default function SiteContentTab() {
   const { user } = useAuth();
   const { confirm } = useAppDialog();
   const [badgeText, setBadgeText] = useState(DEFAULT_LANDING_CONFIG.hero_badge_text);
+  const [telegramUrl, setTelegramUrl] = useState(DEFAULT_COMMUNITY_CONFIG.telegram_invite_url);
+  const [telegramMessage, setTelegramMessage] = useState(DEFAULT_COMMUNITY_CONFIG.telegram_invite_message);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [drafts, setDrafts] = useState<Record<string, InstructorDraft>>({});
   const [newDraft, setNewDraft] = useState<InstructorDraft | null>(null);
   const [expandedId, setExpandedId] = useState<string | 'new' | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingBadge, setSavingBadge] = useState(false);
+  const [savingTelegram, setSavingTelegram] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -52,12 +65,15 @@ export default function SiteContentTab() {
   const load = async () => {
     setLoading(true);
     setError('');
-    const [landingConfig, instructorsRes] = await Promise.all([
+    const [landingConfig, communityConfig, instructorsRes] = await Promise.all([
       fetchLandingConfig(),
+      fetchCommunityConfig(),
       supabase.from('instructors').select('*').order('sort_order'),
     ]);
 
     setBadgeText(landingConfig.hero_badge_text);
+    setTelegramUrl(communityConfig.telegram_invite_url);
+    setTelegramMessage(communityConfig.telegram_invite_message);
     const rows = (instructorsRes.data ?? []) as Instructor[];
     setInstructors(rows);
     setDrafts(
@@ -114,6 +130,38 @@ export default function SiteContentTab() {
 
     flash('Плашка опубликована на главной');
     setBadgeText(trimmed);
+    await load();
+  };
+
+  const handleSaveTelegram = async () => {
+    if (!user) return;
+    const trimmedUrl = telegramUrl.trim();
+    if (trimmedUrl && !normalizeTelegramInviteUrl(trimmedUrl)) {
+      setError('Ссылка на Telegram должна быть вида https://t.me/… или t.me/+…');
+      return;
+    }
+    if (!telegramMessage.trim()) {
+      setError('Добавьте текст сообщения для учеников');
+      return;
+    }
+
+    setSavingTelegram(true);
+    setError('');
+    const { error: saveError } = await saveCommunityConfig(
+      {
+        telegram_invite_url: trimmedUrl,
+        telegram_invite_message: telegramMessage.slice(0, COMMUNITY_FIELD_LIMITS.telegramMessage),
+      },
+      user.id,
+    );
+    setSavingTelegram(false);
+
+    if (saveError) {
+      setError('Не удалось сохранить. Примените миграцию community_config в schema.sql.');
+      return;
+    }
+
+    flash('Telegram-канал опубликован для зачисленных учеников');
     await load();
   };
 
@@ -213,10 +261,11 @@ export default function SiteContentTab() {
   return (
     <div className="max-w-5xl space-y-10">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Контент главной страницы</h2>
+        <h2 className="text-xl font-bold text-white mb-1">Контент платформы</h2>
         <p className="text-slate-400 text-sm">
-          Изменения публикуются сразу — посетители увидят их на главной после сохранения.
+          Главная страница сайта и материалы для зачисленных учеников. Изменения публикуются сразу после сохранения.
         </p>
+        <SectionHint text={SECTION_HINT.admin.content} className="mt-1.5" />
       </div>
 
       {(error || success) && (
@@ -256,6 +305,73 @@ export default function SiteContentTab() {
         >
           {savingBadge ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Сохранить и опубликовать плашку
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold text-white mb-1">Telegram-канал для учеников</h3>
+          <p className="text-slate-400 text-sm max-w-2xl">
+            Ссылка и текст показываются только зачисленным участникам — на главной странице личного кабинета
+            и в разделе «Результаты» после зачисления. На публичном сайте канал не отображается.
+          </p>
+        </div>
+
+        <label className="block space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-300">Ссылка-приглашение</span>
+            <FieldCounter value={telegramUrl} max={COMMUNITY_FIELD_LIMITS.telegramUrl} />
+          </div>
+          <input
+            value={telegramUrl}
+            onChange={(e) => setTelegramUrl(e.target.value.slice(0, COMMUNITY_FIELD_LIMITS.telegramUrl))}
+            maxLength={COMMUNITY_FIELD_LIMITS.telegramUrl}
+            className="w-full rounded-xl bg-slate-950/80 border border-white/10 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+            placeholder="https://t.me/+… или t.me/your_channel"
+          />
+          <p className="text-[11px] text-slate-500">
+            Оставьте пустым, чтобы скрыть блок у учеников.
+          </p>
+        </label>
+
+        <label className="block space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-300">Текст для учеников</span>
+            <FieldCounter value={telegramMessage} max={COMMUNITY_FIELD_LIMITS.telegramMessage} />
+          </div>
+          <textarea
+            value={telegramMessage}
+            onChange={(e) => setTelegramMessage(e.target.value.slice(0, COMMUNITY_FIELD_LIMITS.telegramMessage))}
+            maxLength={COMMUNITY_FIELD_LIMITS.telegramMessage}
+            rows={3}
+            className="w-full rounded-xl bg-slate-950/80 border border-white/10 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 resize-y min-h-[4.5rem]"
+            placeholder="Кратко объясните, зачем вступать в канал"
+          />
+        </label>
+
+        {telegramUrl.trim() && normalizeTelegramInviteUrl(telegramUrl) && (
+          <div>
+            <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-2">Как увидят ученики</p>
+            <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-600/15 to-blue-600/5 overflow-hidden">
+              <div className="px-6 py-6">
+                <h4 className="text-lg font-bold text-white mb-1">Telegram-канал кружка</h4>
+                <p className="text-sm text-slate-300 leading-relaxed mb-4">{telegramMessage.trim()}</p>
+                <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-semibold">
+                  Перейти в канал
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSaveTelegram}
+          disabled={savingTelegram}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+        >
+          {savingTelegram ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Сохранить Telegram-канал
         </button>
       </section>
 
@@ -446,15 +562,14 @@ function InstructorEditor({
 
           <label className="block space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-slate-300">Фото (Яндекс.Диск или URL)</span>
+              <span className="text-xs font-medium text-slate-300">Фото</span>
               <FieldCounter value={draft.image_url} max={INSTRUCTOR_FIELD_LIMITS.imageUrl} />
             </div>
-            <input
+            <ImageSourceInput
               value={draft.image_url}
-              onChange={(e) => patch('image_url', e.target.value)}
-              maxLength={INSTRUCTOR_FIELD_LIMITS.imageUrl}
-              className={inputClass}
-              placeholder="https://disk.yandex.ru/i/…"
+              onChange={(image_url) => patch('image_url', clampInstructorField('imageUrl', image_url))}
+              placeholder="https://disk.yandex.ru/i/… или загрузите файл"
+              previewClassName="w-full h-32 rounded-xl object-cover border border-white/10"
             />
             <p className="text-[11px] text-slate-500">На сайте фото занимает верх карточки, обрезается по краям (object-cover).</p>
           </label>

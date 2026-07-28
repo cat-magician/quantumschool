@@ -26,12 +26,15 @@ import type { UserProfile } from '../lib/types';
 import { canStudentUnsubmit, selectionVerdict, studentStagePhase } from '../lib/selectionDisplayUtils';
 import { loadStudentGroupContext, type StudentGroupContext } from '../lib/groupUtils';
 import StudentGroupInfo from '../components/StudentGroupInfo';
+import SectionHint from '../components/SectionHint';
+import { SECTION_HINT, SIDEBAR_HINT } from '../lib/dashboardHelpCopy';
 import StudentScheduleTab from './student/ScheduleTab';
 import StudentLearningTab, { type LearningSubTab } from './student/LearningTab';
 import StudentProgressTab from './student/ProgressTab';
 import YandexFormEmbed from '../components/YandexFormEmbed';
 import StageEmbedFrame from '../components/StageEmbedFrame';
 import DashboardHomePanel from '../components/DashboardHomePanel';
+import TelegramCommunityCard from '../components/TelegramCommunityCard';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 
@@ -346,7 +349,7 @@ export default function StudentDashboard() {
         {!isEnrolled && (
           <div className="px-4 pb-2">
             <p className="text-xs text-slate-500 leading-relaxed px-2">
-              Разделы обучения откроются после зачисления на курс
+              {SIDEBAR_HINT.student_not_enrolled}
             </p>
           </div>
         )}
@@ -476,7 +479,7 @@ export default function StudentDashboard() {
         })}
         {!isEnrolled && (
           <p className="text-xs text-slate-500 leading-relaxed px-4 py-2">
-            Разделы обучения откроются после зачисления на курс
+            {SIDEBAR_HINT.student_not_enrolled}
           </p>
         )}
         <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
@@ -541,10 +544,13 @@ export default function StudentDashboard() {
           />
         )}
 
-        <div className="p-4 sm:p-6 lg:p-8 pb-28 lg:pb-8">
+        <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
           {isEnrolled && groupContext && tab !== 'home' && <StudentGroupInfo context={groupContext} />}
           {tab === 'home' && (
-            <DashboardHomePanel role="student" displayName={displayName} />
+            <div className="space-y-6">
+              <DashboardHomePanel role="student" displayName={displayName} isEnrolled={isEnrolled} />
+              {isEnrolled && <TelegramCommunityCard />}
+            </div>
           )}
           {tab === 'selection' && profile && (
             <SelectionTab
@@ -581,12 +587,13 @@ function SelectionTab({
     if (!profile) return;
     setMarking(stage);
     setMarkError('');
-    const { error } = await markStageSubmitted(supabase, profile.id, stage, {
-      essayPublished,
-      contestPublished,
-    });
-    if (error) setMarkError(typeof error === 'string' ? error : 'Не удалось сохранить');
-    else await onRefresh();
+    const { error } = await markStageSubmitted(supabase, profile.id, stage);
+    if (error) {
+      const msg = typeof error === 'string' ? error : (error as { message?: string }).message;
+      setMarkError(msg || 'Не удалось сохранить');
+    } else {
+      await onRefresh();
+    }
     setMarking(null);
   };
 
@@ -605,8 +612,12 @@ function SelectionTab({
     setQuestionnaireMarking(true);
     setMarkError('');
     const { error } = await markQuestionnaireSubmitted(supabase, profile.id);
-    if (error) setMarkError('Не удалось сохранить');
-    else await onRefresh();
+    if (error) {
+      const msg = typeof error === 'string' ? error : (error as { message?: string }).message;
+      setMarkError(msg || 'Не удалось сохранить');
+    } else {
+      await onRefresh();
+    }
     setQuestionnaireMarking(false);
   };
 
@@ -639,6 +650,11 @@ function SelectionTab({
 
   return (
     <div className="max-w-3xl space-y-6">
+      {markError && (
+        <p className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+          {markError}
+        </p>
+      )}
       {subTab === 'stage1' && (
         <div className="space-y-6">
           <div>
@@ -646,12 +662,13 @@ function SelectionTab({
             <p className="text-slate-400 leading-relaxed">
               Заполните анкету и отправьте мотивационное эссе.
             </p>
+            <SectionHint text={SECTION_HINT.student.selectionStage1} className="mt-2" />
           </div>
 
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Анкета участника</h2>
             <p className="text-slate-400 leading-relaxed mb-5">
-              Укажите контактные и анкетные данные. Согласие на обработку персональных данных подтверждается в форме.
+              Заполните анкету в форме ниже.
             </p>
           </div>
 
@@ -665,14 +682,12 @@ function SelectionTab({
               {!profile.questionnaire_submitted_at ? (
                 <>
                   <p className="text-sm text-slate-400 mb-3">
-                    {questionnairePublished
-                      ? 'После отправки анкеты в форме нажмите кнопку — преподаватель увидит отметку.'
-                      : 'Кнопка станет доступна после публикации формы.'}
+                    После отправки анкеты в форме нажмите кнопку — преподаватель увидит отметку.
                   </p>
                   <button
                     type="button"
                     onClick={handleQuestionnaireSubmitted}
-                    disabled={questionnaireMarking || !questionnairePublished}
+                    disabled={questionnaireMarking}
                     className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {questionnaireMarking ? 'Сохранение...' : 'Я отправил анкету'}
@@ -711,14 +726,12 @@ function SelectionTab({
               {!stage1Done ? (
                 <>
                   <p className="text-sm text-slate-400 mb-4">
-                    {essayPublished
-                      ? 'После отправки эссе в форме нажмите кнопку — статус обновится автоматически.'
-                      : 'Кнопка подтверждения станет доступна после публикации формы.'}
+                    После отправки эссе в форме нажмите кнопку — статус обновится автоматически.
                   </p>
                   <button
                     type="button"
                     onClick={() => handleMarkSubmitted(1)}
-                    disabled={marking === 1 || !essayPublished}
+                    disabled={marking === 1}
                     className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {marking === 1 ? 'Сохранение...' : 'Я отправил эссе'}
@@ -751,7 +764,6 @@ function SelectionTab({
                   )}
                 </div>
               )}
-              {markError && <p className="text-sm text-rose-400 mt-2">{markError}</p>}
             </div>
           </div>
         </div>
@@ -764,6 +776,7 @@ function SelectionTab({
             <p className="text-slate-400 leading-relaxed">
               Отборочный этап 2 — решение задач в Яндекс.Контесте. После публикации контест откроется в блоке ниже.
             </p>
+            <SectionHint text={SECTION_HINT.student.selectionStage2} className="mt-2" />
           </div>
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
@@ -782,11 +795,7 @@ function SelectionTab({
               <StageComingSoon stage="contest" />
             )}
             <div className="mt-4">
-              {!stage1Done ? (
-                <p className="text-sm text-slate-500">
-                  Сначала отправьте эссе на этапе 1 — затем откроется доступ к контесту.
-                </p>
-              ) : stage2Done ? (
+              {stage2Done ? (
                 <div className="space-y-3">
                   {stage2Phase === 'graded' ? (
                     <>
@@ -815,21 +824,18 @@ function SelectionTab({
               ) : (
                 <>
                   <p className="text-sm text-slate-400 mb-4">
-                    {contestPublished
-                      ? 'После прохождения контеста нажмите кнопку — статус обновится автоматически.'
-                      : 'Кнопка подтверждения станет доступна после публикации контеста.'}
+                    После прохождения контеста нажмите кнопку — статус обновится автоматически.
                   </p>
                   <button
                     type="button"
                     onClick={() => handleMarkSubmitted(2)}
-                    disabled={marking === 2 || !contestPublished}
+                    disabled={marking === 2}
                     className="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {marking === 2 ? 'Сохранение...' : 'Я завершил контест'}
                   </button>
                 </>
               )}
-              {markError && <p className="text-sm text-rose-400 mt-2">{markError}</p>}
             </div>
           </div>
         </div>
@@ -850,6 +856,7 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
       <div>
         <h2 className="text-2xl font-bold text-white mb-2">Результаты</h2>
         <p className="text-slate-400 text-sm">Оценки и решение по зачислению на обучение</p>
+        <SectionHint text={SECTION_HINT.student.selectionResults} className="mt-2" />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -866,17 +873,20 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
       </div>
 
       {verdict === 'accepted' && (
-        <div className="rounded-2xl overflow-hidden border border-emerald-500/30">
-          <div className="bg-gradient-to-br from-emerald-600/20 to-teal-600/10 px-6 py-8 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
+        <div className="space-y-4">
+          <div className="rounded-2xl overflow-hidden border border-emerald-500/30">
+            <div className="bg-gradient-to-br from-emerald-600/20 to-teal-600/10 px-6 py-8 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Вы зачислены!</h3>
+              <p className="text-sm text-emerald-200/90 max-w-md mx-auto leading-relaxed">
+                Поздравляем! Вы прошли отбор и зачислены на обучение в «Квантовый кружок».
+                Разделы «Обучение», «Расписание» и «Прогресс» теперь доступны.
+              </p>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Вы зачислены!</h3>
-            <p className="text-sm text-emerald-200/90 max-w-md mx-auto leading-relaxed">
-              Поздравляем! Вы прошли отбор и зачислены на обучение в «Квантовый кружок».
-              Разделы «Обучение», «Расписание» и «Прогресс» теперь доступны.
-            </p>
           </div>
+          <TelegramCommunityCard compact />
         </div>
       )}
 

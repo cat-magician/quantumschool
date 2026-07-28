@@ -15,8 +15,7 @@ import {
   LogOut, Users, ClipboardList, BookOpenCheck, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe,
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
-import SelectionEssayConfigTab from './admin/SelectionEssayConfigTab';
-import SelectionQuestionnaireConfigTab from './admin/SelectionQuestionnaireConfigTab';
+import SelectionStage1ConfigTab from './admin/SelectionStage1ConfigTab';
 import SelectionContestConfigTab from './admin/SelectionContestConfigTab';
 import StudentsTab from './admin/StudentsTab';
 import TeachersTab from './admin/TeachersTab';
@@ -26,12 +25,13 @@ import ScheduleTab from './admin/ScheduleTab';
 import StatisticsTab from './admin/StatisticsTab';
 import SiteContentTab from './admin/SiteContentTab';
 import DashboardHomePanel from '../components/DashboardHomePanel';
+import { SIDEBAR_HINT } from '../lib/dashboardHelpCopy';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import UserAvatar from '../components/UserAvatar';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 
 type AdminTab = 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
-type SelectionAdminSubTab = 'essay' | 'questionnaire' | 'contest' | 'results';
+type SelectionAdminSubTab = 'stage1' | 'contest' | 'results';
 type LearningAdminSubTab = 'lectures' | 'seminars' | 'homework';
 
 const SELECTION_ADMIN_SUB_NAV: {
@@ -39,15 +39,13 @@ const SELECTION_ADMIN_SUB_NAV: {
   label: string;
   icon: typeof FileText;
 }[] = [
-  { id: 'questionnaire', label: 'Этап 1: Анкета', icon: ClipboardList },
-  { id: 'essay', label: 'Этап 1: Эссе', icon: FileText },
+  { id: 'stage1', label: 'Этап 1', icon: ClipboardList },
   { id: 'contest', label: 'Этап 2: Задачи', icon: FlaskConical },
   { id: 'results', label: 'Результаты', icon: CheckCircle },
 ];
 
 const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
-  essay: 'Этап 1: Эссе',
-  questionnaire: 'Этап 1: Анкета',
+  stage1: 'Этап 1',
   contest: 'Этап 2: Задачи',
   results: 'Результаты',
 };
@@ -135,7 +133,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     { id: 'learning', icon: BookOpenCheck, label: 'Обучение' },
     { id: 'schedule', icon: Calendar, label: 'Расписание' },
     { id: 'statistics', icon: BarChart3, label: 'Статистика' },
-    { id: 'site', icon: Globe, label: 'Сайт', superAdminOnly: true },
+    { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
   ];
 
   const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
@@ -314,6 +312,12 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           })}
         </nav>
 
+        <div className="px-4 pb-2">
+          <p className="text-xs text-slate-500 leading-relaxed px-2">
+            {isSuperAdmin ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
+          </p>
+        </div>
+
         <div className="p-4 border-t border-white/5">
           <button
             type="button"
@@ -438,6 +442,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             </button>
           );
         })}
+        <p className="text-xs text-slate-500 leading-relaxed px-4 py-2">
+          {isSuperAdmin ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
+        </p>
         <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
           <button
             type="button"
@@ -496,15 +503,14 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           />
         )}
 
-        <div className="p-4 sm:p-6 lg:p-8 pb-28 lg:pb-8">
+        <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
           {tab === 'home' && (
             <DashboardHomePanel
               role={isSuperAdmin ? 'superadmin' : 'admin'}
               displayName={displayName}
             />
           )}
-          {tab === 'results' && isSuperAdmin && selectionSubTab === 'essay' && <SelectionEssayConfigTab />}
-          {tab === 'results' && isSuperAdmin && selectionSubTab === 'questionnaire' && <SelectionQuestionnaireConfigTab />}
+          {tab === 'results' && isSuperAdmin && selectionSubTab === 'stage1' && <SelectionStage1ConfigTab />}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'contest' && <SelectionContestConfigTab />}
           {tab === 'results' && (isSuperAdmin ? selectionSubTab === 'results' : true) && (
             <ResultsTab isSuperAdmin={isSuperAdmin} />

@@ -215,6 +215,14 @@ export interface LandingConfig {
   updated_by: string | null;
 }
 
+export interface CommunityConfig {
+  id: number;
+  telegram_invite_url: string;
+  telegram_invite_message: string;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
 export type LessonPageType = 'lecture' | 'seminar';
 
 export type LessonBlockType = 'recording' | 'text' | 'materials' | 'homework_link';

@@ -40,7 +40,7 @@ export default function DashboardMobileNav({
     <>
       <div className="lg:hidden fixed bottom-0 inset-x-0 z-20 bg-slate-900/95 backdrop-blur-md border-t border-white/5 pb-[env(safe-area-inset-bottom,0px)]">
         <div className="flex items-stretch">
-          <div className="flex-1 min-w-0 relative">
+          <div className="flex-1 min-w-0 relative pr-16">
             <div className="flex overflow-x-auto scrollbar-site">
               {items.map((item) => (
                 <button

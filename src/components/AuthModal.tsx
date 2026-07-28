@@ -40,7 +40,6 @@ export default function AuthModal({ onClose }: AuthModalProps) {
 
         <p className="mt-6 text-center text-xs text-slate-500 leading-relaxed">
           Если аккаунта ещё нет, он создастся при первом входе.
-          Согласие на обработку данных запросим один раз после входа.
         </p>
       </div>
     </div>

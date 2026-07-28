@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Eye, Pencil } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Eye, ImagePlus, Loader2, Pencil } from 'lucide-react';
+import { useAuth } from '../lib/AuthContext';
+import { uploadContentImage } from '../lib/contentImageUtils';
 import MarkdownContent from './MarkdownContent';
 import HomeworkMarkdown from './HomeworkMarkdown';
 
@@ -9,18 +11,56 @@ export default function MarkdownEditor({
   placeholder,
   rows = 10,
   preparePreview,
+  allowImageUpload = true,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   rows?: number;
   preparePreview?: (value: string) => string;
+  allowImageUpload?: boolean;
 }) {
+  const { user } = useAuth();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const insertImageMarkdown = (url: string) => {
+    const snippet = `\n\n![изображение](${url})\n\n`;
+    const el = textareaRef.current;
+    if (el) {
+      const start = el.selectionStart ?? value.length;
+      const end = el.selectionEnd ?? value.length;
+      const next = value.slice(0, start) + snippet + value.slice(end);
+      onChange(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        const pos = start + snippet.length;
+        el.setSelectionRange(pos, pos);
+      });
+      return;
+    }
+    onChange(value.trim() ? `${value.trim()}${snippet}` : snippet.trim());
+  };
+
+  const handleImageFile = async (file: File | null) => {
+    if (!file || !user) return;
+    setUploading(true);
+    setUploadError('');
+    const { url, error } = await uploadContentImage(user.id, file);
+    setUploading(false);
+    if (error) {
+      setUploadError(error);
+      return;
+    }
+    if (url) insertImageMarkdown(url);
+  };
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         <button
           type="button"
           onClick={() => setMode('edit')}
@@ -45,10 +85,34 @@ export default function MarkdownEditor({
           <Eye className="w-3 h-3" />
           Просмотр
         </button>
+        {allowImageUpload && mode === 'edit' && (
+          <>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading || !user}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-300 border border-white/10 hover:bg-white/5 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImagePlus className="w-3 h-3" />}
+              {uploading ? 'Загрузка…' : 'Картинка'}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                void handleImageFile(e.target.files?.[0] ?? null);
+                e.target.value = '';
+              }}
+            />
+          </>
+        )}
       </div>
 
       {mode === 'edit' ? (
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
@@ -69,8 +133,10 @@ export default function MarkdownEditor({
         </div>
       )}
 
+      {uploadError && <p className="text-[11px] text-rose-400">{uploadError}</p>}
+
       <p className="text-[11px] text-slate-600">
-        Поддерживается Markdown и формулы LaTeX: $inline$ и $$блок$$
+        Поддерживается Markdown и формулы LaTeX: $inline$ и $$блок$$. Картинки — кнопкой «Картинка» или ссылкой.
       </p>
     </div>
   );

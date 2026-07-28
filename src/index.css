@@ -210,4 +210,14 @@ body {
       animation: none !important;
     }
   }
+
+  /* Плашка Bolt на бесплатном тарифе — поднимаем над нижней навигацией кабинета */
+  @media (max-width: 1023px) {
+    #bolt-watermark,
+    a[href*="bolt.new"][target="_blank"],
+    a[href*="bolt.host"][target="_blank"] {
+      bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)) !important;
+      z-index: 15 !important;
+    }
+  }
 }

@@ -4,12 +4,6 @@ import { StudentHomeworkList, StudentHomeworkPageView } from '../../components/S
 
 export type LearningSubTab = 'lectures' | 'seminars' | 'homework';
 
-const SUB_DESCRIPTIONS: Record<LearningSubTab, string> = {
-  lectures: 'Записи, материалы и конспекты лекций.',
-  seminars: 'Записи, материалы и конспекты семинаров.',
-  homework: 'Домашние задания — условие, сдача через форму или контест и подтверждение отправки.',
-};
-
 export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab }) {
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const [openHomeworkId, setOpenHomeworkId] = useState<string | null>(null);
@@ -39,8 +33,6 @@ export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab 
 
   return (
     <div className="max-w-3xl space-y-6">
-      <p className="text-slate-400 text-sm leading-relaxed">{SUB_DESCRIPTIONS[subTab]}</p>
-
       {subTab === 'lectures' && (
         <StudentLessonList lessonType="lecture" onOpen={setOpenLessonId} />
       )}

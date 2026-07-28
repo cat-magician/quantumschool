@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Calendar, Clock, Loader2, Pencil, Plus, Trash2, Video, X,
 } from 'lucide-react';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import MonthCalendar from '../../components/MonthCalendar';
 import {
   FormDatetime,
@@ -217,8 +219,9 @@ export default function ScheduleTab() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <p className="text-slate-400 text-sm">
-            Создавайте лекции и семинары — зачисленные ученики увидят их в своём расписании
+            Календарь событий для зачисленных учеников — созвоны, лекции в эфире и другие активности.
           </p>
+          <SectionHint text={SECTION_HINT.admin.schedule} className="mt-1.5" />
         </div>
         <button
           onClick={openCreate}

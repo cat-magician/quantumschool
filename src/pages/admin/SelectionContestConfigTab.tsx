@@ -8,6 +8,8 @@ import {
 } from '../../lib/selectionConfig';
 import StageEmbedFrame from '../../components/StageEmbedFrame';
 import StageComingSoon from '../../components/StageComingSoon';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 
 export default function SelectionContestConfigTab() {
   const { user } = useAuth();
@@ -82,6 +84,7 @@ export default function SelectionContestConfigTab() {
         <p className="text-slate-400 text-sm">
           Ссылка на Яндекс.Контест. После публикации контест откроется у учеников во встроенном фрейме.
         </p>
+        <SectionHint text={SECTION_HINT.admin.selectionContest} className="mt-1.5" />
       </div>
 
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">

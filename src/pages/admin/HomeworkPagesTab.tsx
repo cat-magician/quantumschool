@@ -30,7 +30,7 @@ import HomeworkPageCard from '../../components/HomeworkPageCard';
 import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
 import BlockPlaceholder from '../../components/BlockPlaceholder';
-
+import ImageSourceInput from '../../components/ImageSourceInput';
 type EditorBlock = {
   id: string;
   block_type: HomeworkBlockType;
@@ -522,8 +522,7 @@ export default function HomeworkPagesTab() {
   return (
     <div className="space-y-6 max-w-4xl">
       <p className="text-slate-400 text-sm">
-        Страницы домашних заданий: условие (Markdown, картинки, видео) и сдача через Яндекс.Форму или Контест.
-        Список: сначала черновики, затем по сроку сдачи (ближайшие сверху).
+        Условие, срок сдачи и сдача через форму или контест. Проверка — во вкладке «Проверка».
       </p>
 
       {loadError && (
@@ -605,11 +604,11 @@ function BlockEditor({
 
       {block.block_type === 'image' && (
         <div className="space-y-2">
-          <input
+          <ImageSourceInput
             value={block.content.url ?? ''}
-            onChange={(e) => onContentChange({ url: e.target.value })}
-            placeholder="URL изображения"
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+            onChange={(url) => onContentChange({ url })}
+            placeholder="URL или загрузите файл"
+            previewClassName="max-w-full rounded-xl border border-white/10"
           />
           <input
             value={block.content.caption ?? ''}
@@ -617,15 +616,7 @@ function BlockEditor({
             placeholder="Подпись (необязательно)"
             className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
           />
-          {block.content.url?.trim() ? (
-            <img
-              src={block.content.url.trim()}
-              alt={block.content.caption || 'Предпросмотр'}
-              className="max-w-full rounded-xl border border-white/10"
-            />
-          ) : (
-            <BlockPlaceholder variant="image" />
-          )}
+          {!block.content.url?.trim() && <BlockPlaceholder variant="image" />}
         </div>
       )}
 

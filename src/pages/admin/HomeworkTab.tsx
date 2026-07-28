@@ -23,6 +23,8 @@ import UserAvatar from '../../components/UserAvatar';
 import { profileEmail } from '../../lib/profileUtils';
 import { homeworkPageLoadError } from '../../lib/homeworkPageLoadError';
 import HomeworkPagesTab from './HomeworkPagesTab';
+import SectionHint from '../../components/SectionHint';
+import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 
 type Section = 'pages' | 'grading';
 type GradingFilter = 'all' | 'ungraded' | 'graded';
@@ -270,13 +272,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
         <HomeworkPagesTab />
       ) : (
         <div className="space-y-6">
-          <p className="text-slate-400 text-sm">
-            Список сданных работ учеников. У каждой работы одно из двух состояний:
-            {' '}<span className="text-amber-300/90">без вашей оценки</span>
-            {' '}или{' '}
-            <span className="text-emerald-300/90">с оценкой</span>.
-            Черновики ученика здесь не показываются.
-          </p>
+          <SectionHint text={SECTION_HINT.admin.homeworkGrading} />
 
           <div className="flex flex-wrap gap-2">
             {([

@@ -37,8 +37,8 @@ export default function PrivacyConsentGate() {
 
         <h1 className="text-xl font-bold text-white text-center mb-2">Добро пожаловать!</h1>
         <p className="text-slate-400 text-sm text-center mb-6 leading-relaxed">
-          Это ваш первый вход. Имя и почта из Яндекс ID будут отображаться в личном кабинете —
-          подтвердите согласие на обработку персональных данных, чтобы продолжить.
+          Это ваш первый вход. Чтобы продолжить, подтвердите согласие на обработку персональных данных
+          в соответствии с политикой сайта.
         </p>
 
         <PrivacyConsent

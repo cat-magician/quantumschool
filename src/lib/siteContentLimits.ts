@@ -6,6 +6,11 @@ export const INSTRUCTOR_FIELD_LIMITS = {
   imageUrl: 500,
 } as const;
 
+export const COMMUNITY_FIELD_LIMITS = {
+  telegramUrl: 300,
+  telegramMessage: 500,
+} as const;
+
 /** Примерно столько символов в описании — на сайте появляется «Читать далее». */
 export const INSTRUCTOR_BIO_EXPAND_HINT = 120;
 

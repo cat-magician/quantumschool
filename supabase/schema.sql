@@ -2557,6 +2557,82 @@ REVOKE ALL ON FUNCTION public.superadmin_delete_user_account(uuid) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION public.sync_oauth_user_profile(boolean, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.superadmin_delete_user_account(uuid) TO authenticated;
 
+-- ══════════════════════════════════════════════════════════════
+-- Изображения контента (обложки, блоки ДЗ, карточки на главной)
+-- ══════════════════════════════════════════════════════════════
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('site-images', 'site-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Staff upload site images" ON storage.objects;
+CREATE POLICY "Staff upload site images" ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'site-images'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Staff update site images" ON storage.objects;
+CREATE POLICY "Staff update site images" ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (
+    bucket_id = 'site-images'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'site-images'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Staff delete site images" ON storage.objects;
+CREATE POLICY "Staff delete site images" ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'site-images'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+-- ══════════════════════════════════════════════════════════════
+-- Telegram-канал для зачисленных учеников (не публичный)
+-- ══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS public.community_config (
+  id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  telegram_invite_url text NOT NULL DEFAULT '',
+  telegram_invite_message text NOT NULL DEFAULT 'Присоединяйтесь к Telegram-каналу кружка — там объявления, напоминания и общение с участниками.',
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+INSERT INTO public.community_config (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.community_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Superadmin manage community config" ON public.community_config;
+CREATE POLICY "Superadmin manage community config" ON public.community_config
+  FOR ALL TO authenticated
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
+
+DROP POLICY IF EXISTS "Enrolled students read community config" ON public.community_config;
+CREATE POLICY "Enrolled students read community config" ON public.community_config
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_profiles up
+      WHERE up.id = auth.uid()
+        AND up.role = 'student'
+        AND up.is_enrolled = true
+    )
+  );
+
 -- Достижения: только триггер, не RPC
 DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
 REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;

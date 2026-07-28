@@ -14,10 +14,10 @@ import {
   defaultBlockContent,
   lessonDateInputValue,
 } from '../../lib/lessonPageUtils';
-import { lessonPageLoadError, lessonPageSaveError } from '../../lib/lessonPageLoadError';
+import { lessonPageLoadError, lessonPageSaveError, isSaveSuccessMessage } from '../../lib/lessonPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import LessonPageCard from '../../components/LessonPageCard';
-import LessonCoverImage from '../../components/LessonCoverImage';
+import ImageSourceInput from '../../components/ImageSourceInput';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
@@ -160,72 +160,75 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
     const now = new Date().toISOString();
     const isPublished = publish ? true : editor.is_published;
 
-    let pageId = editor.id;
+    try {
+      let pageId = editor.id;
 
-    if (!pageId) {
-      const { data: created, error } = await supabase
-        .from('lesson_pages')
-        .insert({
-          title: editor.title.trim(),
-          lesson_type: editor.lesson_type,
-          lesson_date: editor.lesson_date,
-          cover_url: editor.cover_url.trim() || null,
-          is_published: isPublished,
-          created_by: user.id,
-          updated_at: now,
-        })
-        .select('id')
-        .single();
-      if (error || !created) {
-        setSaving(false);
-        setMessage(lessonPageSaveError(error, 'Не удалось создать страницу'));
-        return;
+      if (!pageId) {
+        const { data: created, error } = await supabase
+          .from('lesson_pages')
+          .insert({
+            title: editor.title.trim(),
+            lesson_type: editor.lesson_type,
+            lesson_date: editor.lesson_date,
+            cover_url: editor.cover_url.trim() || null,
+            is_published: isPublished,
+            created_by: user.id,
+            updated_at: now,
+          })
+          .select('id')
+          .single();
+        if (error || !created) {
+          setMessage(lessonPageSaveError(error, 'Не удалось создать страницу'));
+          return;
+        }
+        pageId = created.id;
+      } else {
+        const { error } = await supabase
+          .from('lesson_pages')
+          .update({
+            title: editor.title.trim(),
+            lesson_date: editor.lesson_date,
+            cover_url: editor.cover_url.trim() || null,
+            is_published: isPublished,
+            updated_at: now,
+          })
+          .eq('id', pageId);
+        if (error) {
+          setMessage(lessonPageSaveError(error, 'Не удалось сохранить'));
+          return;
+        }
       }
-      pageId = created.id;
-    } else {
-      const { error } = await supabase
-        .from('lesson_pages')
-        .update({
-          title: editor.title.trim(),
-          lesson_date: editor.lesson_date,
-          cover_url: editor.cover_url.trim() || null,
-          is_published: isPublished,
-          updated_at: now,
-        })
-        .eq('id', pageId);
-      if (error) {
-        setSaving(false);
-        setMessage(lessonPageSaveError(error, 'Не удалось сохранить'));
-        return;
+
+      await supabase.from('lesson_page_blocks').delete().eq('page_id', pageId);
+
+      const blockRows = editor.blocks.map((b, index) => ({
+        page_id: pageId,
+        block_type: b.block_type,
+        sort_order: index,
+        content: b.content,
+      }));
+
+      if (blockRows.length > 0) {
+        const { error: blockError } = await supabase.from('lesson_page_blocks').insert(blockRows);
+        if (blockError) {
+          setMessage(lessonPageSaveError(blockError, 'Страница сохранена, но блоки не записались'));
+          return;
+        }
       }
+
+      setEditor({
+        ...editor,
+        id: pageId,
+        is_published: isPublished,
+      });
+      setMessage(isPublished ? 'Сохранено и опубликовано' : 'Сохранено');
+      loadList();
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      setMessage(lessonPageLoadError(raw) ?? 'Не удалось сохранить');
+    } finally {
+      setSaving(false);
     }
-
-    await supabase.from('lesson_page_blocks').delete().eq('page_id', pageId);
-
-    const blockRows = editor.blocks.map((b, index) => ({
-      page_id: pageId,
-      block_type: b.block_type,
-      sort_order: index,
-      content: b.content,
-    }));
-
-    if (blockRows.length > 0) {
-      const { error: blockError } = await supabase.from('lesson_page_blocks').insert(blockRows);
-      if (blockError) {
-        setSaving(false);
-        setMessage(lessonPageSaveError(blockError, 'Страница сохранена, но блоки не записались'));
-        return;
-      }
-    }
-
-    setSaving(false);
-    setEditor({
-      ...editor,
-      id: pageId,
-      is_published: isPublished,
-    });
-    setMessage(isPublished ? 'Сохранено и опубликовано' : 'Сохранено');
-    loadList();
   };
 
   const unpublish = async () => {
@@ -377,34 +380,18 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-xs text-slate-500">Обложка (ссылка на изображение)</span>
-            <input
+            <span className="text-xs text-slate-500">Обложка</span>
+            <ImageSourceInput
               value={editor.cover_url}
-              onChange={(e) => {
+              onChange={(cover_url) => {
                 setCoverPreviewFailed(false);
-                setEditor({ ...editor, cover_url: e.target.value });
+                setEditor({ ...editor, cover_url });
               }}
-              className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
-              placeholder="https://disk.yandex.ru/i/… или прямая ссылка на .jpg / .png"
+              previewClassName="mt-2 h-24 w-40 rounded-xl object-cover border border-white/10 bg-slate-950"
+              onPreviewError={() => setCoverPreviewFailed(true)}
+              previewFailed={coverPreviewFailed}
             />
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              Поддерживаются публичные ссылки Яндекс.Диска (disk.yandex.ru, yadi.sk) и обычные URL картинок.
-            </p>
-            {editor.cover_url.trim() ? (
-              coverPreviewFailed ? (
-                <p className="text-[11px] text-rose-400 mt-2">
-                  Не удалось загрузить обложку. Проверьте, что файл опубликован и это изображение.
-                </p>
-              ) : (
-                <div className="mt-2 h-24 w-40 rounded-xl overflow-hidden border border-white/10 bg-slate-950">
-                  <LessonCoverImage
-                    url={editor.cover_url.trim()}
-                    className="h-full w-full object-cover"
-                    onError={() => setCoverPreviewFailed(true)}
-                  />
-                </div>
-              )
-            ) : (
+            {!editor.cover_url.trim() && (
               <p className="text-[11px] text-slate-600">Без обложки — градиентная заглушка в списке</p>
             )}
           </label>
@@ -458,7 +445,7 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
         )}
 
         {message && (
-          <p className={`text-sm ${message.includes('Не') ? 'text-rose-400' : 'text-emerald-400'}`}>
+          <p className={`text-sm ${isSaveSuccessMessage(message) ? 'text-emerald-400' : 'text-rose-400'}`}>
             {message}
           </p>
         )}
@@ -510,8 +497,8 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
     <div className="space-y-6 max-w-3xl">
       <p className="text-slate-400 text-sm">
         {lessonType === 'lecture'
-          ? 'Запись, материалы и конспекты лекций для учеников. Не связано с календарём.'
-          : 'Запись, материалы и конспекты семинаров для учеников. Не связано с календарём.'}
+          ? 'Лекции для учеников. Не забудьте «Сохранить и опубликовать».'
+          : 'Семинары для учеников. Не забудьте «Сохранить и опубликовать».'}
       </p>
 
       {loadError && (

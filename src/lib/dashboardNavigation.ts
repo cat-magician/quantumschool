@@ -6,7 +6,7 @@ export type StudentDashboardState = {
 
 export type AdminDashboardState = {
   tab: 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
-  selectionSubTab?: 'essay' | 'questionnaire' | 'contest' | 'results';
+  selectionSubTab?: 'stage1' | 'contest' | 'results';
   learningSubTab?: 'lectures' | 'seminars' | 'homework';
 };
 
@@ -22,7 +22,7 @@ const STUDENT_SELECTION_SUBS = ['stage1', 'stage2', 'results'] as const;
 const STUDENT_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
 
 const ADMIN_TABS = ['home', 'results', 'students', 'teachers', 'learning', 'schedule', 'statistics', 'site'] as const;
-const ADMIN_SELECTION_SUBS = ['questionnaire', 'essay', 'contest', 'results'] as const;
+const ADMIN_SELECTION_SUBS = ['stage1', 'contest', 'results'] as const;
 const ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
 
 function isStudentTab(value: string): value is StudentDashboardState['tab'] {
@@ -42,7 +42,16 @@ function isAdminTab(value: string): value is AdminDashboardState['tab'] {
 }
 
 function isAdminSelectionSub(value: string): value is NonNullable<AdminDashboardState['selectionSubTab']> {
-  return (ADMIN_SELECTION_SUBS as readonly string[]).includes(value);
+  if ((ADMIN_SELECTION_SUBS as readonly string[]).includes(value)) return true;
+  // Обратная совместимость со старыми ссылками
+  return value === 'questionnaire' || value === 'essay';
+}
+
+function normalizeAdminSelectionSub(value: string | undefined): AdminDashboardState['selectionSubTab'] {
+  if (!value) return 'results';
+  if (value === 'questionnaire' || value === 'essay') return 'stage1';
+  if (isAdminSelectionSub(value)) return value as AdminDashboardState['selectionSubTab'];
+  return 'results';
 }
 
 function isAdminLearningSub(value: string): value is NonNullable<AdminDashboardState['learningSubTab']> {
@@ -81,8 +90,8 @@ export function parseAdminDashboardSearchParams(searchParams: URLSearchParams): 
   const state: AdminDashboardState = { tab: tabRaw };
   const subRaw = searchParams.get(DASHBOARD_SUB_PARAM);
 
-  if (tabRaw === 'results' && subRaw && isAdminSelectionSub(subRaw)) {
-    state.selectionSubTab = subRaw;
+  if (tabRaw === 'results' && subRaw) {
+    state.selectionSubTab = normalizeAdminSelectionSub(subRaw);
   }
   if (tabRaw === 'learning' && subRaw && isAdminLearningSub(subRaw)) {
     state.learningSubTab = subRaw;
@@ -142,9 +151,7 @@ export function normalizeAdminDashboardState(
   }
 
   if (normalized.tab === 'results') {
-    if (!normalized.selectionSubTab || !isAdminSelectionSub(normalized.selectionSubTab)) {
-      normalized.selectionSubTab = 'results';
-    }
+    normalized.selectionSubTab = normalizeAdminSelectionSub(normalized.selectionSubTab);
   }
 
   if (normalized.tab === 'learning') {

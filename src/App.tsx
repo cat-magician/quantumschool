@@ -1024,7 +1024,7 @@ function ApplicationForm() {
                 </div>
                 <div>
                   <div className="text-sm text-slate-500">Email</div>
-                  <div className="text-slate-900 font-medium">quantumclub@rqc.ru</div>
+                  <div className="text-slate-900 font-medium">quantumschool@rqc.ru</div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -1080,7 +1080,7 @@ function ApplicationForm() {
                     />
                   ) : (
                     <p className="text-sm text-amber-700 text-center px-4 py-3 bg-amber-50 rounded-xl">
-                      Регистрация через Яндекс ID временно недоступна. Напишите на quantumclub@rqc.ru
+                      Регистрация через Яндекс ID временно недоступна. Напишите на quantumschool@rqc.ru
                     </p>
                   )}
                 </div>
@@ -1110,11 +1110,11 @@ function Footer() {
 
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-x-5 gap-y-2 text-sm text-slate-400">
             <a
-              href="mailto:quantumclub@rqc.ru"
+              href="mailto:quantumschool@rqc.ru"
               className="inline-flex items-center gap-2 hover:text-blue-400 transition-colors break-all"
             >
               <Mail className="w-4 h-4 flex-shrink-0" />
-              quantumclub@rqc.ru
+              quantumschool@rqc.ru
             </a>
             <span className="inline-flex items-start sm:items-center gap-2 break-words">
               <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />

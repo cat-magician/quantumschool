@@ -17,7 +17,6 @@ import {
   SUBMISSION_STATUS_LABELS,
 } from '../../lib/homeworkUtils';
 import AchievementBadgeStrip from '../../components/achievements/AchievementBadgeStrip';
-
 export default function StudentProgressTab() {
   const { user } = useAuth();
   const [publishedPages, setPublishedPages] = useState<Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[]>([]);
