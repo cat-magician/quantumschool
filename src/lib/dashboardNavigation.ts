@@ -6,7 +6,7 @@ export type StudentDashboardState = {
 
 export type AdminDashboardState = {
   tab: 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
-  selectionSubTab?: 'essay' | 'contest' | 'results';
+  selectionSubTab?: 'essay' | 'questionnaire' | 'contest' | 'results';
   learningSubTab?: 'lectures' | 'seminars' | 'homework';
 };
 
@@ -22,7 +22,7 @@ const STUDENT_SELECTION_SUBS = ['stage1', 'stage2', 'results'] as const;
 const STUDENT_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
 
 const ADMIN_TABS = ['home', 'results', 'students', 'teachers', 'learning', 'schedule', 'statistics', 'site'] as const;
-const ADMIN_SELECTION_SUBS = ['essay', 'contest', 'results'] as const;
+const ADMIN_SELECTION_SUBS = ['questionnaire', 'essay', 'contest', 'results'] as const;
 const ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
 
 function isStudentTab(value: string): value is StudentDashboardState['tab'] {
@@ -49,11 +49,11 @@ function isAdminLearningSub(value: string): value is NonNullable<AdminDashboardS
   return (ADMIN_LEARNING_SUBS as readonly string[]).includes(value);
 }
 
-export function defaultStudentDashboardState(_isEnrolled: boolean): StudentDashboardState {
+export function defaultStudentDashboardState(): StudentDashboardState {
   return { tab: 'home' };
 }
 
-export function defaultAdminDashboardState(_isSuperAdmin: boolean): AdminDashboardState {
+export function defaultAdminDashboardState(): AdminDashboardState {
   return { tab: 'home' };
 }
 

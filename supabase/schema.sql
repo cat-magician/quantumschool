@@ -1253,6 +1253,8 @@ CREATE TABLE IF NOT EXISTS public.selection_stage_config (
   id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   essay_form_id text NOT NULL DEFAULT '',
   essay_published boolean NOT NULL DEFAULT false,
+  questionnaire_form_id text NOT NULL DEFAULT '',
+  questionnaire_published boolean NOT NULL DEFAULT false,
   contest_url text NOT NULL DEFAULT '',
   contest_published boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -1923,3 +1925,532 @@ DROP FUNCTION IF EXISTS public.seed_demo_student_state(text, text, text, boolean
 DROP FUNCTION IF EXISTS public.profile_has_selection_edits(uuid);
 DROP FUNCTION IF EXISTS public.create_demo_user(text, text, text, text);
 DROP FUNCTION IF EXISTS public.create_test_user(text, text, text, text);
+
+-- ══════════════════════════════════════════════════════════════
+-- Анкета на этапе 1, allowlist суперадминов по email
+-- ══════════════════════════════════════════════════════════════
+
+ALTER TABLE public.selection_stage_config
+  ADD COLUMN IF NOT EXISTS questionnaire_form_id text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS questionnaire_published boolean NOT NULL DEFAULT false;
+
+-- Адреса с правами суперадмина. Должны совпадать с email, который отдаёт Яндекс ID
+-- при входе. Хранятся в нижнем регистре; сравнение без учёта регистра.
+-- Чтобы добавить суперадмина: допишите адрес в оба списка ниже и прогоните schema.sql.
+CREATE TABLE IF NOT EXISTS public.superadmin_allowlist (
+  email text PRIMARY KEY,
+  CONSTRAINT superadmin_allowlist_email_normalized CHECK (email = lower(trim(email)))
+);
+
+-- Возврат к email после периода, когда allowlist хранил логины
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'superadmin_allowlist' AND column_name = 'login'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'superadmin_allowlist' AND column_name = 'email'
+  ) THEN
+    ALTER TABLE public.superadmin_allowlist RENAME COLUMN login TO email;
+    ALTER TABLE public.superadmin_allowlist DROP CONSTRAINT IF EXISTS superadmin_allowlist_login_normalized;
+    ALTER TABLE public.superadmin_allowlist
+      ADD CONSTRAINT superadmin_allowlist_email_normalized CHECK (email = lower(trim(email)));
+  END IF;
+END $$;
+
+ALTER TABLE public.superadmin_allowlist ENABLE ROW LEVEL SECURITY;
+
+DELETE FROM public.superadmin_allowlist
+WHERE email NOT IN (
+  'marcellau@yandex.ru',
+  'n.tatarinova@rqc.ru',
+  'sokol.dm@phystech.edu'
+);
+
+INSERT INTO public.superadmin_allowlist (email) VALUES
+  ('marcellau@yandex.ru'),
+  ('n.tatarinova@rqc.ru'),
+  ('sokol.dm@phystech.edu')
+ON CONFLICT (email) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.is_allowlisted_superadmin_email(p_email text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.superadmin_allowlist
+    WHERE email = lower(trim(p_email))
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_allowlisted_superadmin_email(text) FROM PUBLIC;
+DROP FUNCTION IF EXISTS public.is_allowlisted_superadmin_login(text);
+DROP FUNCTION IF EXISTS public.is_superadmin_email(text);
+
+-- Синхронизация ролей при повторном прогоне schema.sql
+UPDATE public.user_profiles p
+SET role = 'superadmin', updated_at = now()
+WHERE public.is_allowlisted_superadmin_email(p.email)
+  AND p.role IS DISTINCT FROM 'superadmin';
+
+UPDATE public.user_profiles p
+SET role = 'student', updated_at = now()
+WHERE p.role = 'superadmin'
+  AND NOT public.is_allowlisted_superadmin_email(p.email);
+
+CREATE OR REPLACE FUNCTION public.needs_setup()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT NOT EXISTS (SELECT 1 FROM public.user_profiles WHERE role = 'superadmin');
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.needs_setup() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.needs_setup() TO anon, authenticated;
+
+-- Паролей больше нет: вход только через Яндекс ID
+DROP FUNCTION IF EXISTS public.superadmin_reset_user_password(uuid, text);
+
+-- ══════════════════════════════════════════════════════════════
+-- Security: profile column guards + homework submission RLS
+-- ══════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.guard_user_profile_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Signup trigger / service context (no JWT yet)
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_superadmin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF auth.uid() = NEW.id THEN
+    IF public.is_allowlisted_superadmin_email(COALESCE(NEW.email, '')) THEN
+      NEW.role := 'superadmin';
+    ELSE
+      NEW.role := 'student';
+    END IF;
+    NEW.is_enrolled := false;
+    NEW.stage1_score := NULL;
+    NEW.stage2_score := NULL;
+    NEW.selection_rejected := false;
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'profile_insert_forbidden' USING ERRCODE = '42501';
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.guard_user_profile_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- SQL Editor, demo seeds, auth triggers (no JWT)
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_superadmin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_staff() AND auth.uid() IS DISTINCT FROM OLD.id THEN
+    RETURN NEW;
+  END IF;
+
+  IF auth.uid() = OLD.id THEN
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'role';
+    END IF;
+    IF NEW.is_enrolled IS DISTINCT FROM OLD.is_enrolled THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'is_enrolled';
+    END IF;
+    -- Почту разрешено только подтянуть из Яндекс ID (sync_oauth_user_profile), не подменить
+    IF NEW.email IS DISTINCT FROM OLD.email
+      AND NEW.email IS DISTINCT FROM (SELECT u.email FROM auth.users u WHERE u.id = OLD.id) THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'email';
+    END IF;
+    IF NEW.enrolled_course_id IS DISTINCT FROM OLD.enrolled_course_id THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'enrolled_course_id';
+    END IF;
+    IF NEW.stage1_score IS DISTINCT FROM OLD.stage1_score THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_score';
+    END IF;
+    IF NEW.stage2_score IS DISTINCT FROM OLD.stage2_score THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_score';
+    END IF;
+    IF NEW.selection_rejected IS DISTINCT FROM OLD.selection_rejected THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'selection_rejected';
+    END IF;
+
+    IF NEW.stage1_status IS DISTINCT FROM OLD.stage1_status THEN
+      IF NEW.stage1_status IN ('passed', 'failed')
+        OR NOT (
+          (OLD.stage1_status = 'pending' AND NEW.stage1_status = 'submitted')
+          OR (OLD.stage1_status = 'submitted' AND NEW.stage1_status = 'pending' AND OLD.stage1_score IS NULL)
+        ) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_status';
+      END IF;
+    END IF;
+
+    IF NEW.stage2_status IS DISTINCT FROM OLD.stage2_status THEN
+      IF NEW.stage2_status IN ('passed', 'failed')
+        OR NOT (
+          (OLD.stage2_status = 'pending' AND NEW.stage2_status = 'submitted')
+          OR (OLD.stage2_status = 'submitted' AND NEW.stage2_status = 'pending' AND OLD.stage2_score IS NULL)
+        ) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_status';
+      END IF;
+    END IF;
+
+    IF OLD.stage1_viewed_at IS NOT NULL
+      AND NEW.stage1_viewed_at IS DISTINCT FROM OLD.stage1_viewed_at THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_viewed_at';
+    END IF;
+
+    IF OLD.stage2_viewed_at IS NOT NULL
+      AND NEW.stage2_viewed_at IS DISTINCT FROM OLD.stage2_viewed_at THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_viewed_at';
+    END IF;
+
+    IF NEW.teacher_application IS DISTINCT FROM OLD.teacher_application THEN
+      IF NOT (OLD.teacher_application = false AND NEW.teacher_application = true) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'teacher_application';
+      END IF;
+    END IF;
+
+    IF NEW.teacher_application_rejected IS DISTINCT FROM OLD.teacher_application_rejected THEN
+      IF NOT (OLD.teacher_application_rejected = true AND NEW.teacher_application_rejected = false) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'teacher_application_rejected';
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_user_profile_insert ON public.user_profiles;
+CREATE TRIGGER guard_user_profile_insert
+  BEFORE INSERT ON public.user_profiles
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.guard_user_profile_insert();
+
+DROP TRIGGER IF EXISTS guard_user_profile_update ON public.user_profiles;
+CREATE TRIGGER guard_user_profile_update
+  BEFORE UPDATE ON public.user_profiles
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.guard_user_profile_update();
+
+REVOKE ALL ON FUNCTION public.guard_user_profile_insert() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC;
+
+DROP POLICY IF EXISTS "Students update own draft submissions" ON public.homework_submissions;
+CREATE POLICY "Students update own draft submissions" ON public.homework_submissions
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = user_id AND status IN ('draft', 'submitted'))
+  WITH CHECK (
+    auth.uid() = user_id
+    AND status IN ('draft', 'submitted')
+    AND score IS NULL
+    AND graded_by IS NULL
+    AND graded_at IS NULL
+    AND feedback = ''
+  );
+
+DROP POLICY IF EXISTS "Students insert own submissions" ON public.homework_submissions;
+CREATE POLICY "Students insert own submissions" ON public.homework_submissions
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = user_id
+    AND status IN ('draft', 'submitted')
+    AND score IS NULL
+    AND graded_by IS NULL
+    AND graded_at IS NULL
+    AND feedback = ''
+  );
+
+DROP POLICY IF EXISTS "Students update own homework page submissions" ON public.homework_page_submissions;
+CREATE POLICY "Students update own homework page submissions" ON public.homework_page_submissions
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = user_id AND status IN ('draft', 'submitted'))
+  WITH CHECK (
+    auth.uid() = user_id
+    AND status IN ('draft', 'submitted')
+    AND score IS NULL
+    AND graded_by IS NULL
+    AND graded_at IS NULL
+    AND feedback = ''
+  );
+
+DROP POLICY IF EXISTS "Students insert own homework page submissions" ON public.homework_page_submissions;
+CREATE POLICY "Students insert own homework page submissions" ON public.homework_page_submissions
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = user_id
+    AND status IN ('draft', 'submitted')
+    AND score IS NULL
+    AND graded_by IS NULL
+    AND graded_at IS NULL
+    AND feedback = ''
+  );
+
+-- ══════════════════════════════════════════════════════════════
+-- Security (medium): profile read scope, achievements, auth hardening
+-- ══════════════════════════════════════════════════════════════
+
+DROP POLICY IF EXISTS "Staff can read all profiles" ON public.user_profiles;
+CREATE POLICY "Staff can read all profiles" ON public.user_profiles
+  FOR SELECT TO authenticated
+  USING (
+    public.is_superadmin()
+    OR (
+      public.is_staff()
+      AND (
+        role IN ('admin', 'superadmin')
+        OR public.staff_can_access_student(id)
+        OR (role = 'student' AND is_enrolled = true)
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can insert own achievements" ON public.achievements;
+
+CREATE OR REPLACE FUNCTION public.grant_achievement(
+  target_user_id uuid,
+  p_title text,
+  p_description text DEFAULT '',
+  p_icon text DEFAULT 'award'
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  IF public.is_staff() THEN
+    NULL;
+  ELSIF auth.uid() = target_user_id AND p_title = 'Первое ДЗ' THEN
+    NULL;
+  ELSE
+    RAISE EXCEPTION 'not_allowed' USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.achievements
+    WHERE user_id = target_user_id AND title = p_title
+  ) THEN
+    INSERT INTO public.achievements (user_id, title, description, icon)
+    VALUES (
+      target_user_id,
+      p_title,
+      COALESCE(p_description, ''),
+      COALESCE(NULLIF(trim(p_icon), ''), 'award')
+    );
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.grant_achievement(uuid, text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.grant_achievement(uuid, text, text, text) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.needs_setup() FROM anon;
+GRANT EXECUTE ON FUNCTION public.needs_setup() TO authenticated;
+
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS questionnaire_submitted_at timestamptz;
+
+-- Яндекс ID: имя пользователя из профиля Яндекс-почты
+CREATE OR REPLACE FUNCTION public.extract_oauth_display_name(p_metadata jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(
+    NULLIF(trim(p_metadata->>'full_name'), ''),
+    NULLIF(trim(p_metadata->>'name'), ''),
+    NULLIF(trim(p_metadata->>'real_name'), ''),
+    NULLIF(trim(p_metadata->>'display_name'), ''),
+    NULLIF(trim(
+      COALESCE(NULLIF(trim(p_metadata->>'first_name'), ''), '')
+      || ' '
+      || COALESCE(NULLIF(trim(p_metadata->>'last_name'), ''), '')
+    ), ''),
+    ''
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.extract_oauth_display_name(jsonb) FROM PUBLIC;
+DROP FUNCTION IF EXISTS public.extract_oauth_login(jsonb, text);
+
+CREATE OR REPLACE FUNCTION public.sync_oauth_user_profile(
+  p_privacy_consent boolean DEFAULT false,
+  p_privacy_version text DEFAULT NULL
+)
+RETURNS public.user_profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_user auth.users%ROWTYPE;
+  v_profile public.user_profiles;
+  v_display_name text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_user FROM auth.users WHERE id = auth.uid();
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'user_not_found';
+  END IF;
+
+  v_display_name := public.extract_oauth_display_name(v_user.raw_user_meta_data);
+
+  SELECT * INTO v_profile FROM public.user_profiles WHERE id = auth.uid();
+  IF NOT FOUND THEN
+    INSERT INTO public.user_profiles (id, display_name, role, email)
+    VALUES (
+      auth.uid(),
+      v_display_name,
+      CASE
+        WHEN public.is_allowlisted_superadmin_email(COALESCE(v_user.email, '')) THEN 'superadmin'
+        ELSE 'student'
+      END,
+      v_user.email
+    )
+    RETURNING * INTO v_profile;
+  ELSE
+    UPDATE public.user_profiles
+    SET
+      email = COALESCE(v_user.email, v_profile.email),
+      display_name = CASE
+        WHEN NULLIF(trim(v_profile.display_name), '') IS NOT NULL THEN v_profile.display_name
+        ELSE v_display_name
+      END,
+      privacy_consent_at = CASE
+        WHEN p_privacy_consent AND privacy_consent_at IS NULL THEN now()
+        ELSE privacy_consent_at
+      END,
+      privacy_policy_version = CASE
+        WHEN p_privacy_consent AND privacy_policy_version IS NULL THEN p_privacy_version
+        ELSE privacy_policy_version
+      END,
+      updated_at = now()
+    WHERE id = auth.uid()
+    RETURNING * INTO v_profile;
+  END IF;
+
+  RETURN v_profile;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sync_oauth_user_profile(boolean, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.sync_oauth_user_profile(boolean, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_role text;
+BEGIN
+  IF public.is_allowlisted_superadmin_email(COALESCE(new.email, '')) THEN
+    v_role := 'superadmin';
+  ELSE
+    v_role := COALESCE(new.raw_user_meta_data->>'role', 'student');
+    IF v_role = 'superadmin' THEN
+      v_role := 'student';
+    END IF;
+  END IF;
+
+  INSERT INTO public.user_profiles (id, display_name, role, email)
+  VALUES (
+    new.id,
+    public.extract_oauth_display_name(new.raw_user_meta_data),
+    v_role,
+    new.email
+  );
+  RETURN new;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated, public;
+
+CREATE OR REPLACE FUNCTION public.superadmin_delete_user_account(target_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_role text;
+  v_enrolled boolean;
+BEGIN
+  IF NOT public.is_superadmin() THEN
+    RAISE EXCEPTION 'not_allowed' USING ERRCODE = '42501';
+  END IF;
+
+  IF auth.uid() = target_user_id THEN
+    RAISE EXCEPTION 'cannot_delete_self';
+  END IF;
+
+  SELECT role, is_enrolled
+  INTO v_role, v_enrolled
+  FROM public.user_profiles
+  WHERE id = target_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'user_not_found';
+  END IF;
+
+  IF v_role IS DISTINCT FROM 'student' THEN
+    RAISE EXCEPTION 'cannot_delete_staff';
+  END IF;
+
+  IF v_enrolled THEN
+    RAISE EXCEPTION 'cannot_delete_enrolled';
+  END IF;
+
+  DELETE FROM auth.users WHERE id = target_user_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_delete_user_account(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.superadmin_delete_user_account(uuid) TO authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Вход только через Яндекс ID: пользователь опознаётся по email
+-- ══════════════════════════════════════════════════════════════
+
+-- В самом конце: к этому моменту гарды и триггеры уже не ссылаются на login.
+ALTER TABLE public.user_profiles
+  DROP COLUMN IF EXISTS login;

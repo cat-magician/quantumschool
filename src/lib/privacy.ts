@@ -1,5 +1,5 @@
-export const PRIVACY_POLICY_VERSION = '2026-06-18';
-export const PRIVACY_POLICY_DATE = '18 июня 2026 г.';
+export const PRIVACY_POLICY_VERSION = '2026-07-27';
+export const PRIVACY_POLICY_DATE = '27 июля 2026 г.';
 
 export const OPERATOR = {
   name: 'Онлайн-школа «Квантовый кружок»',

@@ -1,7 +1,20 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import type { User, Session } from '@supabase/supabase-js';
+import type { Provider, User, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { UserProfile } from './types';
+import {
+  markOAuthReturnPending,
+  consumeOAuthReturnPending,
+  consumeTeacherApplicationPending,
+  markTeacherApplicationPending,
+  YANDEX_OAUTH_PROVIDER,
+} from './yandexAuthConfig';
+import { consumeOAuthErrorFromUrl, hasOAuthCodeInUrl } from './oauthCallbackUtils';
+import { DASHBOARD_PATH, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
+import { PRIVACY_POLICY_VERSION } from './privacy';
+
+/** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
+const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
 
 interface AuthContextValue {
   user: User | null;
@@ -9,13 +22,27 @@ interface AuthContextValue {
   profile: UserProfile | null;
   /** Сессия или профиль ещё загружаются */
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: string | null }>;
+  signInWithYandex: (options?: {
+    teacherApplication?: boolean;
+  }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  recordPrivacyConsent: () => Promise<{ error: string | null }>;
+  oauthError: string | null;
+  clearOAuthError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// Профиль создаёт триггер handle_new_user, но email и имя из Яндекса могут
+// разойтись с профилем — тогда их дотягивает sync_oauth_user_profile.
+function profileNeedsOAuthSync(user: User, profile: UserProfile | null): boolean {
+  if (!profile) return true;
+  const authEmail = user.email?.trim().toLowerCase() ?? '';
+  if (authEmail && profile.email?.trim().toLowerCase() !== authEmail) return true;
+  if (profile.display_name?.trim()) return false;
+  return Boolean(yandexDisplayName(user));
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -23,11 +50,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
   const profileRef = useRef<UserProfile | null>(null);
 
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
+
+  const syncOAuthProfile = useCallback(async (
+    authUser: User,
+    existingProfile: UserProfile | null,
+  ): Promise<UserProfile | null> => {
+    if (!profileNeedsOAuthSync(authUser, existingProfile)) return existingProfile;
+
+    const { data, error } = await supabase.rpc('sync_oauth_user_profile', {
+      p_privacy_consent: false,
+      p_privacy_version: PRIVACY_POLICY_VERSION,
+    });
+
+    if (error) {
+      console.error('OAuth profile sync error:', error.message);
+      return existingProfile;
+    }
+
+    return (data as UserProfile | null) ?? existingProfile;
+  }, []);
+
+  const applyTeacherApplicationIfPending = useCallback(async (
+    authUser: User,
+    existingProfile: UserProfile | null,
+  ): Promise<UserProfile | null> => {
+    if (!consumeTeacherApplicationPending()) return existingProfile;
+    if (!existingProfile || existingProfile.teacher_application) return existingProfile;
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({
+        teacher_application: true,
+        teacher_application_rejected: false,
+        updated_at: now,
+      })
+      .eq('id', authUser.id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Teacher application error:', error.message);
+      return existingProfile;
+    }
+
+    return (data as UserProfile | null) ?? existingProfile;
+  }, []);
 
   const fetchProfile = useCallback(async (
     authUser: User,
@@ -45,38 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Profile fetch error:', error.message);
       }
 
-      if (data) {
-        setProfile(data);
-        return;
-      }
+      let nextProfile = (data as UserProfile | null) ?? null;
 
-      const displayName =
-        authUser.user_metadata?.full_name ||
-        authUser.email?.split('@')[0] ||
-        'Участник';
-
-      const { data: created, error: insertError } = await supabase
-        .from('user_profiles')
-        .insert({
-          id: authUser.id,
-          display_name: displayName,
-          email: authUser.email ?? null,
-          role: 'student',
-        })
-        .select('*')
-        .maybeSingle();
-
-      if (insertError) {
-        console.error('Profile create error:', insertError.message);
-        setProfile(null);
-        return;
-      }
-
-      setProfile(created);
+      nextProfile = await syncOAuthProfile(authUser, nextProfile);
+      nextProfile = await applyTeacherApplicationIfPending(authUser, nextProfile);
+      setProfile(nextProfile);
     } finally {
       if (!background) setProfileLoading(false);
     }
-  }, []);
+  }, [syncOAuthProfile, applyTeacherApplicationIfPending]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user, { background: true });
@@ -84,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let oauthTimer: number | undefined;
 
     const applySession = (nextSession: Session | null) => {
       setSession(nextSession);
@@ -91,65 +143,114 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return nextSession?.user ?? null;
     };
 
+    const finishInit = () => {
+      window.clearTimeout(oauthTimer);
+      setInitializing(false);
+    };
+
+    // Загрузку профиля нельзя запускать внутри onAuthStateChange: коллбэк
+    // держит внутренний лок supabase-js.
     const scheduleProfileFetch = (authUser: User) => {
       const hasProfile = profileRef.current?.id === authUser.id;
+      if (!hasProfile) setProfileLoading(true);
       window.setTimeout(() => {
         if (!mounted) return;
         void fetchProfile(authUser, { background: hasProfile });
       }, 0);
     };
 
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (!mounted) return;
+    // Supabase уважает redirectTo только если адрес есть в Redirect URLs,
+    // иначе возвращает на Site URL — дотягиваем до кабинета вручную.
+    const redirectAfterOAuthIfNeeded = (): boolean => {
+      if (!consumeOAuthReturnPending()) return false;
+      if (window.location.pathname === DASHBOARD_PATH) return false;
+      window.location.replace(oauthDashboardRedirectPath());
+      return true;
+    };
 
-      const authUser = applySession(initialSession);
-      if (authUser) {
-        void fetchProfile(authUser).finally(() => {
-          if (mounted) setInitializing(false);
-        });
-      } else {
+    const urlOAuthError = consumeOAuthErrorFromUrl();
+    if (urlOAuthError) {
+      consumeOAuthReturnPending();
+      setOauthError(urlOAuthError);
+    }
+
+    // Код на сессию меняет сам supabase-js (detectSessionInUrl), затем шлёт SIGNED_IN.
+    const awaitingOAuth = !urlOAuthError && hasOAuthCodeInUrl();
+
+    if (awaitingOAuth) {
+      oauthTimer = window.setTimeout(() => {
+        if (!mounted) return;
+        consumeOAuthReturnPending();
+        setOauthError('Вход через Яндекс не завершился. Попробуйте ещё раз.');
         setInitializing(false);
-      }
-    });
+      }, OAUTH_CALLBACK_TIMEOUT_MS);
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
-      if (event === 'INITIAL_SESSION') return;
 
       const authUser = applySession(nextSession);
 
       if (authUser) {
         setProfile((prev) => (prev?.id === authUser.id ? prev : null));
         scheduleProfileFetch(authUser);
-      } else {
-        setProfile(null);
-        setProfileLoading(false);
+        if (redirectAfterOAuthIfNeeded()) return;
+        finishInit();
+        return;
       }
 
-      setInitializing(false);
+      setProfile(null);
+      setProfileLoading(false);
+
+      // При возврате от Яндекса в INITIAL_SESSION сессии ещё нет — ждём SIGNED_IN.
+      if (awaitingOAuth && event === 'INITIAL_SESSION') return;
+      finishInit();
     });
 
     return () => {
       mounted = false;
+      window.clearTimeout(oauthTimer);
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
 
   const loading = initializing || (Boolean(user) && profileLoading && profile === null);
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const signInWithYandex = async (options?: {
+    teacherApplication?: boolean;
+  }) => {
+    if (options?.teacherApplication) {
+      markTeacherApplicationPending();
+    }
+    markOAuthReturnPending();
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: YANDEX_OAUTH_PROVIDER as Provider,
+      options: {
+        redirectTo: oauthDashboardRedirectPath(),
+      },
+    });
+
     return { error: error?.message ?? null };
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: name } },
+  const recordPrivacyConsent = useCallback(async () => {
+    if (!user) return { error: 'Не выполнен вход' };
+
+    const { data, error } = await supabase.rpc('sync_oauth_user_profile', {
+      p_privacy_consent: true,
+      p_privacy_version: PRIVACY_POLICY_VERSION,
     });
-    return { error: error?.message ?? null };
-  };
+
+    if (error) {
+      console.error('Privacy consent error:', error.message);
+      return { error: error.message };
+    }
+
+    const nextProfile = (data as UserProfile | null) ?? profile;
+    setProfile(nextProfile);
+    return { error: null };
+  }, [user, profile]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -157,8 +258,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfileLoading(false);
   };
 
+  const clearOAuthError = useCallback(() => setOauthError(null), []);
+
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{
+      user, session, profile, loading, signInWithYandex, signOut, refreshProfile,
+      recordPrivacyConsent, oauthError, clearOAuthError,
+    }}
+    >
       {children}
     </AuthContext.Provider>
   );

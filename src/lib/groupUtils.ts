@@ -135,7 +135,8 @@ export async function loadStudentGroupContext(
 
   if (memberError || !membership?.group) return null;
 
-  const group = membership.group as { id: string; name: string; teacher_id: string | null };
+  // Вложенный select отдаётся как объект, но типы supabase-js выводят массив
+  const group = membership.group as unknown as { id: string; name: string; teacher_id: string | null };
   const { data: gtRows } = await supabase
     .from('group_teachers')
     .select('group_id, user_id')

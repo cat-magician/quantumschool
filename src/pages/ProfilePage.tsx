@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Camera, GraduationCap, Loader2, LogOut, Mail, MapPin, Pencil, Save, Shield, User,
+  ArrowLeft, Camera, GraduationCap, Loader2, LogOut, MapPin, Pencil, Save, Shield, User,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
@@ -17,6 +17,8 @@ import {
 import {
   canEditApplicationFields,
   formatProfileDate,
+  profileDisplayName,
+  profileEmail,
   profileToEditable,
   roleBadgeClass,
   roleLabel,
@@ -52,8 +54,6 @@ export default function ProfilePage() {
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [password, setPassword] = useState('');
-  const [password2, setPassword2] = useState('');
   const [studentGroup, setStudentGroup] = useState<StudentGroupContext | null>(null);
   const [teacherGroups, setTeacherGroups] = useState<Group[]>([]);
   const [extraLoading, setExtraLoading] = useState(true);
@@ -115,7 +115,7 @@ export default function ProfilePage() {
     setMessage('');
 
     const payload: Record<string, string> = {
-      display_name: form.display_name.trim() || profile.display_name,
+      display_name: form.display_name.trim(),
     };
     if (canEditApplicationFields(profile)) {
       payload.city = form.city.trim();
@@ -124,27 +124,6 @@ export default function ProfilePage() {
     }
 
     const { error } = await supabase.from('user_profiles').update(payload).eq('id', user.id);
-
-    if (password.trim() || password2.trim()) {
-      if (password.length < 6) {
-        setMessage('Пароль должен быть не короче 6 символов');
-        setSaving(false);
-        return;
-      }
-      if (password !== password2) {
-        setMessage('Пароли не совпадают');
-        setSaving(false);
-        return;
-      }
-      const { error: pwErr } = await supabase.auth.updateUser({ password });
-      if (pwErr) {
-        setMessage(pwErr.message);
-        setSaving(false);
-        return;
-      }
-      setPassword('');
-      setPassword2('');
-    }
 
     setSaving(false);
     if (error) {
@@ -167,6 +146,8 @@ export default function ProfilePage() {
 
   const isStaff = profile.role === 'admin' || profile.role === 'superadmin';
   const showApplicationFields = canEditApplicationFields(profile);
+  const visibleName = profileDisplayName(profile);
+  const emailLabel = profileEmail(profile, user.email) ?? '—';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -189,7 +170,7 @@ export default function ProfilePage() {
           <div className="flex items-start gap-4">
             <div className="relative shrink-0">
               <UserAvatar
-                displayName={editing ? form.display_name : profile.display_name}
+                displayName={editing ? (form.display_name.trim() || visibleName) : visibleName}
                 avatarUrl={profile.avatar_url}
                 size="lg"
               />
@@ -204,17 +185,8 @@ export default function ProfilePage() {
               </button>
             </div>
             <div className="min-w-0 flex-1">
-              {editing ? (
-                <input
-                  value={form.display_name}
-                  onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-lg font-semibold"
-                  placeholder="Имя"
-                />
-              ) : (
-                <h1 className="text-2xl font-bold truncate">{profile.display_name}</h1>
-              )}
-              <p className="text-sm text-slate-500 mt-1 truncate">{user.email}</p>
+              <h1 className="text-2xl font-bold truncate">{visibleName}</h1>
+              <p className="text-sm text-slate-500 mt-1 truncate">{emailLabel}</p>
               <span className={`inline-flex mt-3 px-2.5 py-1 rounded-lg text-xs font-medium border ${roleBadgeClass(profile)}`}>
                 {roleLabel(profile)}
               </span>
@@ -259,7 +231,24 @@ export default function ProfilePage() {
             <User className="w-3.5 h-3.5" />
             Основное
           </h2>
-          <InfoRow label="Email" value={user.email ?? '—'} />
+          <InfoRow label="Почта Яндекс ID" value={emailLabel} />
+          {editing ? (
+            <div className="py-3 border-b border-white/5 last:border-0 space-y-1.5">
+              <span className="text-sm text-slate-500">Имя</span>
+              <input
+                value={form.display_name}
+                onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
+                placeholder="Как вас зовут — необязательно"
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+              />
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Имя подтянулось из профиля Яндекс ID. Можно поправить — так проще сопоставить
+                ваш аккаунт с анкетой на этапе 1.
+              </p>
+            </div>
+          ) : (
+            <InfoRow label="Имя" value={profile.display_name?.trim() || '—'} />
+          )}
           <InfoRow label="На платформе с" value={formatProfileDate(profile.created_at)} />
           {profile.privacy_consent_at && (
             <InfoRow label="Согласие на обработку данных" value={formatProfileDate(profile.privacy_consent_at)} />
@@ -270,8 +259,9 @@ export default function ProfilePage() {
           <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-3">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <MapPin className="w-3.5 h-3.5" />
-              Анкета участника
+              О себе
             </h2>
+            <p className="text-sm text-slate-500">Необязательно. Преподаватели видят эти поля в карточке участника.</p>
             {editing ? (
               <div className="space-y-3">
                 <input
@@ -375,32 +365,6 @@ export default function ProfilePage() {
           </section>
         )}
 
-        {editing && (
-          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-3">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-              <Mail className="w-3.5 h-3.5" />
-              Смена пароля
-            </h2>
-            <p className="text-xs text-slate-500">Оставьте пустым, если менять пароль не нужно.</p>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Новый пароль"
-              className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
-              autoComplete="new-password"
-            />
-            <input
-              type="password"
-              value={password2}
-              onChange={(e) => setPassword2(e.target.value)}
-              placeholder="Повторите пароль"
-              className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
-              autoComplete="new-password"
-            />
-          </section>
-        )}
-
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           {editing ? (
             <>
@@ -419,8 +383,6 @@ export default function ProfilePage() {
                 onClick={() => {
                   setEditing(false);
                   setForm(profileToEditable(profile));
-                  setPassword('');
-                  setPassword2('');
                   setMessage('');
                 }}
                 className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-sm font-medium transition-colors disabled:opacity-50"

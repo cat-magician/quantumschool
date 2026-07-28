@@ -89,7 +89,7 @@ function DropdownPanel({
 }: {
   anchorRef: React.RefObject<HTMLElement | null>;
   open: boolean;
-  panelRef: React.RefObject<HTMLDivElement | null>;
+  panelRef: React.RefObject<HTMLDivElement>;
   children: React.ReactNode;
   className?: string;
   maxHeight?: string;

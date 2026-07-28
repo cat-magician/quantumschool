@@ -77,6 +77,7 @@ export interface UserProfile {
   stage2_submitted_at?: string | null;
   stage1_viewed_at?: string | null;
   stage2_viewed_at?: string | null;
+  questionnaire_submitted_at?: string | null;
   selection_rejected?: boolean;
   city?: string | null;
   school?: string | null;
@@ -199,6 +200,8 @@ export interface SelectionStageConfig {
   id: number;
   essay_form_id: string;
   essay_published: boolean;
+  questionnaire_form_id: string;
+  questionnaire_published: boolean;
   contest_url: string;
   contest_published: boolean;
   updated_at: string | null;

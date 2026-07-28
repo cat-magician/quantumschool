@@ -22,6 +22,7 @@ import {
   DEFAULT_HOMEWORK_MAX_SCORE,
 } from '../../lib/homeworkUtils';
 import UserAvatar from '../../components/UserAvatar';
+import { profileEmail } from '../../lib/profileUtils';
 import { homeworkPageLoadError } from '../../lib/homeworkPageLoadError';
 import HomeworkPagesTab from './HomeworkPagesTab';
 
@@ -384,6 +385,7 @@ function SubmissionGradeCard({
 }) {
   const FEEDBACK_MAX = 1000;
   const name = s.student?.display_name ?? 'Ученик';
+  const studentSubtitle = profileEmail(s.student);
   const hasGrade = submissionHasGrade(s);
   const submittedWhen = formatSubmissionWhen(s.submitted_at);
   const gradedWhen = formatSubmissionWhen(s.graded_at);
@@ -407,8 +409,8 @@ function SubmissionGradeCard({
         <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
           <div className="min-w-0">
             <p className="font-semibold text-white text-sm truncate">{name}</p>
-            {s.student?.email && (
-              <p className="text-xs text-slate-500 truncate">{s.student.email}</p>
+            {studentSubtitle && (
+              <p className="text-xs text-slate-500 truncate">{studentSubtitle}</p>
             )}
             <p className="text-sm text-blue-300 mt-1 line-clamp-2 break-words">{s.page?.title}</p>
           </div>

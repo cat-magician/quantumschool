@@ -3,9 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   LogOut, Calendar, BarChart3, Home,
   ClipboardList, FileText, FlaskConical, Lock,
-  CheckCircle, AlertCircle, BookOpen, Presentation,
+  CheckCircle, BookOpen, Presentation,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
+import { profileDisplayName, profileEmail } from '../lib/profileUtils';
 import {
   dashboardSearchParamsEqual,
   defaultStudentDashboardState,
@@ -16,10 +17,10 @@ import {
 } from '../lib/dashboardNavigation';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import UserAvatar from '../components/UserAvatar';
-import { isContestPublished, isEssayPublished } from '../lib/selectionConfig';
+import { isContestPublished, isEssayPublished, isQuestionnairePublished } from '../lib/selectionConfig';
 import { useSelectionConfig } from '../hooks/useSelectionConfig';
 import StageComingSoon from '../components/StageComingSoon';
-import { markStageSubmitted, markStageUnsubmitted, markStageViewed } from '../lib/selectionUtils';
+import { markQuestionnaireSubmitted, markQuestionnaireUnsubmitted, markStageSubmitted, markStageUnsubmitted, markStageViewed } from '../lib/selectionUtils';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../lib/types';
 import { canStudentUnsubmit, selectionVerdict, studentStagePhase } from '../lib/selectionDisplayUtils';
@@ -38,13 +39,13 @@ type Tab = 'home' | 'selection' | 'learning' | 'schedule' | 'progress';
 type SelectionSubTab = 'stage1' | 'stage2' | 'results';
 
 const SELECTION_SUB_NAV: { id: SelectionSubTab; label: string; shortLabel: string; icon: typeof FileText }[] = [
-  { id: 'stage1', label: 'Этап 1: Эссе', shortLabel: 'Этап 1', icon: FileText },
+  { id: 'stage1', label: 'Этап 1', shortLabel: 'Этап 1', icon: FileText },
   { id: 'stage2', label: 'Этап 2: Задачи', shortLabel: 'Этап 2', icon: FlaskConical },
   { id: 'results', label: 'Результаты', shortLabel: 'Результаты', icon: CheckCircle },
 ];
 
 const SELECTION_HEADER: Record<SelectionSubTab, string> = {
-  stage1: 'Этап 1: Эссе',
+  stage1: 'Этап 1',
   stage2: 'Этап 2: Задачи',
   results: 'Результаты',
 };
@@ -73,7 +74,8 @@ export default function StudentDashboard() {
   const [learningExpanded, setLearningExpanded] = useState(false);
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const displayName = profile?.display_name || user?.email?.split('@')[0] || 'Участник';
+  const displayName = profile ? profileDisplayName(profile) : 'Участник';
+  const accountSubtitle = profileEmail(profile, user?.email);
   const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
 
   const closeMobileNav = () => setMobileNavOpen(false);
@@ -101,7 +103,7 @@ export default function StudentDashboard() {
   useEffect(() => {
     const parsed = parseStudentDashboardSearchParams(searchParams);
     const next = normalizeStudentDashboardState(
-      parsed ?? defaultStudentDashboardState(isEnrolled),
+      parsed ?? defaultStudentDashboardState(),
       isEnrolled,
     );
     setTab(next.tab);
@@ -363,7 +365,9 @@ export default function StudentDashboard() {
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
-              <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+              {accountSubtitle && (
+                <div className="text-xs text-slate-500 truncate">{accountSubtitle}</div>
+              )}
             </div>
           </button>
           <div className="mb-2">
@@ -484,7 +488,9 @@ export default function StudentDashboard() {
             <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
-              <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+              {accountSubtitle && (
+                <div className="text-xs text-slate-500 truncate">{accountSubtitle}</div>
+              )}
             </div>
           </button>
           <DashboardSiteHomeLink />
@@ -564,9 +570,11 @@ function SelectionTab({
   onRefresh: () => Promise<void>;
 }) {
   const [marking, setMarking] = useState<1 | 2 | null>(null);
+  const [questionnaireMarking, setQuestionnaireMarking] = useState(false);
   const [markError, setMarkError] = useState('');
   const { config } = useSelectionConfig();
   const essayPublished = isEssayPublished(config);
+  const questionnairePublished = isQuestionnairePublished(config);
   const contestPublished = isContestPublished(config);
 
   const handleMarkSubmitted = async (stage: 1 | 2) => {
@@ -592,6 +600,26 @@ function SelectionTab({
     setMarking(null);
   };
 
+  const handleQuestionnaireSubmitted = async () => {
+    if (!profile) return;
+    setQuestionnaireMarking(true);
+    setMarkError('');
+    const { error } = await markQuestionnaireSubmitted(supabase, profile.id);
+    if (error) setMarkError('Не удалось сохранить');
+    else await onRefresh();
+    setQuestionnaireMarking(false);
+  };
+
+  const handleQuestionnaireUnsubmitted = async () => {
+    if (!profile) return;
+    setQuestionnaireMarking(true);
+    setMarkError('');
+    const { error } = await markQuestionnaireUnsubmitted(supabase, profile.id);
+    if (error) setMarkError('Не удалось отменить');
+    else await onRefresh();
+    setQuestionnaireMarking(false);
+  };
+
   useEffect(() => {
     if (!profile) return;
     if (subTab === 'stage1' && !profile.stage1_viewed_at) {
@@ -601,14 +629,6 @@ function SelectionTab({
       markStageViewed(supabase, profile.id, 2).then(() => onRefresh());
     }
   }, [subTab, profile, onRefresh]);
-
-  const essayPoints = [
-    'почему вам интересны физика, математика или современные технологии;',
-    'почему вы хотите принять участие в «Квантовом кружке»;',
-    'что вам наиболее интересно в области квантовых технологий;',
-    'какие знания и навыки вы хотели бы получить в рамках программы;',
-    'как вы представляете своё дальнейшее образование и профессиональное развитие.',
-  ];
 
   const stage1Phase = studentStagePhase(profile.stage1_status, profile.stage1_score, profile.stage1_submitted_at);
   const stage2Phase = studentStagePhase(profile.stage2_status, profile.stage2_score, profile.stage2_submitted_at);
@@ -622,39 +642,72 @@ function SelectionTab({
       {subTab === 'stage1' && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-2xl font-bold text-white mb-2">Мотивационное эссе</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Этап 1</h2>
             <p className="text-slate-400 leading-relaxed">
-              Напишите эссе объёмом <span className="text-white font-medium">300–700 слов</span> и загрузите PDF (до 3 МБ).
+              Заполните анкету и отправьте мотивационное эссе.
             </p>
           </div>
 
-          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
-            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">В эссе расскажите:</h3>
-            <ul className="space-y-2">
-              {essayPoints.map((pt, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm text-slate-400">
-                  <span className="mt-0.5 w-5 h-5 rounded-full bg-blue-500/15 border border-blue-500/25 flex items-center justify-center flex-shrink-0 text-xs text-blue-400 font-semibold">{i + 1}</span>
-                  {pt}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="flex items-start gap-3 px-5 py-4 rounded-xl bg-amber-500/8 border border-amber-500/20">
-            <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-300/80 leading-relaxed">
-              Эссе пишется <strong className="text-amber-300">от руки</strong>, затем сканируется и загружается в форме ниже в формате <strong className="text-amber-300">PDF</strong>.
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Анкета участника</h2>
+            <p className="text-slate-400 leading-relaxed mb-5">
+              Укажите контактные и анкетные данные. Согласие на обработку персональных данных подтверждается в форме.
             </p>
           </div>
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
-            <h3 className="font-semibold text-white mb-5">Загрузить эссе</h3>
+            {questionnairePublished ? (
+              <YandexFormEmbed formId={config.questionnaire_form_id} />
+            ) : (
+              <StageComingSoon stage="questionnaire" />
+            )}
+            <div className="mt-4 pt-4 border-t border-white/5">
+              {!profile.questionnaire_submitted_at ? (
+                <>
+                  <p className="text-sm text-slate-400 mb-3">
+                    {questionnairePublished
+                      ? 'После отправки анкеты в форме нажмите кнопку — преподаватель увидит отметку.'
+                      : 'Кнопка станет доступна после публикации формы.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleQuestionnaireSubmitted}
+                    disabled={questionnaireMarking || !questionnairePublished}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {questionnaireMarking ? 'Сохранение...' : 'Я отправил анкету'}
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-500">Анкета отмечена как отправленная.</p>
+                  <button
+                    type="button"
+                    onClick={handleQuestionnaireUnsubmitted}
+                    disabled={questionnaireMarking}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 border border-white/10 text-sm transition-colors disabled:opacity-50"
+                  >
+                    {questionnaireMarking ? 'Сохранение...' : 'Отменить отметку'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Мотивационное эссе</h2>
+            <p className="text-slate-400 leading-relaxed">
+              Заполните и отправьте эссе в форме ниже. Правила и требования указаны в самой форме.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
             {essayPublished ? (
               <YandexFormEmbed formId={config.essay_form_id} />
             ) : (
               <StageComingSoon stage="essay" />
             )}
-            <div className="mt-4">
+            <div className="mt-4 pt-4 border-t border-white/5">
               {!stage1Done ? (
                 <>
                   <p className="text-sm text-slate-400 mb-4">

@@ -43,8 +43,8 @@ const TEST_USERS = [
   {
     email: 'superadmin@test.qc.ru',
     password: 'superadmin123',
-    name: 'Тест Суперадмин',
-    role: 'superadmin',
+    name: 'Тест Админ (демо)',
+    role: 'admin',
   },
   {
     email: 'admin@test.qc.ru',

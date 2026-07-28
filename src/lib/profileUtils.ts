@@ -36,6 +36,20 @@ export type ProfileEditableFields = {
   grade: string;
 };
 
+export function profileDisplayName(
+  profile: Pick<UserProfile, 'display_name'>,
+): string {
+  return profile.display_name?.trim() || 'Участник';
+}
+
+/** Почта из Яндекс ID — единственный идентификатор пользователя. */
+export function profileEmail(
+  profile: Pick<UserProfile, 'email'> | null | undefined,
+  authEmail?: string | null,
+): string | null {
+  return authEmail?.trim() || profile?.email?.trim() || null;
+}
+
 export function profileToEditable(profile: UserProfile): ProfileEditableFields {
   return {
     display_name: profile.display_name ?? '',
@@ -46,5 +60,10 @@ export function profileToEditable(profile: UserProfile): ProfileEditableFields {
 }
 
 export function canEditApplicationFields(profile: UserProfile): boolean {
-  return profile.role === 'student' && !profile.is_enrolled;
+  return profile.role === 'student';
+}
+
+/** Согласие на обработку ПДн ещё не зафиксировано в профиле (первый вход). */
+export function profileNeedsPrivacyConsent(profile: UserProfile | null | undefined): boolean {
+  return Boolean(profile && !profile.privacy_consent_at);
 }

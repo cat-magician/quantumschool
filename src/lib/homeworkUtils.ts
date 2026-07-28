@@ -124,18 +124,13 @@ export async function maybeGrantAchievement(
   description: string,
   icon: string,
 ) {
-  const { data: existing } = await supabase
-    .from('achievements')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('title', title)
-    .maybeSingle();
-  if (existing) return;
-
-  await supabase.from('achievements').insert({
-    user_id: userId,
-    title,
-    description,
-    icon,
+  const { error } = await supabase.rpc('grant_achievement', {
+    target_user_id: userId,
+    p_title: title,
+    p_description: description,
+    p_icon: icon,
   });
+  if (error && !error.message.includes('not_allowed')) {
+    console.error('grant_achievement:', error.message);
+  }
 }

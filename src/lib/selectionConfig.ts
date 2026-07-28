@@ -5,6 +5,8 @@ export const DEFAULT_SELECTION_CONFIG: SelectionStageConfig = {
   id: 1,
   essay_form_id: '',
   essay_published: false,
+  questionnaire_form_id: '',
+  questionnaire_published: false,
   contest_url: '',
   contest_published: false,
   updated_at: null,
@@ -47,12 +49,19 @@ export function isEssayPublished(config: SelectionStageConfig): boolean {
   return config.essay_published && !!config.essay_form_id.trim();
 }
 
+export function isQuestionnairePublished(config: SelectionStageConfig): boolean {
+  return config.questionnaire_published && !!config.questionnaire_form_id.trim();
+}
+
 export function isContestPublished(config: SelectionStageConfig): boolean {
   return config.contest_published && !!config.contest_url.trim();
 }
 
 export async function saveSelectionConfig(
-  patch: Partial<Pick<SelectionStageConfig, 'essay_form_id' | 'essay_published' | 'contest_url' | 'contest_published'>>,
+  patch: Partial<Pick<
+    SelectionStageConfig,
+    'essay_form_id' | 'essay_published' | 'questionnaire_form_id' | 'questionnaire_published' | 'contest_url' | 'contest_published'
+  >>,
   userId: string,
 ) {
   return supabase

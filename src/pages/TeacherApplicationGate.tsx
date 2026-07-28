@@ -3,6 +3,7 @@ import { GraduationCap, Loader2, LogOut, RefreshCw, UserX } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
+import { profileEmail } from '../lib/profileUtils';
 
 type Mode = 'pending' | 'rejected';
 
@@ -80,7 +81,7 @@ export default function TeacherApplicationGate({ mode }: { mode: Mode }) {
         <p className="text-xs text-slate-500 -mt-2 mb-1">Аккаунт создан: {submittedAt}</p>
       )}
       <p className="text-xs text-slate-600 mb-1">
-        Email: <span className="text-slate-400">{user?.email}</span>
+        Почта: <span className="text-slate-400">{profileEmail(profile, user?.email) ?? '—'}</span>
       </p>
       <button
         type="button"

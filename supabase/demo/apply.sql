@@ -3,11 +3,8 @@
 
   Включить:  запустить этот файл целиком
   Выключить: demo/remove.sql
-  Сбросить:  demo/reset.sql (remove + apply)
 
   Домен @test.qc.ru зарезервирован под демо. Реальные пользователи — другие email.
-
-  Сгенерировано: node scripts/build-demo-bundle.mjs
 */
 
 
@@ -156,9 +153,9 @@ $$;
 -- ── 00_staff_users.sql ──
 
 -- Служебные аккаунты для разработки и демо (@test.qc.ru)
+-- Права суперадмина в проде — только у email из superadmin_allowlist в schema.sql
 
-SELECT public.create_demo_user('superadmin@test.qc.ru', 'superadmin123', 'Тест Суперадмин', 'superadmin');
-UPDATE public.user_profiles SET role = 'superadmin' WHERE email = 'superadmin@test.qc.ru';
+SELECT public.create_demo_user('superadmin@test.qc.ru', 'superadmin123', 'Тест Админ (демо)', 'admin');
 
 SELECT public.create_demo_user('admin@test.qc.ru', 'admin123', 'Тест Преподаватель', 'admin');
 UPDATE public.user_profiles SET role = 'admin' WHERE email = 'admin@test.qc.ru';
@@ -166,7 +163,7 @@ UPDATE public.user_profiles SET role = 'admin' WHERE email = 'admin@test.qc.ru';
 SELECT public.create_demo_user('student@test.qc.ru', 'student123', 'Тест Ученик', 'student');
 
 /*
-  superadmin@test.qc.ru / superadmin123
+  superadmin@test.qc.ru / superadmin123  — admin (не superadmin; для UI суперадмина — реальные email)
   admin@test.qc.ru      / admin123
   student@test.qc.ru    / student123
 */
@@ -388,9 +385,9 @@ FROM (VALUES
   ('ДЗ 1: Базовые кубиты', (now() + interval '7 days')::text, true, 'admin@test.qc.ru', (now() - interval '14 days')::text, (now() - interval '2 days')::text),
   ('ДЗ 2: Квантовые вентили', (now() + interval '14 days')::text, true, 'admin@test.qc.ru', (now() - interval '10 days')::text, (now() - interval '5 days')::text),
   ('ДЗ 3: Алгоритм Дойча (черновик)', (now() + interval '21 days')::text, false, 'admin@test.qc.ru', (now() - interval '3 days')::text, (now() - interval '6 hours')::text),
-  ('ДЗ 4: Срочное повторение кубитов', (now() + interval '3 days')::text, true, 'superadmin@test.qc.ru', (now() - interval '5 days')::text, (now() - interval '1 day')::text),
-  ('ДЗ 5: Квантовая телепортация (черновик)', NULL, false, 'superadmin@test.qc.ru', (now() - interval '1 day')::text, (now() - interval '3 hours')::text),
-  ('ДЗ 6: Измерения и декогеренция', (now() - interval '2 days')::text, true, 'superadmin@test.qc.ru', (now() - interval '20 days')::text, (now() - interval '4 days')::text)
+  ('ДЗ 4: Срочное повторение кубитов', (now() + interval '3 days')::text, true, 'admin@test.qc.ru', (now() - interval '5 days')::text, (now() - interval '1 day')::text),
+  ('ДЗ 5: Квантовая телепортация (черновик)', NULL, false, 'admin@test.qc.ru', (now() - interval '1 day')::text, (now() - interval '3 hours')::text),
+  ('ДЗ 6: Измерения и декогеренция', (now() - interval '2 days')::text, true, 'admin@test.qc.ru', (now() - interval '20 days')::text, (now() - interval '4 days')::text)
 ) AS v(title, due_at, is_published, creator_email, created_at, updated_at)
 JOIN public.user_profiles u ON u.email = v.creator_email
 WHERE NOT EXISTS (SELECT 1 FROM public.homework_pages hp WHERE hp.title = v.title AND hp.is_demo);

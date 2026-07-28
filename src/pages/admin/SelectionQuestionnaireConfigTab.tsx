@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, FileText, Loader2, Save } from 'lucide-react';
+import { CheckCircle, ClipboardList, Loader2, Save } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import {
   fetchSelectionConfig,
@@ -9,7 +9,7 @@ import {
 import YandexFormEmbed from '../../components/YandexFormEmbed';
 import StageComingSoon from '../../components/StageComingSoon';
 
-export default function SelectionEssayConfigTab() {
+export default function SelectionQuestionnaireConfigTab() {
   const { user } = useAuth();
   const [input, setInput] = useState('');
   const [published, setPublished] = useState(false);
@@ -22,9 +22,9 @@ export default function SelectionEssayConfigTab() {
   const load = async () => {
     setLoading(true);
     const cfg = await fetchSelectionConfig();
-    setSavedFormId(cfg.essay_form_id);
-    setInput(cfg.essay_form_id ? `https://forms.yandex.ru/u/${cfg.essay_form_id}` : '');
-    setPublished(cfg.essay_published);
+    setSavedFormId(cfg.questionnaire_form_id);
+    setInput(cfg.questionnaire_form_id ? `https://forms.yandex.ru/u/${cfg.questionnaire_form_id}` : '');
+    setPublished(cfg.questionnaire_published);
     setLoading(false);
   };
 
@@ -44,7 +44,7 @@ export default function SelectionEssayConfigTab() {
     }
 
     const { error: saveError } = await saveSelectionConfig(
-      { essay_form_id: formId, essay_published: nextPublished },
+      { questionnaire_form_id: formId, questionnaire_published: nextPublished },
       user.id,
     );
 
@@ -58,7 +58,7 @@ export default function SelectionEssayConfigTab() {
     setPublished(nextPublished);
     setSuccess(
       nextPublished
-        ? 'Форма опубликована — ученики видят её на этапе 1'
+        ? 'Анкета опубликована — ученики видят её на этапе 1'
         : 'Сохранено',
     );
     setSaving(false);
@@ -78,9 +78,9 @@ export default function SelectionEssayConfigTab() {
   return (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Этап 1: Эссе</h2>
+        <h2 className="text-xl font-bold text-white mb-1">Этап 1: Анкета участника</h2>
         <p className="text-slate-400 text-sm">
-          Ссылка на Яндекс.Форму для загрузки эссе. После публикации форма появится у учеников.
+          Ссылка на Яндекс.Форму с анкетными данными. После публикации форма появится у учеников на этапе 1.
         </p>
       </div>
 
@@ -101,7 +101,7 @@ export default function SelectionEssayConfigTab() {
               ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
               : 'text-slate-400 bg-white/5 border-white/10'
           }`}>
-            {previewPublished ? <CheckCircle className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+            {previewPublished ? <CheckCircle className="w-3.5 h-3.5" /> : <ClipboardList className="w-3.5 h-3.5" />}
             {previewPublished ? 'Опубликовано' : 'Не опубликовано'}
           </span>
         </div>
@@ -145,7 +145,7 @@ export default function SelectionEssayConfigTab() {
         {previewPublished && savedFormId ? (
           <YandexFormEmbed formId={savedFormId} />
         ) : (
-          <StageComingSoon stage="essay" />
+          <StageComingSoon stage="questionnaire" />
         )}
       </div>
     </div>

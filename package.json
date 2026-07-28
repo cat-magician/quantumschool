@@ -9,10 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "seed:users": "node scripts/seed-test-users.mjs",
-    "db:schema": "node scripts/build-schema.mjs",
-    "db:demo": "node scripts/build-demo-bundle.mjs",
-    "db:build": "npm run db:schema && npm run db:demo"
+    "seed:users": "node scripts/seed-test-users.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

@@ -5,6 +5,7 @@ import UserAvatar from './UserAvatar';
 import { countUnreadNotifications } from '../lib/notificationReadState';
 import { loadNotificationsForProfile } from '../lib/notificationsUtils';
 import type { UserProfile } from '../lib/types';
+import { profileDisplayName } from '../lib/profileUtils';
 import NotificationsPanel from './NotificationsPanel';
 
 export default function DashboardHeaderActions({
@@ -67,7 +68,7 @@ export default function DashboardHeaderActions({
           aria-label="Профиль"
         >
           <UserAvatar
-            displayName={profile.display_name}
+            displayName={profileDisplayName(profile)}
             avatarUrl={profile.avatar_url}
             size="xs"
             className="w-9 h-9"

@@ -35,20 +35,16 @@ supabase/
 
 ```
 supabase/
-  schema.sql
+  schema.sql            ← единственный источник структуры
   README.md
-  migrations/           ← исходники (из них собирается schema.sql)
-  demo/                 ← демо-данные
-  archive/              ← устаревшее, не запускать
+  demo/
+    apply.sql           ← демо-данные (самодостаточный файл)
+    remove.sql          ← удалить демо
+  functions/            ← Edge Functions
 ```
 
-Фрагменты в `demo/` (`00_staff_users.sql`, …) собираются в `demo/apply.sql` — **запускайте apply.sql**, не фрагменты по отдельности.
-
-После правок миграций:
-
-```bash
-npm run db:build
-```
+Миграций нет: правки вносятся прямо в `schema.sql`, он идемпотентный. Демо-фрагменты
+тоже не нужны — `demo/apply.sql` содержит всё, включая свои временные функции.
 
 ---
 
@@ -60,12 +56,126 @@ npm run db:build
 
 > Домен `@test.qc.ru` зарезервирован под демо.
 
-## Первый superadmin
+Демо-аккаунты создаются с паролем, но войти ими через интерфейс нельзя: на сайте
+единственный способ входа — Яндекс ID. Это фикстуры для наполнения базы и для
+служебных скриптов из `scripts/`.
 
-Без демо первый зарегистрировавшийся на сайте → superadmin.
+## Суперадмины
 
-Если есть `superadmin@test.qc.ru` из демо, место superadmin уже занято — первый **реальный** пользователь будет student.
+Права выдаются **по адресу почты**. Список — в `schema.sql` → `superadmin_allowlist`:
+
+- `marcellau@yandex.ru`
+- `n.tatarinova@rqc.ru`
+- `sokol.dm@phystech.edu`
+
+Адрес должен совпадать с тем, который отдаёт Яндекс ID при входе (для домена вроде
+`rqc.ru` это значит, что почта живёт в Яндекс 360). При первом входе триггер
+`handle_new_user` сразу ставит роль **superadmin**.
+
+Чтобы добавить или убрать суперадмина: поправьте оба списка в блоке
+`superadmin_allowlist` (`DELETE ... WHERE email NOT IN` и `INSERT`) и прогоните
+`schema.sql`. Повторный прогон синхронизирует роли: allowlist → superadmin,
+остальные superadmin → student.
+
+**Демо** (`demo/apply.sql`) не создаёт superadmin — только `@test.qc.ru` с ролью admin/student для разработки.
 
 Для прода: не запускайте `demo/apply.sql`, либо сначала `demo/remove.sql`.
 
 Альтернатива для dev-пользователей: `npm run seed:users` (нужен `SUPABASE_SERVICE_ROLE_KEY` в `.env`).
+
+---
+
+## Вход через Яндекс ID
+
+### 1. Supabase → Authentication → Providers → New Provider → Manual configuration
+
+Identifier `custom:yandex`, тип OAuth2:
+
+| Поле | Значение |
+|------|----------|
+| Authorization URL | `https://oauth.yandex.com/authorize` |
+| Token URL | `https://oauth.yandex.com/token` |
+| UserInfo URL | функция из шага 2 (не `https://login.yandex.ru/info`) |
+| Scopes | `login:info login:email` |
+
+Client ID и Client Secret — из [oauth.yandex.com](https://oauth.yandex.com/). После каждого
+сохранения проверяйте, что они не пустые: Dashboard затирает секрет.
+
+Галочка **Allow users without email** должна быть **выключена**: почта — единственный
+идентификатор пользователя, по ней же выдаются права суперадмина.
+
+### 2. Обязательный прокси userinfo
+
+Напрямую с `https://login.yandex.ru/info` вход не работает по двум причинам:
+
+- Supabase Auth требует в ответе поле `sub`, а Яндекс отдаёт `id` — вход падает с
+  «missing provider id» ([supabase/auth#2519](https://github.com/supabase/auth/issues/2519),
+  на момент написания не исправлено);
+- Supabase ищет `email`, а Яндекс кладёт адрес в `default_email`.
+
+Настройками провайдера это не обходится. `supabase/functions/yandex-userinfo` проксирует
+запрос к Яндексу и переименовывает поля.
+
+Деплой из Dashboard (без CLI): **Edge Functions → Deploy a new function**, вставить
+содержимое `supabase/functions/yandex-userinfo/index.ts` и **выключить Verify JWT** —
+Supabase зовёт функцию с токеном Яндекса, а не со своим JWT. Через CLI:
+
+```bash
+supabase functions deploy yandex-userinfo --no-verify-jwt
+```
+
+Затем в провайдере укажите UserInfo URL:
+
+```
+https://YOUR_PROJECT.supabase.co/functions/v1/yandex-userinfo
+```
+
+**Allow users without email** — выключено: почта единственный идентификатор (суперадмины
+тоже выдаются по email).
+
+### 3. oauth.yandex.com → приложение → API Яндекс ID
+
+- Права: `login:info`, `login:email`
+- Redirect URI: `https://YOUR_PROJECT.supabase.co/auth/v1/callback`
+
+### 4. Supabase → Authentication → URL Configuration → Redirect URLs
+
+- `http://localhost:5173/dashboard`
+- `https://quantumschool.ru/dashboard`
+
+Без этих адресов Supabase игнорирует `redirectTo` и возвращает пользователя на Site URL.
+
+Опционально: Authentication → Providers → Email → **Confirm email**. На вход через
+Яндекс это почти не влияет (почта уже подтверждена провайдером), но полезно, если
+когда-нибудь появятся служебные email-аккаунты.
+
+### 5. Выбор аккаунта при входе (необязательно)
+
+По умолчанию Яндекс помнит выданное согласие и при повторном входе молча пускает
+последним использованным аккаунтом. Чтобы он каждый раз показывал экран подтверждения
+с выбором аккаунта, в поле **Authorization params** у провайдера задайте:
+
+```json
+{ "force_confirm": "yes" }
+```
+
+Цена — лишний экран при каждом входе для всех пользователей;
+[документация Яндекса](https://yandex.ru/dev/id/doc/ru/codes/code-url) принимает
+значения `yes`, `true` и `1`.
+
+### Особенности Dashboard
+
+- Форма провайдера **затирает Client Secret** при сохранении. После каждого сохранения
+  проверяйте, что ключи на месте.
+- В поле **JWKS URI** Dashboard сам подставляет `https://oauth.yandex.com/.well-known/jwks.json`
+  при открытии «Update provider». Этого адреса не существует (404), но на вход это не влияет:
+  Яндекс не выдаёт `id_token`, и поле не используется. Стирать не нужно — оно появится снова.
+- **Issuer URL** для OAuth2-конфигурации не заполняется.
+
+### Если ошибка осталась
+
+| Сообщение | Причина |
+|-----------|---------|
+| `missing provider id` | UserInfo URL всё ещё ведёт на `login.yandex.ru`, либо у функции включён Verify JWT |
+| `Error getting user email from external provider` | В Scopes нет `login:email`, либо не отмечено право в приложении Яндекса |
+| Возврат на главную вместо кабинета | Адрес `/dashboard` не добавлен в Redirect URLs |

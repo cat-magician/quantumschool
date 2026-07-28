@@ -5,17 +5,12 @@ import { useAuth } from './lib/AuthContext';
 import { Instructor } from './lib/types';
 import { DEFAULT_LANDING_CONFIG, fetchLandingConfig } from './lib/landingConfig';
 import AuthModal from './components/AuthModal';
-import PrivacyConsent from './components/PrivacyConsent';
+import YandexSignInButton from './components/YandexSignInButton';
 import QuantumBrandTitle from './components/QuantumBrandTitle';
 import HeroQuantumDecor from './components/HeroQuantumDecor';
 import HeroBadgePill from './components/HeroBadgePill';
-import LessonCoverImage from './components/LessonCoverImage';
 import InstructorCardPreview from './components/InstructorCardPreview';
-import { PRIVACY_POLICY_VERSION } from './lib/privacy';
-import {
-  getApplicationSuggestions,
-  rememberApplicationValues,
-} from './lib/applicationDraft';
+import { isYandexOAuthEnabled } from './lib/yandexAuthConfig';
 import {
   Atom,
   GraduationCap,
@@ -27,13 +22,10 @@ import {
   Menu,
   X,
   BarChart3,
-  Send,
   CheckCircle,
   LogIn,
   Calendar,
   UserPlus,
-  Eye,
-  EyeOff,
   Handshake,
 } from 'lucide-react';
 
@@ -1000,99 +992,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
 
 
 function ApplicationForm() {
-  const { user, signUp, signIn } = useAuth();
-  const [suggestions, setSuggestions] = useState(() => getApplicationSuggestions());
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    phone: '',
-    city: '',
-    school: '',
-    grade: '',
-    message: '',
-  });
-  const [showPassword, setShowPassword] = useState(false);
-  const [privacyConsent, setPrivacyConsent] = useState(false);
-  const [parentalConfirm, setParentalConfirm] = useState(false);
-  const [consentError, setConsentError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [error, setError] = useState('');
-  const rememberField = (field: 'name' | 'email' | 'phone' | 'city' | 'school' | 'grade' | 'message', value: string) => {
-    if (!value.trim()) return;
-    rememberApplicationValues({ [field]: value });
-    setSuggestions(getApplicationSuggestions());
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setConsentError('');
-
-    if (!privacyConsent || !parentalConfirm) {
-      setConsentError('Необходимо подтвердить согласие на обработку персональных данных');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setError('');
-
-    const consentAt = new Date().toISOString();
-
-    try {
-      if (!user) {
-        const reg = await signUp(formData.email, formData.password, formData.name);
-        if (reg.error) {
-          setError(reg.error);
-          return;
-        }
-        const login = await signIn(formData.email, formData.password);
-        if (login.error) {
-          setError('Аккаунт создан, но не удалось войти. Попробуйте войти через кнопку «Войти».');
-          return;
-        }
-        const { data: { user: newUser } } = await supabase.auth.getUser();
-        if (newUser) {
-          await supabase.from('user_profiles').update({
-            privacy_consent_at: consentAt,
-            privacy_policy_version: PRIVACY_POLICY_VERSION,
-            city: formData.city.trim() || null,
-            school: formData.school.trim() || null,
-            grade: formData.grade.trim() || null,
-          }).eq('id', newUser.id);
-        }
-      }
-
-      const { error: enrollError } = await supabase.from('enrollments').insert([
-        {
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone || null,
-          city: formData.city || null,
-          grade: formData.grade || null,
-          message: formData.message || null,
-          status: 'pending',
-          privacy_consent: true,
-          privacy_consent_at: consentAt,
-          privacy_policy_version: PRIVACY_POLICY_VERSION,
-          parental_confirm: true,
-        },
-      ]);
-
-      if (enrollError) throw enrollError;
-
-      rememberApplicationValues(formData);
-      setSuggestions(getApplicationSuggestions());
-      setIsSuccess(true);
-      setFormData({ name: '', email: '', password: '', phone: '', city: '', school: '', grade: '', message: '' });
-      setPrivacyConsent(false);
-      setParentalConfirm(false);
-    } catch {
-      setError('Произошла ошибка при отправке. Попробуйте снова.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const { user } = useAuth();
 
   return (
     <section id="contact" className="py-24 bg-slate-50">
@@ -1101,21 +1001,20 @@ function ApplicationForm() {
           <div>
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full text-blue-600 text-sm font-medium mb-4">
               <UserPlus className="w-4 h-4" />
-              <span>Регистрация и заявка</span>
+              <span>Регистрация</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-6">
               Регистрируйся и участвуй в отборе!
             </h2>
             <p className="text-slate-600 text-lg mb-4 leading-relaxed">
-              Заполните одну форму: придумайте пароль для личного кабинета и укажите информацию о себе.
-              После отправки вы сразу сможете войти и пройти отборочные этапы.
+              Успешно прошедшие отбор продолжат обучение на годовом курсе кружка.
             </p>
             <p className="text-slate-500 text-sm mb-8 leading-relaxed">
               Мы обрабатываем персональные данные в соответствии с{' '}
               <a href="/privacy" target="_blank" className="text-blue-600 hover:text-blue-700 font-medium underline">
                 Политикой конфиденциальности
               </a>
-              . Пароль не передаётся третьим лицам.
+              .
             </p>
 
             <div className="space-y-6">
@@ -1140,225 +1039,53 @@ function ApplicationForm() {
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-200/50">
-            {user && !isSuccess ? (
-              <div className="text-center py-8 space-y-4">
-                <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto" />
-                <h3 className="text-xl font-bold text-slate-900">Вы уже зарегистрированы</h3>
-                <p className="text-slate-600 text-sm">Перейдите в личный кабинет, чтобы пройти отборочные этапы</p>
-                <a
-                  href="/dashboard"
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
-                >
-                  <LogIn className="w-5 h-5" />
-                  Личный кабинет
-                </a>
-              </div>
-            ) : isSuccess ? (
-              <div className="text-center py-12">
-                <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-purple-700 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle className="w-10 h-10 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-2">Заявка отправлена!</h3>
-                <p className="text-slate-600 mb-6">
-                  Аккаунт создан. Используйте ваш email и пароль для входа в личный кабинет.
-                </p>
-                <a
-                  href="/dashboard"
-                  className="inline-flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
-                >
-                  <LogIn className="w-5 h-5" />
-                  Перейти в личный кабинет
-                </a>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-1">Заявка на участие</h3>
-                  <p className="text-slate-500 text-sm">Все поля со звёздочкой обязательны</p>
-                </div>
-
-                <datalist id="application-name-suggestions">
-                  {suggestions.name.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-                <datalist id="application-email-suggestions">
-                  {suggestions.email.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-                <datalist id="application-phone-suggestions">
-                  {suggestions.phone.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-                <datalist id="application-city-suggestions">
-                  {suggestions.city.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-                <datalist id="application-school-suggestions">
-                  {suggestions.school.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-                <datalist id="application-grade-suggestions">
-                  {suggestions.grade.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">ФИО *</label>
-                  <input
-                    type="text"
-                    required
-                    list="application-name-suggestions"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    onBlur={(e) => rememberField('name', e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                    placeholder="Иванов Иван Иванович"
-                  />
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Email *</label>
-                    <input
-                      type="email"
-                      required
-                      list="application-email-suggestions"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      onBlur={(e) => rememberField('email', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="email@example.com"
-                    />
+          <div className="lg:sticky lg:top-28 relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-xl shadow-slate-200/50">
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#FC3F1D]/[0.07] via-amber-50/40 to-transparent"
+              aria-hidden
+            />
+            <div className="relative p-8 sm:p-10">
+              {user ? (
+                <div className="text-center py-4 space-y-5">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto">
+                    <CheckCircle className="w-8 h-8 text-emerald-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Телефон</label>
-                    <input
-                      type="tel"
-                      list="application-phone-suggestions"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      onBlur={(e) => rememberField('phone', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="+7 (999) 123-45-67"
-                    />
+                    <h3 className="text-2xl font-bold text-slate-900 mb-2">Вы уже зарегистрированы</h3>
+                    <p className="text-slate-600 leading-relaxed">
+                      Отборочные этапы проходят в личном кабинете
+                    </p>
                   </div>
+                  <a
+                    href="/dashboard"
+                    className="inline-flex items-center justify-center gap-2 w-full h-14 px-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
+                  >
+                    <LogIn className="w-5 h-5" />
+                    Личный кабинет
+                  </a>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Пароль для личного кабинета *</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      autoComplete="new-password"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="Придумайте пароль, минимум 6 символов"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
+              ) : (
+                <div className="space-y-8 py-2">
+                  <div className="text-center space-y-2">
+                    <h3 className="text-2xl sm:text-3xl font-bold text-slate-900">Регистрация через Яндекс ID</h3>
+                    <p className="text-slate-500 leading-relaxed max-w-sm mx-auto text-base">
+                      Создайте личный кабинет и начните обучение в нашем кружке.
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">Запомните пароль — он понадобится для входа на сайт</p>
-                </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Город</label>
-                    <input
-                      type="text"
-                      list="application-city-suggestions"
-                      value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      onBlur={(e) => rememberField('city', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="Москва"
+                  {isYandexOAuthEnabled() ? (
+                    <YandexSignInButton
+                      size="xl"
+                      label="Создать аккаунт с Яндекс ID"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Школа</label>
-                    <input
-                      type="text"
-                      list="application-school-suggestions"
-                      value={formData.school}
-                      onChange={(e) => setFormData({ ...formData, school: e.target.value })}
-                      onBlur={(e) => rememberField('school', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="Лицей № 1"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Класс</label>
-                    <input
-                      type="text"
-                      list="application-grade-suggestions"
-                      value={formData.grade}
-                      onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
-                      onBlur={(e) => rememberField('grade', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                      placeholder="10"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Дополнительная информация</label>
-                  <textarea
-                    value={formData.message}
-                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    onBlur={(e) => rememberField('message', e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all resize-none"
-                    placeholder="Расскажите о своём опыте и целях..."
-                  />
-                </div>
-
-                <PrivacyConsent
-                  consent={privacyConsent}
-                  onConsentChange={setPrivacyConsent}
-                  parentalConfirm={parentalConfirm}
-                  onParentalConfirmChange={setParentalConfirm}
-                  error={consentError}
-                />
-
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Нажимая кнопку ниже, вы подтверждаете достоверность указанных данных. Пароль не передаётся
-                  третьим лицам и хранится только в защищённой системе авторизации.
-                </p>
-
-                {error && (
-                  <div className="px-4 py-3 bg-rose-50 text-rose-600 rounded-xl text-sm">{error}</div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !privacyConsent || !parentalConfirm}
-                  className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-lg rounded-xl hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      Зарегистрироваться и подать заявку
-                    </>
+                    <p className="text-sm text-amber-700 text-center px-4 py-3 bg-amber-50 rounded-xl">
+                      Регистрация через Яндекс ID временно недоступна. Напишите на quantumclub@rqc.ru
+                    </p>
                   )}
-                </button>
-              </form>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

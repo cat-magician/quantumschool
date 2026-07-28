@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import type { Group, GroupMember, ScheduleEvent, UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
+import { profileEmail } from '../../lib/profileUtils';
 import { loadGroupTeachers, loadGroupStaffProfiles } from '../../lib/groupUtils';
 import {
   formatEventDateTime,
@@ -240,7 +241,7 @@ export default function TeachersTab() {
                   <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="xs" />
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white truncate">{a.display_name}</div>
-                    <div className="text-[11px] text-slate-500 truncate">{a.email}</div>
+                    <div className="text-[11px] text-slate-500 truncate">{profileEmail(a) ?? '—'}</div>
                   </div>
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -333,7 +334,7 @@ function TeacherCard({
             isYou={isYou}
             isSuperadmin={profile.role === 'superadmin'}
           />
-          <div className="h-3.5 text-[11px] text-slate-500 truncate leading-none">{profile.email}</div>
+          <div className="h-3.5 text-[11px] text-slate-500 truncate leading-none">{profileEmail(profile) ?? '—'}</div>
         </div>
         {canExclude && (
           <button
@@ -375,7 +376,7 @@ function TeacherCard({
         </div>
       </div>
 
-      <div className="shrink-0">
+      <div className="shrink-0 flex-1 min-h-0 flex flex-col">
         <TeacherCardSectionLabel icon={Calendar}>Ближайшее</TeacherCardSectionLabel>
         {!nextEvent ? (
           <p className="mt-1 text-xs text-slate-500 leading-4">Нет предстоящих</p>

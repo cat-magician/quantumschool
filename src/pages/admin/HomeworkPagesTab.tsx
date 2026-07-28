@@ -21,7 +21,6 @@ import {
   parseHomeworkMaxScore,
 } from '../../lib/homeworkUtils';
 import { parseYandexFormId, normalizeContestUrl } from '../../lib/selectionConfig';
-import { YANDEX_FORM_EMBED } from '../../lib/constants';
 import { homeworkPageLoadError, homeworkPageSaveError } from '../../lib/homeworkPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import MarkdownEditor from '../../components/MarkdownEditor';

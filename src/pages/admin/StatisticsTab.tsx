@@ -18,7 +18,6 @@ import {
   breakdownByGrade,
   breakdownByGroup,
   filterSnapshots,
-  formatAchievementsProgress,
   formatRankMetricValue,
   groupAverageProgress,
   HOMEWORK_STATUS_COLORS,

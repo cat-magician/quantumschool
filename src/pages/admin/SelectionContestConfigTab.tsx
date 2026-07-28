@@ -7,6 +7,7 @@ import {
   saveSelectionConfig,
 } from '../../lib/selectionConfig';
 import StageEmbedFrame from '../../components/StageEmbedFrame';
+import StageComingSoon from '../../components/StageComingSoon';
 
 export default function SelectionContestConfigTab() {
   const { user } = useAuth();
@@ -139,9 +140,9 @@ export default function SelectionContestConfigTab() {
         </div>
       </div>
 
-      {previewPublished && savedUrl && (
-        <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
-          <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
+      <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
+        <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
+        {previewPublished && savedUrl ? (
           <StageEmbedFrame flush minHeight={420}>
             <iframe
               src={savedUrl}
@@ -151,8 +152,10 @@ export default function SelectionContestConfigTab() {
               allow="clipboard-write"
             />
           </StageEmbedFrame>
-        </div>
-      )}
+        ) : (
+          <StageComingSoon stage="contest" />
+        )}
+      </div>
     </div>
   );
 }

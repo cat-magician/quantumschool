@@ -11,6 +11,7 @@ export type BlockPlaceholderVariant =
   | 'materials'
   | 'homework_link'
   | 'yandex_form'
+  | 'questionnaire'
   | 'contest';
 
 const COPY: Record<BlockPlaceholderVariant, { title: string; text: string; Icon: typeof FileText; tone: 'blue' | 'violet' | 'slate' }> = {
@@ -56,6 +57,12 @@ const COPY: Record<BlockPlaceholderVariant, { title: string; text: string; Icon:
     Icon: FileText,
     tone: 'blue',
   },
+  questionnaire: {
+    title: 'Анкета скоро появится',
+    text: 'После публикации вы сможете заполнить анкету прямо на этой странице.',
+    Icon: FileText,
+    tone: 'blue',
+  },
   contest: {
     title: 'Контест скоро появится',
     text: 'После публикации контест откроется прямо здесь.',
@@ -70,7 +77,7 @@ function toneClasses(tone: 'blue' | 'violet' | 'slate') {
   return { box: 'bg-slate-100 border-slate-200', icon: 'text-slate-500' };
 }
 
-const FLUSH_VARIANTS: BlockPlaceholderVariant[] = ['yandex_form', 'contest'];
+const FLUSH_VARIANTS: BlockPlaceholderVariant[] = ['yandex_form', 'questionnaire', 'contest'];
 
 /** Заглушка в том же стиле, что форма/контест на отборочном этапе. */
 export default function BlockPlaceholder({

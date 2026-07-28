@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
+import { profileDisplayName, profileEmail } from '../lib/profileUtils';
 import {
   adminDashboardStateToSearchParams,
   dashboardSearchParamsEqual,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
 import SelectionEssayConfigTab from './admin/SelectionEssayConfigTab';
+import SelectionQuestionnaireConfigTab from './admin/SelectionQuestionnaireConfigTab';
 import SelectionContestConfigTab from './admin/SelectionContestConfigTab';
 import StudentsTab from './admin/StudentsTab';
 import TeachersTab from './admin/TeachersTab';
@@ -29,7 +31,7 @@ import UserAvatar from '../components/UserAvatar';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 
 type AdminTab = 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
-type SelectionAdminSubTab = 'essay' | 'contest' | 'results';
+type SelectionAdminSubTab = 'essay' | 'questionnaire' | 'contest' | 'results';
 type LearningAdminSubTab = 'lectures' | 'seminars' | 'homework';
 
 const SELECTION_ADMIN_SUB_NAV: {
@@ -37,6 +39,7 @@ const SELECTION_ADMIN_SUB_NAV: {
   label: string;
   icon: typeof FileText;
 }[] = [
+  { id: 'questionnaire', label: 'Этап 1: Анкета', icon: ClipboardList },
   { id: 'essay', label: 'Этап 1: Эссе', icon: FileText },
   { id: 'contest', label: 'Этап 2: Задачи', icon: FlaskConical },
   { id: 'results', label: 'Результаты', icon: CheckCircle },
@@ -44,6 +47,7 @@ const SELECTION_ADMIN_SUB_NAV: {
 
 const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
   essay: 'Этап 1: Эссе',
+  questionnaire: 'Этап 1: Анкета',
   contest: 'Этап 2: Задачи',
   results: 'Результаты',
 };
@@ -75,7 +79,8 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [learningExpanded, setLearningExpanded] = useState(true);
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const displayName = profile?.display_name || user?.email?.split('@')[0] || 'Админ';
+  const displayName = profile ? profileDisplayName(profile) : 'Админ';
+  const accountSubtitle = profileEmail(profile, user?.email);
 
   const closeMobileNav = () => setMobileNavOpen(false);
 
@@ -89,7 +94,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   useEffect(() => {
     const parsed = parseAdminDashboardSearchParams(searchParams);
     const next = normalizeAdminDashboardState(
-      parsed ?? defaultAdminDashboardState(isSuperAdmin),
+      parsed ?? defaultAdminDashboardState(),
       isSuperAdmin,
     );
     setTab(next.tab);
@@ -323,7 +328,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
-              <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+              {accountSubtitle && (
+                <div className="text-xs text-slate-500 truncate">{accountSubtitle}</div>
+              )}
             </div>
           </button>
           <div className="mb-2">
@@ -440,7 +447,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
-              <div className="text-xs text-slate-500 truncate">{user?.email}</div>
+              {accountSubtitle && (
+                <div className="text-xs text-slate-500 truncate">{accountSubtitle}</div>
+              )}
             </div>
           </button>
           <DashboardSiteHomeLink />
@@ -495,8 +504,11 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             />
           )}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'essay' && <SelectionEssayConfigTab />}
+          {tab === 'results' && isSuperAdmin && selectionSubTab === 'questionnaire' && <SelectionQuestionnaireConfigTab />}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'contest' && <SelectionContestConfigTab />}
-          {tab === 'results' && (isSuperAdmin ? selectionSubTab === 'results' : true) && <ResultsTab />}
+          {tab === 'results' && (isSuperAdmin ? selectionSubTab === 'results' : true) && (
+            <ResultsTab isSuperAdmin={isSuperAdmin} />
+          )}
           {tab === 'students' && <StudentsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'teachers' && isSuperAdmin && <TeachersTab />}
           {tab === 'learning' && learningSubTab === 'lectures' && <LessonsTab lessonType="lecture" />}
