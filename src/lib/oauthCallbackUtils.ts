@@ -1,3 +1,5 @@
+import { oauthDashboardRedirectPath } from './yandexAuthUtils';
+
 /** Параметры OAuth-возврата: код приходит в ?query=, ошибка — в #hash. */
 function readOAuthParams(): URLSearchParams {
   const fromSearch = new URLSearchParams(window.location.search);
@@ -29,6 +31,14 @@ export function translateOAuthError(description: string): string {
   if (decoded.includes('Error getting user email from external provider')) {
     return 'Supabase не получил email от Яндекса. Проверьте Scopes: login:info login:email, '
       + 'право login:email в приложении Яндекса и что UserInfo URL указывает на yandex-userinfo.';
+  }
+
+  const lower = decoded.toLowerCase();
+  if (
+    lower.includes('redirect')
+    && (lower.includes('not allowed') || lower.includes('mismatch') || lower.includes('invalid'))
+  ) {
+    return `Адрес возврата не разрешён в Supabase. Добавьте в Authentication → URL Configuration → Redirect URLs: ${oauthDashboardRedirectPath()}`;
   }
 
   return decoded || 'Не удалось войти через Яндекс ID';

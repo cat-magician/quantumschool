@@ -9,7 +9,11 @@ import {
   markTeacherApplicationPending,
   YANDEX_OAUTH_PROVIDER,
 } from './yandexAuthConfig';
-import { consumeOAuthErrorFromUrl, hasOAuthCodeInUrl } from './oauthCallbackUtils';
+import {
+  consumeOAuthErrorFromUrl,
+  hasOAuthCallbackInUrl,
+  hasOAuthCodeInUrl,
+} from './oauthCallbackUtils';
 import { DASHBOARD_PATH, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
 import { PRIVACY_POLICY_VERSION } from './privacy';
 
@@ -168,6 +172,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return true;
     };
 
+    // Supabase при ошибке или если redirectTo не в allowlist шлёт на Site URL (/),
+    // а экран ошибки и обмен code→session настроены на /dashboard.
+    if (hasOAuthCallbackInUrl() && window.location.pathname !== DASHBOARD_PATH) {
+      window.location.replace(
+        `${window.location.origin}${DASHBOARD_PATH}${window.location.search}${window.location.hash}`,
+      );
+      return;
+    }
+
     const urlOAuthError = consumeOAuthErrorFromUrl();
     if (urlOAuthError) {
       consumeOAuthReturnPending();
@@ -228,6 +241,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider: YANDEX_OAUTH_PROVIDER as Provider,
       options: {
         redirectTo: oauthDashboardRedirectPath(),
+        // Экран выбора аккаунта Яндекса при каждом входе (не при каждом визите в кабинет).
+        queryParams: { force_confirm: 'yes' },
       },
     });
 
