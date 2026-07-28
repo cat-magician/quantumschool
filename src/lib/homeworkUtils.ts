@@ -116,21 +116,3 @@ export async function syncProgressFromGrade(
     { onConflict: 'user_id,course_id,module_index' },
   );
 }
-
-export async function maybeGrantAchievement(
-  supabase: SupabaseClient,
-  userId: string,
-  title: string,
-  description: string,
-  icon: string,
-) {
-  const { error } = await supabase.rpc('grant_achievement', {
-    target_user_id: userId,
-    p_title: title,
-    p_description: description,
-    p_icon: icon,
-  });
-  if (error && !error.message.includes('not_allowed')) {
-    console.error('grant_achievement:', error.message);
-  }
-}

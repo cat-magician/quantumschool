@@ -286,10 +286,7 @@ CREATE POLICY "Users can read own achievements" ON achievements FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Users can insert own achievements" ON achievements;
-CREATE POLICY "Users can insert own achievements" ON achievements FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+-- INSERT только через триггер (award_achievement_if_new); клиентам запрещено.
 
 -- Seed demo data function (called after user registers)
 -- When a new user registers we auto-create their profile
@@ -484,10 +481,10 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Bucket public=true: прямой URL (/object/public/avatars/…) работает без SELECT-политики.
+-- Намеренно нет политики «read all avatars» — иначе любой может листить bucket через API.
+
 DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
-CREATE POLICY "Public read avatars" ON storage.objects FOR SELECT
-  TO public
-  USING (bucket_id = 'avatars');
 
 DROP POLICY IF EXISTS "Users read own avatar" ON storage.objects;
 CREATE POLICY "Users read own avatar" ON storage.objects FOR SELECT
@@ -640,19 +637,14 @@ CREATE TABLE IF NOT EXISTS public.group_members (
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
 
+-- ── Private schema: RLS-хелперы (не в Exposed Schemas → нет /rest/v1/rpc/…) ──
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM PUBLIC;
+GRANT USAGE ON SCHEMA private TO authenticated;
+
 -- ── RLS helpers ─────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-  SELECT role FROM public.user_profiles WHERE id = auth.uid();
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_staff()
+CREATE OR REPLACE FUNCTION private.is_staff()
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -665,7 +657,7 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION public.is_superadmin()
+CREATE OR REPLACE FUNCTION private.is_superadmin()
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -678,71 +670,64 @@ AS $$
   );
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.get_my_role() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.is_staff() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.is_superadmin() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_staff() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_superadmin() TO authenticated;
-
 -- ── user_profiles policies ────────────────────────────────────
 
 DROP POLICY IF EXISTS "Staff can read all profiles" ON public.user_profiles;
 DROP POLICY IF EXISTS "Staff can read all profiles" ON public.user_profiles;
 CREATE POLICY "Staff can read all profiles" ON public.user_profiles FOR SELECT
   TO authenticated
-  USING (public.is_staff());
+  USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff can update student profiles" ON public.user_profiles;
 DROP POLICY IF EXISTS "Staff can update student profiles" ON public.user_profiles;
 CREATE POLICY "Staff can update student profiles" ON public.user_profiles FOR UPDATE
   TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 -- ── groups policies ───────────────────────────────────────────
 
 DROP POLICY IF EXISTS "Staff can read groups" ON public.groups;
 CREATE POLICY "Staff can read groups" ON public.groups FOR SELECT
   TO authenticated
-  USING (public.is_staff());
+  USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Superadmin manages groups" ON public.groups;
 CREATE POLICY "Superadmin manages groups" ON public.groups FOR INSERT
   TO authenticated
-  WITH CHECK (public.is_superadmin());
+  WITH CHECK (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Superadmin updates groups" ON public.groups;
 CREATE POLICY "Superadmin updates groups" ON public.groups FOR UPDATE
   TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Superadmin deletes groups" ON public.groups;
 CREATE POLICY "Superadmin deletes groups" ON public.groups FOR DELETE
   TO authenticated
-  USING (public.is_superadmin());
+  USING (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Staff read group members" ON public.group_members;
 CREATE POLICY "Staff read group members" ON public.group_members FOR SELECT
   TO authenticated
-  USING (public.is_staff());
+  USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff manage group members" ON public.group_members;
 CREATE POLICY "Staff manage group members" ON public.group_members FOR INSERT
   TO authenticated
-  WITH CHECK (public.is_staff());
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff update group members" ON public.group_members;
 CREATE POLICY "Staff update group members" ON public.group_members FOR UPDATE
   TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff remove group members" ON public.group_members;
 CREATE POLICY "Staff remove group members" ON public.group_members FOR DELETE
   TO authenticated
-  USING (public.is_staff());
+  USING (private.is_staff());
 
 -- ── Default enrolled group ────────────────────────────────────
 
@@ -861,14 +846,14 @@ DROP POLICY IF EXISTS "Staff can update student profiles" ON public.user_profile
 DROP POLICY IF EXISTS "Staff can update student profiles" ON public.user_profiles;
 CREATE POLICY "Staff can update student profiles" ON public.user_profiles FOR UPDATE
   TO authenticated
-  USING (public.is_staff() AND role = 'student')
-  WITH CHECK (public.is_staff() AND role = 'student');
+  USING (private.is_staff() AND role = 'student')
+  WITH CHECK (private.is_staff() AND role = 'student');
 
 DROP POLICY IF EXISTS "Staff can read enrollments" ON public.enrollments;
 DROP POLICY IF EXISTS "Staff can read enrollments" ON public.enrollments;
 CREATE POLICY "Staff can read enrollments" ON public.enrollments FOR SELECT
   TO authenticated
-  USING (public.is_staff());
+  USING (private.is_staff());
 
 -- Admins see only their teacher groups; superadmins see all
 DROP POLICY IF EXISTS "Staff can read groups" ON public.groups;
@@ -876,9 +861,9 @@ DROP POLICY IF EXISTS "Staff can read groups" ON public.groups;
 CREATE POLICY "Staff can read groups" ON public.groups FOR SELECT
   TO authenticated
   USING (
-    public.is_superadmin()
-    OR (public.is_staff() AND group_type = 'enrolled')
-    OR (public.is_staff() AND group_type = 'teacher' AND teacher_id = auth.uid())
+    private.is_superadmin()
+    OR (private.is_staff() AND group_type = 'enrolled')
+    OR (private.is_staff() AND group_type = 'teacher' AND teacher_id = auth.uid())
   );
 
 -- Admins can create/update teacher groups assigned to themselves
@@ -887,8 +872,8 @@ DROP POLICY IF EXISTS "Staff create teacher groups" ON public.groups;
 CREATE POLICY "Staff create teacher groups" ON public.groups FOR INSERT
   TO authenticated
   WITH CHECK (
-    public.is_superadmin()
-    OR (public.is_staff() AND group_type = 'teacher' AND teacher_id = auth.uid())
+    private.is_superadmin()
+    OR (private.is_staff() AND group_type = 'teacher' AND teacher_id = auth.uid())
   );
 
 DROP POLICY IF EXISTS "Superadmin updates groups" ON public.groups;
@@ -896,11 +881,11 @@ DROP POLICY IF EXISTS "Staff update groups" ON public.groups;
 CREATE POLICY "Staff update groups" ON public.groups FOR UPDATE
   TO authenticated
   USING (
-    public.is_superadmin()
+    private.is_superadmin()
     OR (teacher_id = auth.uid() AND group_type = 'teacher')
   )
   WITH CHECK (
-    public.is_superadmin()
+    private.is_superadmin()
     OR (teacher_id = auth.uid() AND group_type = 'teacher')
   );
 
@@ -909,7 +894,7 @@ DROP POLICY IF EXISTS "Staff delete groups" ON public.groups;
 CREATE POLICY "Staff delete groups" ON public.groups FOR DELETE
   TO authenticated
   USING (
-    public.is_superadmin()
+    private.is_superadmin()
     OR (teacher_id = auth.uid() AND group_type = 'teacher')
   );
 
@@ -960,7 +945,6 @@ AS $$
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.needs_setup() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.needs_setup() TO anon, authenticated;
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260619000000_012_schedule_events.sql
@@ -992,22 +976,22 @@ ALTER TABLE public.schedule_events ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Staff read schedule events" ON public.schedule_events;
 DROP POLICY IF EXISTS "Staff read schedule events" ON public.schedule_events;
 CREATE POLICY "Staff read schedule events" ON public.schedule_events
-  FOR SELECT TO authenticated USING (public.is_staff());
+  FOR SELECT TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff insert schedule events" ON public.schedule_events;
 DROP POLICY IF EXISTS "Staff insert schedule events" ON public.schedule_events;
 CREATE POLICY "Staff insert schedule events" ON public.schedule_events
-  FOR INSERT TO authenticated WITH CHECK (public.is_staff());
+  FOR INSERT TO authenticated WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff update schedule events" ON public.schedule_events;
 DROP POLICY IF EXISTS "Staff update schedule events" ON public.schedule_events;
 CREATE POLICY "Staff update schedule events" ON public.schedule_events
-  FOR UPDATE TO authenticated USING (public.is_staff()) WITH CHECK (public.is_staff());
+  FOR UPDATE TO authenticated USING (private.is_staff()) WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff delete schedule events" ON public.schedule_events;
 DROP POLICY IF EXISTS "Staff delete schedule events" ON public.schedule_events;
 CREATE POLICY "Staff delete schedule events" ON public.schedule_events
-  FOR DELETE TO authenticated USING (public.is_staff());
+  FOR DELETE TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled students read schedule events" ON public.schedule_events;
 DROP POLICY IF EXISTS "Enrolled students read schedule events" ON public.schedule_events;
@@ -1079,22 +1063,22 @@ ALTER TABLE public.homework_submissions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Staff read homework assignments" ON public.homework_assignments;
 DROP POLICY IF EXISTS "Staff read homework assignments" ON public.homework_assignments;
 CREATE POLICY "Staff read homework assignments" ON public.homework_assignments
-  FOR SELECT TO authenticated USING (public.is_staff());
+  FOR SELECT TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff insert homework assignments" ON public.homework_assignments;
 DROP POLICY IF EXISTS "Staff insert homework assignments" ON public.homework_assignments;
 CREATE POLICY "Staff insert homework assignments" ON public.homework_assignments
-  FOR INSERT TO authenticated WITH CHECK (public.is_staff());
+  FOR INSERT TO authenticated WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff update homework assignments" ON public.homework_assignments;
 DROP POLICY IF EXISTS "Staff update homework assignments" ON public.homework_assignments;
 CREATE POLICY "Staff update homework assignments" ON public.homework_assignments
-  FOR UPDATE TO authenticated USING (public.is_staff()) WITH CHECK (public.is_staff());
+  FOR UPDATE TO authenticated USING (private.is_staff()) WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff delete homework assignments" ON public.homework_assignments;
 DROP POLICY IF EXISTS "Staff delete homework assignments" ON public.homework_assignments;
 CREATE POLICY "Staff delete homework assignments" ON public.homework_assignments
-  FOR DELETE TO authenticated USING (public.is_staff());
+  FOR DELETE TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled students read homework assignments" ON public.homework_assignments;
 DROP POLICY IF EXISTS "Enrolled students read homework assignments" ON public.homework_assignments;
@@ -1119,12 +1103,12 @@ CREATE POLICY "Enrolled students read homework assignments" ON public.homework_a
 DROP POLICY IF EXISTS "Staff read homework submissions" ON public.homework_submissions;
 DROP POLICY IF EXISTS "Staff read homework submissions" ON public.homework_submissions;
 CREATE POLICY "Staff read homework submissions" ON public.homework_submissions
-  FOR SELECT TO authenticated USING (public.is_staff());
+  FOR SELECT TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff update homework submissions" ON public.homework_submissions;
 DROP POLICY IF EXISTS "Staff update homework submissions" ON public.homework_submissions;
 CREATE POLICY "Staff update homework submissions" ON public.homework_submissions
-  FOR UPDATE TO authenticated USING (public.is_staff()) WITH CHECK (public.is_staff());
+  FOR UPDATE TO authenticated USING (private.is_staff()) WITH CHECK (private.is_staff());
 
 -- Submissions: students own
 DROP POLICY IF EXISTS "Students read own submissions" ON public.homework_submissions;
@@ -1148,23 +1132,18 @@ CREATE POLICY "Students update own draft submissions" ON public.homework_submiss
 DROP POLICY IF EXISTS "Staff read course progress" ON public.course_progress;
 DROP POLICY IF EXISTS "Staff read course progress" ON public.course_progress;
 CREATE POLICY "Staff read course progress" ON public.course_progress
-  FOR SELECT TO authenticated USING (public.is_staff());
+  FOR SELECT TO authenticated USING (private.is_staff());
 
 DROP POLICY IF EXISTS "Staff manage course progress" ON public.course_progress;
 DROP POLICY IF EXISTS "Staff manage course progress" ON public.course_progress;
 CREATE POLICY "Staff manage course progress" ON public.course_progress
-  FOR ALL TO authenticated USING (public.is_staff()) WITH CHECK (public.is_staff());
+  FOR ALL TO authenticated USING (private.is_staff()) WITH CHECK (private.is_staff());
 
 -- Achievements: staff can award
 DROP POLICY IF EXISTS "Staff read achievements" ON public.achievements;
 DROP POLICY IF EXISTS "Staff read achievements" ON public.achievements;
 CREATE POLICY "Staff read achievements" ON public.achievements
-  FOR SELECT TO authenticated USING (public.is_staff());
-
-DROP POLICY IF EXISTS "Staff insert achievements" ON public.achievements;
-DROP POLICY IF EXISTS "Staff insert achievements" ON public.achievements;
-CREATE POLICY "Staff insert achievements" ON public.achievements
-  FOR INSERT TO authenticated WITH CHECK (public.is_staff());
+  FOR SELECT TO authenticated USING (private.is_staff());
 
 CREATE INDEX IF NOT EXISTS idx_homework_assignments_due_at ON public.homework_assignments (due_at);
 CREATE INDEX IF NOT EXISTS idx_homework_submissions_assignment ON public.homework_submissions (assignment_id);
@@ -1199,8 +1178,8 @@ DROP POLICY IF EXISTS "Superadmin update roles" ON public.user_profiles;
 DROP POLICY IF EXISTS "Superadmin update roles" ON public.user_profiles;
 CREATE POLICY "Superadmin update roles" ON public.user_profiles
   FOR UPDATE TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260619130000_015_profile_application_fields.sql
@@ -1276,8 +1255,8 @@ DROP POLICY IF EXISTS "Superadmin manage selection config" ON public.selection_s
 DROP POLICY IF EXISTS "Superadmin manage selection config" ON public.selection_stage_config;
 CREATE POLICY "Superadmin manage selection config" ON public.selection_stage_config
   FOR ALL TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260620120000_019_group_teachers.sql
@@ -1306,7 +1285,7 @@ FROM public.groups g
 WHERE g.group_type = 'teacher' AND g.teacher_id IS NOT NULL
 ON CONFLICT (group_id, user_id) DO NOTHING;
 
-CREATE OR REPLACE FUNCTION public.is_group_teacher(p_group_id uuid)
+CREATE OR REPLACE FUNCTION private.is_group_teacher(p_group_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -1323,25 +1302,20 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION public.staff_can_access_student(p_student_id uuid)
+CREATE OR REPLACE FUNCTION private.staff_can_access_student(p_student_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT public.is_superadmin() OR EXISTS (
+  SELECT private.is_superadmin() OR EXISTS (
     SELECT 1
     FROM public.group_members gm
     WHERE gm.user_id = p_student_id
-      AND public.is_group_teacher(gm.group_id)
+      AND private.is_group_teacher(gm.group_id)
   );
 $$;
-
-REVOKE EXECUTE ON FUNCTION public.is_group_teacher(uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.staff_can_access_student(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.is_group_teacher(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.staff_can_access_student(uuid) TO authenticated;
 
 -- groups
 DROP POLICY IF EXISTS "Staff can read groups" ON public.groups;
@@ -1349,9 +1323,9 @@ DROP POLICY IF EXISTS "Staff can read groups" ON public.groups;
 CREATE POLICY "Staff can read groups" ON public.groups
   FOR SELECT TO authenticated
   USING (
-    public.is_superadmin()
-    OR (group_type = 'enrolled' AND public.is_staff())
-    OR (group_type = 'teacher' AND public.is_group_teacher(id))
+    private.is_superadmin()
+    OR (group_type = 'enrolled' AND private.is_staff())
+    OR (group_type = 'teacher' AND private.is_group_teacher(id))
   );
 
 DROP POLICY IF EXISTS "Superadmin manages groups" ON public.groups;
@@ -1360,36 +1334,36 @@ DROP POLICY IF EXISTS "Superadmin creates groups" ON public.groups;
 DROP POLICY IF EXISTS "Superadmin creates groups" ON public.groups;
 CREATE POLICY "Superadmin creates groups" ON public.groups
   FOR INSERT TO authenticated
-  WITH CHECK (public.is_superadmin());
+  WITH CHECK (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Superadmin updates groups" ON public.groups;
 DROP POLICY IF EXISTS "Staff update groups" ON public.groups;
 DROP POLICY IF EXISTS "Superadmin updates groups" ON public.groups;
 CREATE POLICY "Superadmin updates groups" ON public.groups
   FOR UPDATE TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Superadmin deletes groups" ON public.groups;
 DROP POLICY IF EXISTS "Staff delete groups" ON public.groups;
 DROP POLICY IF EXISTS "Superadmin deletes groups" ON public.groups;
 CREATE POLICY "Superadmin deletes groups" ON public.groups
   FOR DELETE TO authenticated
-  USING (public.is_superadmin());
+  USING (private.is_superadmin());
 
 -- group_teachers
 DROP POLICY IF EXISTS "Staff read group teachers" ON public.group_teachers;
 DROP POLICY IF EXISTS "Staff read group teachers" ON public.group_teachers;
 CREATE POLICY "Staff read group teachers" ON public.group_teachers
   FOR SELECT TO authenticated
-  USING (public.is_superadmin() OR public.is_group_teacher(group_id));
+  USING (private.is_superadmin() OR private.is_group_teacher(group_id));
 
 DROP POLICY IF EXISTS "Superadmin manage group teachers" ON public.group_teachers;
 DROP POLICY IF EXISTS "Superadmin manage group teachers" ON public.group_teachers;
 CREATE POLICY "Superadmin manage group teachers" ON public.group_teachers
   FOR ALL TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 -- group_members
 DROP POLICY IF EXISTS "Staff read group members" ON public.group_members;
@@ -1397,8 +1371,8 @@ DROP POLICY IF EXISTS "Staff read group members" ON public.group_members;
 CREATE POLICY "Staff read group members" ON public.group_members
   FOR SELECT TO authenticated
   USING (
-    public.is_superadmin()
-    OR public.is_group_teacher(group_id)
+    private.is_superadmin()
+    OR private.is_group_teacher(group_id)
   );
 
 DROP POLICY IF EXISTS "Staff manage group members" ON public.group_members;
@@ -1409,35 +1383,35 @@ DROP POLICY IF EXISTS "Staff insert group members" ON public.group_members;
 CREATE POLICY "Staff insert group members" ON public.group_members
   FOR INSERT TO authenticated
   WITH CHECK (
-    public.is_superadmin()
-    OR public.is_group_teacher(group_id)
+    private.is_superadmin()
+    OR private.is_group_teacher(group_id)
   );
 
 DROP POLICY IF EXISTS "Staff delete group members" ON public.group_members;
 DROP POLICY IF EXISTS "Staff update group members" ON public.group_members;
 CREATE POLICY "Staff update group members" ON public.group_members
   FOR UPDATE TO authenticated
-  USING (public.is_superadmin() OR public.is_group_teacher(group_id))
-  WITH CHECK (public.is_superadmin() OR public.is_group_teacher(group_id));
+  USING (private.is_superadmin() OR private.is_group_teacher(group_id))
+  WITH CHECK (private.is_superadmin() OR private.is_group_teacher(group_id));
 
 DROP POLICY IF EXISTS "Staff delete group members" ON public.group_members;
 CREATE POLICY "Staff delete group members" ON public.group_members
   FOR DELETE TO authenticated
-  USING (public.is_superadmin() OR public.is_group_teacher(group_id));
+  USING (private.is_superadmin() OR private.is_group_teacher(group_id));
 
 -- homework submissions (staff)
 DROP POLICY IF EXISTS "Staff read homework submissions" ON public.homework_submissions;
 DROP POLICY IF EXISTS "Staff read homework submissions" ON public.homework_submissions;
 CREATE POLICY "Staff read homework submissions" ON public.homework_submissions
   FOR SELECT TO authenticated
-  USING (public.staff_can_access_student(user_id));
+  USING (private.staff_can_access_student(user_id));
 
 DROP POLICY IF EXISTS "Staff update homework submissions" ON public.homework_submissions;
 DROP POLICY IF EXISTS "Staff update homework submissions" ON public.homework_submissions;
 CREATE POLICY "Staff update homework submissions" ON public.homework_submissions
   FOR UPDATE TO authenticated
-  USING (public.staff_can_access_student(user_id))
-  WITH CHECK (public.staff_can_access_student(user_id));
+  USING (private.staff_can_access_student(user_id))
+  WITH CHECK (private.staff_can_access_student(user_id));
 
 CREATE INDEX IF NOT EXISTS idx_group_teachers_group ON public.group_teachers (group_id);
 CREATE INDEX IF NOT EXISTS idx_group_teachers_user ON public.group_teachers (user_id);
@@ -1580,8 +1554,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.profile_has_selection_edits(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.seed_demo_student_state(text, text, text, boolean, integer, integer, interval, interval) TO authenticated;
+-- Demo helpers: no EXECUTE for client roles (functions dropped later in this file)
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260624120000_023_lesson_pages.sql
@@ -1621,8 +1594,8 @@ DROP POLICY IF EXISTS "Staff manage lesson pages" ON public.lesson_pages;
 DROP POLICY IF EXISTS "Staff manage lesson pages" ON public.lesson_pages;
 CREATE POLICY "Staff manage lesson pages" ON public.lesson_pages
   FOR ALL TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled read published lesson pages" ON public.lesson_pages;
 DROP POLICY IF EXISTS "Enrolled read published lesson pages" ON public.lesson_pages;
@@ -1640,8 +1613,8 @@ DROP POLICY IF EXISTS "Staff manage lesson blocks" ON public.lesson_page_blocks;
 DROP POLICY IF EXISTS "Staff manage lesson blocks" ON public.lesson_page_blocks;
 CREATE POLICY "Staff manage lesson blocks" ON public.lesson_page_blocks
   FOR ALL TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled read published lesson blocks" ON public.lesson_page_blocks;
 DROP POLICY IF EXISTS "Enrolled read published lesson blocks" ON public.lesson_page_blocks;
@@ -1699,8 +1672,8 @@ DROP POLICY IF EXISTS "Staff manage homework pages" ON public.homework_pages;
 DROP POLICY IF EXISTS "Staff manage homework pages" ON public.homework_pages;
 CREATE POLICY "Staff manage homework pages" ON public.homework_pages
   FOR ALL TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled read published homework pages" ON public.homework_pages;
 DROP POLICY IF EXISTS "Enrolled read published homework pages" ON public.homework_pages;
@@ -1718,8 +1691,8 @@ DROP POLICY IF EXISTS "Staff manage homework page blocks" ON public.homework_pag
 DROP POLICY IF EXISTS "Staff manage homework page blocks" ON public.homework_page_blocks;
 CREATE POLICY "Staff manage homework page blocks" ON public.homework_page_blocks
   FOR ALL TO authenticated
-  USING (public.is_staff())
-  WITH CHECK (public.is_staff());
+  USING (private.is_staff())
+  WITH CHECK (private.is_staff());
 
 DROP POLICY IF EXISTS "Enrolled read published homework page blocks" ON public.homework_page_blocks;
 DROP POLICY IF EXISTS "Enrolled read published homework page blocks" ON public.homework_page_blocks;
@@ -1777,14 +1750,14 @@ DROP POLICY IF EXISTS "Staff read homework page submissions" ON public.homework_
 DROP POLICY IF EXISTS "Staff read homework page submissions" ON public.homework_page_submissions;
 CREATE POLICY "Staff read homework page submissions" ON public.homework_page_submissions
   FOR SELECT TO authenticated
-  USING (public.staff_can_access_student(user_id));
+  USING (private.staff_can_access_student(user_id));
 
 DROP POLICY IF EXISTS "Staff update homework page submissions" ON public.homework_page_submissions;
 DROP POLICY IF EXISTS "Staff update homework page submissions" ON public.homework_page_submissions;
 CREATE POLICY "Staff update homework page submissions" ON public.homework_page_submissions
   FOR UPDATE TO authenticated
-  USING (public.staff_can_access_student(user_id))
-  WITH CHECK (public.staff_can_access_student(user_id));
+  USING (private.staff_can_access_student(user_id))
+  WITH CHECK (private.staff_can_access_student(user_id));
 
 DROP POLICY IF EXISTS "Students read own homework page submissions" ON public.homework_page_submissions;
 DROP POLICY IF EXISTS "Students read own homework page submissions" ON public.homework_page_submissions;
@@ -1862,15 +1835,15 @@ DROP POLICY IF EXISTS "Superadmin manage landing config" ON public.landing_confi
 DROP POLICY IF EXISTS "Superadmin manage landing config" ON public.landing_config;
 CREATE POLICY "Superadmin manage landing config" ON public.landing_config
   FOR ALL TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 DROP POLICY IF EXISTS "Superadmin manage instructors" ON public.instructors;
 DROP POLICY IF EXISTS "Superadmin manage instructors" ON public.instructors;
 CREATE POLICY "Superadmin manage instructors" ON public.instructors
   FOR ALL TO authenticated
-  USING (public.is_superadmin())
-  WITH CHECK (public.is_superadmin());
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260630120000_030_demo_markers.sql
@@ -1961,6 +1934,9 @@ END $$;
 
 ALTER TABLE public.superadmin_allowlist ENABLE ROW LEVEL SECURITY;
 
+-- Только SECURITY DEFINER-функции читают allowlist; клиентам доступ закрыт.
+REVOKE ALL ON TABLE public.superadmin_allowlist FROM PUBLIC, anon, authenticated;
+
 DELETE FROM public.superadmin_allowlist
 WHERE email NOT IN (
   'marcellau@yandex.ru',
@@ -1974,12 +1950,12 @@ INSERT INTO public.superadmin_allowlist (email) VALUES
   ('sokol.dm@phystech.edu')
 ON CONFLICT (email) DO NOTHING;
 
-CREATE OR REPLACE FUNCTION public.is_allowlisted_superadmin_email(p_email text)
+CREATE OR REPLACE FUNCTION private.is_allowlisted_superadmin_email(p_email text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = ''
 AS $$
   SELECT EXISTS (
     SELECT 1
@@ -1988,20 +1964,19 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION public.is_allowlisted_superadmin_email(text) FROM PUBLIC;
 DROP FUNCTION IF EXISTS public.is_allowlisted_superadmin_login(text);
 DROP FUNCTION IF EXISTS public.is_superadmin_email(text);
 
 -- Синхронизация ролей при повторном прогоне schema.sql
 UPDATE public.user_profiles p
 SET role = 'superadmin', updated_at = now()
-WHERE public.is_allowlisted_superadmin_email(p.email)
+WHERE private.is_allowlisted_superadmin_email(p.email)
   AND p.role IS DISTINCT FROM 'superadmin';
 
 UPDATE public.user_profiles p
 SET role = 'student', updated_at = now()
 WHERE p.role = 'superadmin'
-  AND NOT public.is_allowlisted_superadmin_email(p.email);
+  AND NOT private.is_allowlisted_superadmin_email(p.email);
 
 CREATE OR REPLACE FUNCTION public.needs_setup()
 RETURNS boolean
@@ -2014,7 +1989,6 @@ AS $$
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.needs_setup() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.needs_setup() TO anon, authenticated;
 
 -- Паролей больше нет: вход только через Яндекс ID
 DROP FUNCTION IF EXISTS public.superadmin_reset_user_password(uuid, text);
@@ -2035,12 +2009,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF public.is_superadmin() THEN
+  IF private.is_superadmin() THEN
     RETURN NEW;
   END IF;
 
   IF auth.uid() = NEW.id THEN
-    IF public.is_allowlisted_superadmin_email(COALESCE(NEW.email, '')) THEN
+    IF private.is_allowlisted_superadmin_email(COALESCE(NEW.email, '')) THEN
       NEW.role := 'superadmin';
     ELSE
       NEW.role := 'student';
@@ -2068,11 +2042,11 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF public.is_superadmin() THEN
+  IF private.is_superadmin() THEN
     RETURN NEW;
   END IF;
 
-  IF public.is_staff() AND auth.uid() IS DISTINCT FROM OLD.id THEN
+  IF private.is_staff() AND auth.uid() IS DISTINCT FROM OLD.id THEN
     RETURN NEW;
   END IF;
 
@@ -2162,8 +2136,8 @@ CREATE TRIGGER guard_user_profile_update
   FOR EACH ROW
   EXECUTE PROCEDURE public.guard_user_profile_update();
 
-REVOKE ALL ON FUNCTION public.guard_user_profile_insert() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.guard_user_profile_insert() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC, anon, authenticated;
 
 DROP POLICY IF EXISTS "Students update own draft submissions" ON public.homework_submissions;
 CREATE POLICY "Students update own draft submissions" ON public.homework_submissions
@@ -2223,24 +2197,28 @@ DROP POLICY IF EXISTS "Staff can read all profiles" ON public.user_profiles;
 CREATE POLICY "Staff can read all profiles" ON public.user_profiles
   FOR SELECT TO authenticated
   USING (
-    public.is_superadmin()
+    private.is_superadmin()
     OR (
-      public.is_staff()
+      private.is_staff()
       AND (
         role IN ('admin', 'superadmin')
-        OR public.staff_can_access_student(id)
+        OR private.staff_can_access_student(id)
         OR (role = 'student' AND is_enrolled = true)
       )
     )
   );
 
 DROP POLICY IF EXISTS "Users can insert own achievements" ON public.achievements;
+DROP POLICY IF EXISTS "Staff insert achievements" ON public.achievements;
+DROP POLICY IF EXISTS "Users can insert own achievements" ON achievements;
+DROP POLICY IF EXISTS "Staff insert achievements" ON achievements;
 
-CREATE OR REPLACE FUNCTION public.grant_achievement(
-  target_user_id uuid,
+-- Достижения начисляются только триггером по факту сдачи/проверки ДЗ (не через RPC).
+CREATE OR REPLACE FUNCTION public.award_achievement_if_new(
+  p_user_id uuid,
   p_title text,
-  p_description text DEFAULT '',
-  p_icon text DEFAULT 'award'
+  p_description text,
+  p_icon text
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -2248,26 +2226,18 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  IF auth.uid() IS NULL THEN
-    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
-  END IF;
-
-  IF public.is_staff() THEN
-    NULL;
-  ELSIF auth.uid() = target_user_id AND p_title = 'Первое ДЗ' THEN
-    NULL;
-  ELSE
-    RAISE EXCEPTION 'not_allowed' USING ERRCODE = '42501';
+  IF NULLIF(trim(p_title), '') IS NULL THEN
+    RETURN;
   END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM public.achievements
-    WHERE user_id = target_user_id AND title = p_title
+    WHERE user_id = p_user_id AND title = trim(p_title)
   ) THEN
     INSERT INTO public.achievements (user_id, title, description, icon)
     VALUES (
-      target_user_id,
-      p_title,
+      p_user_id,
+      trim(p_title),
       COALESCE(p_description, ''),
       COALESCE(NULLIF(trim(p_icon), ''), 'award')
     );
@@ -2275,11 +2245,77 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.grant_achievement(uuid, text, text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.grant_achievement(uuid, text, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 
-REVOKE EXECUTE ON FUNCTION public.needs_setup() FROM anon;
-GRANT EXECUTE ON FUNCTION public.needs_setup() TO authenticated;
+CREATE OR REPLACE FUNCTION public.trg_homework_page_submission_achievements()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_page_title text;
+  v_max_score numeric;
+  v_score_label text;
+BEGIN
+  IF NEW.status = 'submitted'
+    AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'submitted') THEN
+    PERFORM public.award_achievement_if_new(
+      NEW.user_id,
+      'Первое ДЗ',
+      'Вы отправили работу на проверку',
+      'send'
+    );
+  END IF;
+
+  IF NEW.status = 'graded'
+    AND NEW.score IS NOT NULL
+    AND (
+      TG_OP = 'INSERT'
+      OR OLD.status IS DISTINCT FROM 'graded'
+      OR OLD.score IS DISTINCT FROM NEW.score
+    ) THEN
+    SELECT hp.title, hp.max_score
+    INTO v_page_title, v_max_score
+    FROM public.homework_pages hp
+    WHERE hp.id = NEW.page_id;
+
+    v_score_label :=
+      trim(to_char(NEW.score, 'FM999990.99'))
+      || '/'
+      || trim(to_char(COALESCE(v_max_score, 10), 'FM999990.99'));
+
+    PERFORM public.award_achievement_if_new(
+      NEW.user_id,
+      'ДЗ проверено',
+      'Получена оценка ' || v_score_label || ' за «' || COALESCE(v_page_title, 'Домашнее задание') || '»',
+      'check'
+    );
+
+    IF COALESCE(v_max_score, 10) > 0
+      AND NEW.score / COALESCE(v_max_score, 10) >= 0.8 THEN
+      PERFORM public.award_achievement_if_new(
+        NEW.user_id,
+        'Отличная работа',
+        'Оценка ' || v_score_label || ' за «' || COALESCE(v_page_title, 'Домашнее задание') || '»',
+        'star'
+      );
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS homework_page_submission_achievements ON public.homework_page_submissions;
+CREATE TRIGGER homework_page_submission_achievements
+  AFTER INSERT OR UPDATE ON public.homework_page_submissions
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.trg_homework_page_submission_achievements();
+
+DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
 
 ALTER TABLE public.user_profiles
   ADD COLUMN IF NOT EXISTS questionnaire_submitted_at timestamptz;
@@ -2340,7 +2376,7 @@ BEGIN
       auth.uid(),
       v_display_name,
       CASE
-        WHEN public.is_allowlisted_superadmin_email(COALESCE(v_user.email, '')) THEN 'superadmin'
+        WHEN private.is_allowlisted_superadmin_email(COALESCE(v_user.email, '')) THEN 'superadmin'
         ELSE 'student'
       END,
       v_user.email
@@ -2383,7 +2419,7 @@ AS $$
 DECLARE
   v_role text;
 BEGIN
-  IF public.is_allowlisted_superadmin_email(COALESCE(new.email, '')) THEN
+  IF private.is_allowlisted_superadmin_email(COALESCE(new.email, '')) THEN
     v_role := 'superadmin';
   ELSE
     v_role := COALESCE(new.raw_user_meta_data->>'role', 'student');
@@ -2415,7 +2451,7 @@ DECLARE
   v_role text;
   v_enrolled boolean;
 BEGIN
-  IF NOT public.is_superadmin() THEN
+  IF NOT private.is_superadmin() THEN
     RAISE EXCEPTION 'not_allowed' USING ERRCODE = '42501';
   END IF;
 
@@ -2454,3 +2490,74 @@ GRANT EXECUTE ON FUNCTION public.superadmin_delete_user_account(uuid) TO authent
 -- В самом конце: к этому моменту гарды и триггеры уже не ссылаются на login.
 ALTER TABLE public.user_profiles
   DROP COLUMN IF EXISTS login;
+
+-- ══════════════════════════════════════════════════════════════
+-- Security hardening: права на функции (переприменяется при каждом деплое)
+-- ══════════════════════════════════════════════════════════════
+--
+-- Принцип: через PostgREST /rpc доступны только две функции, которые зовёт фронт.
+-- Всё остальное — триггеры и RLS-хелперы; anon не должен иметь EXECUTE ни на что.
+
+-- Demo-хелперы не должны торчать в API
+DROP FUNCTION IF EXISTS public.seed_demo_student_state(text, text, text, boolean, integer, integer, interval, interval);
+DROP FUNCTION IF EXISTS public.profile_has_selection_edits(uuid);
+
+-- Allowlist: явный запрет для клиентов (audit «RLS enabled no policy»)
+DROP POLICY IF EXISTS "No client access to superadmin allowlist" ON public.superadmin_allowlist;
+CREATE POLICY "No client access to superadmin allowlist" ON public.superadmin_allowlist
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+REVOKE ALL ON TABLE public.superadmin_allowlist FROM PUBLIC, anon, authenticated;
+
+-- Устаревшие политики (ссылались на public.is_staff() — мешают DROP FUNCTION)
+DROP POLICY IF EXISTS "Staff insert achievements" ON public.achievements;
+DROP POLICY IF EXISTS "Staff insert achievements" ON achievements;
+DROP POLICY IF EXISTS "Users can insert own achievements" ON public.achievements;
+DROP POLICY IF EXISTS "Users can insert own achievements" ON achievements;
+
+-- Триггеры auth / user_profiles — не RPC
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.guard_user_profile_insert() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC, anon, authenticated;
+
+-- Внутренние SECURITY DEFINER: утечка allowlist / bootstrap
+REVOKE ALL ON FUNCTION private.is_allowlisted_superadmin_email(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.needs_setup() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.extract_oauth_display_name(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- Удалить устаревшие public-хелперы (перенесены в private, не exposed через API)
+DROP FUNCTION IF EXISTS public.get_my_role();
+DROP FUNCTION IF EXISTS public.is_staff();
+DROP FUNCTION IF EXISTS public.is_superadmin();
+DROP FUNCTION IF EXISTS public.is_group_teacher(uuid);
+DROP FUNCTION IF EXISTS public.staff_can_access_student(uuid);
+DROP FUNCTION IF EXISTS public.is_allowlisted_superadmin_email(text);
+
+-- private RLS-хелперы: EXECUTE только authenticated (схема private не в Exposed Schemas)
+REVOKE ALL ON FUNCTION private.is_staff() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.is_superadmin() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.is_group_teacher(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.staff_can_access_student(uuid) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION private.is_staff() TO authenticated;
+GRANT EXECUTE ON FUNCTION private.is_superadmin() TO authenticated;
+GRANT EXECUTE ON FUNCTION private.is_group_teacher(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION private.staff_can_access_student(uuid) TO authenticated;
+
+-- Новые public-функции не получают EXECUTE автоматически
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+
+-- Единственный намеренный RPC-surface для authenticated (см. src/lib/*.ts)
+REVOKE ALL ON FUNCTION public.sync_oauth_user_profile(boolean, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.superadmin_delete_user_account(uuid) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.sync_oauth_user_profile(boolean, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.superadmin_delete_user_account(uuid) TO authenticated;
+
+-- Достижения: только триггер, не RPC
+DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
+REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;

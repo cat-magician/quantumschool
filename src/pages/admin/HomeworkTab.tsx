@@ -13,8 +13,6 @@ import {
 import {
   formatHomeworkScoreShort,
   formatHomeworkScoreValue,
-  isExcellentHomeworkScore,
-  maybeGrantAchievement,
   normalizeHomeworkScoreInput,
   parseHomeworkScore,
   SUBMISSION_STATUS_COLORS,
@@ -218,11 +216,6 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     const title = s.page?.title ?? 'Домашнее задание';
     const idx = pages.findIndex((p) => p.id === s.page_id);
     await syncProgressFromGrade(supabase, s.user_id, title, idx >= 0 ? idx : 0, score, maxScore);
-    const scoreLabel = formatHomeworkScoreShort(score, maxScore);
-    if (isExcellentHomeworkScore(score, maxScore)) {
-      await maybeGrantAchievement(supabase, s.user_id, 'Отличная работа', `Оценка ${scoreLabel} за «${title}»`, 'star');
-    }
-    await maybeGrantAchievement(supabase, s.user_id, 'ДЗ проверено', `Получена оценка ${scoreLabel} за «${title}»`, 'check');
 
     const row = updated as HomeworkPageSubmission;
     setGradeDrafts((prev) => ({

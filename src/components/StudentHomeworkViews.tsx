@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import type { HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../lib/types';
 import { homeworkPageLoadError } from '../lib/homeworkPageLoadError';
 import { formatHomeworkDueAt, sortHomeworkPagesForStudent, type HomeworkListSort } from '../lib/homeworkPageUtils';
-import { DEFAULT_HOMEWORK_MAX_SCORE, maybeGrantAchievement } from '../lib/homeworkUtils';
+import { DEFAULT_HOMEWORK_MAX_SCORE } from '../lib/homeworkUtils';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
 import HomeworkDueBadge from './HomeworkDueBadge';
@@ -170,9 +170,6 @@ export function StudentHomeworkPageView({
     if (result.error) {
       setSubmitError(homeworkPageLoadError(result.error.message) ?? 'Не удалось сохранить статус');
       return;
-    }
-    if (status === 'submitted') {
-      await maybeGrantAchievement(supabase, user.id, 'Первое ДЗ', 'Вы отправили работу на проверку', 'send');
     }
     await loadPage();
   };
