@@ -11,6 +11,7 @@ import { profileDisplayName, profileEmail } from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import SuperadminDeleteAccount from '../../components/SuperadminDeleteAccount';
 import { adminStageBadgeClass, adminStageLabel } from '../../lib/selectionDisplayUtils';
+import { removeUserFromAllGroups } from '../../lib/groupUtils';
 
 type StudentRow = UserProfile & { email: string | null };
 
@@ -107,6 +108,9 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
         stage1_status: normalizeStatus(d.stage1_status, d.stage1_score, d.stage1_submitted_at),
         stage2_status: normalizeStatus(d.stage2_status, d.stage2_score, d.stage2_submitted_at),
       };
+      if (!normalized.is_enrolled) {
+        await removeUserFromAllGroups(supabase, s.id);
+      }
       setStudents((prev) => prev.map((p) => (p.id === s.id ? { ...p, ...normalized } : p)));
       setDrafts((prev) => {
         const next = { ...prev };

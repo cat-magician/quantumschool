@@ -2136,8 +2136,32 @@ CREATE TRIGGER guard_user_profile_update
   FOR EACH ROW
   EXECUTE PROCEDURE public.guard_user_profile_update();
 
+CREATE OR REPLACE FUNCTION public.sync_group_members_on_enrollment_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF (
+    (OLD.is_enrolled = true AND NEW.is_enrolled = false)
+    OR (COALESCE(OLD.selection_rejected, false) = false AND NEW.selection_rejected = true)
+  ) THEN
+    DELETE FROM public.group_members WHERE user_id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS sync_group_members_on_enrollment_change ON public.user_profiles;
+CREATE TRIGGER sync_group_members_on_enrollment_change
+  AFTER UPDATE ON public.user_profiles
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.sync_group_members_on_enrollment_change();
+
 REVOKE ALL ON FUNCTION public.guard_user_profile_insert() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.sync_group_members_on_enrollment_change() FROM PUBLIC, anon, authenticated;
 
 DROP POLICY IF EXISTS "Students update own draft submissions" ON public.homework_submissions;
 CREATE POLICY "Students update own draft submissions" ON public.homework_submissions

@@ -452,7 +452,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           </div>
         </header>
 
-        {user && <TeacherPromotedBanner userId={user.id} />}
+        {user && !isSuperAdmin && <TeacherPromotedBanner userId={user.id} />}
 
         {isSuperAdmin && tab === 'results' && (
           <MobileSubNavBar

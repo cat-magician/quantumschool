@@ -169,3 +169,11 @@ export async function loadStudentGroupContext(
       .sort((a, b) => a.display_name.localeCompare(b.display_name, 'ru')),
   };
 }
+
+/** Снять ученика из всех учебных групп (при отмене зачисления или отказе). */
+export async function removeUserFromAllGroups(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<void> {
+  await supabase.from('group_members').delete().eq('user_id', userId);
+}

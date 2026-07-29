@@ -168,12 +168,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       nextProfile = await applyTeacherApplicationIfPending(authUser, nextProfile);
       nextProfile = await clearStaleTeacherRejection(nextProfile);
 
-      const prevRole = profileRef.current?.role ?? 'student';
+      const prevRole = profileRef.current?.role;
       const nextRole = nextProfile?.role ?? 'student';
       if (
         nextProfile
         && prevRole === 'student'
-        && (nextRole === 'admin' || nextRole === 'superadmin')
+        && nextRole === 'admin'
       ) {
         markTeacherPromoted(authUser.id);
       }
