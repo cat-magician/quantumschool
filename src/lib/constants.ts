@@ -10,17 +10,11 @@ export const YANDEX_FORM_EMBED = {
   width: 650,
 } as const;
 
-export function yandexFormUrl(formId: string) {
-  return `https://forms.yandex.ru/u/${formId}/`;
-}
-
-export function yandexFormIframeSrc(formId: string) {
-  return `https://forms.yandex.ru/u/${formId}?iframe=1`;
-}
-
-export function yandexFormIframeName(formId: string) {
-  return `ya-form-${formId}`;
-}
+export {
+  yandexFormIframeName,
+  yandexFormIframeSrc,
+  yandexFormPublicUrl as yandexFormUrl,
+} from './selectionConfig';
 
 /** Вставьте URL контеста этапа 2, когда он будет готов (iframe на странице отбора) */
 export const YANDEX_CONTEST = {

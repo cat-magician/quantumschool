@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Calendar, Clock, Loader2, Pencil, Plus, Trash2, Video, X,
+  Calendar, Clock, Loader2, Pencil, Plus, Trash2, X,
 } from 'lucide-react';
+import { normalizeMeetingUrl } from '../../lib/meetingLinkUtils';
+import MeetingLinkButton from '../../components/MeetingLinkButton';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import MonthCalendar from '../../components/MonthCalendar';
@@ -172,7 +174,7 @@ export default function ScheduleTab() {
       event_type: form.event_type,
       scheduled_at: new Date(form.scheduled_at).toISOString(),
       duration_minutes: form.duration_minutes,
-      meeting_url: form.meeting_url.trim(),
+      meeting_url: normalizeMeetingUrl(form.meeting_url),
       group_id: form.group_id || null,
       updated_at: new Date().toISOString(),
     };
@@ -310,15 +312,12 @@ export default function ScheduleTab() {
                     {formatDuration(event.duration_minutes)}
                   </span>
                   {event.meeting_url && (
-                    <a
-                      href={event.meeting_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300"
-                    >
-                      <Video className="w-4 h-4" />
-                      Ссылка на занятие
-                    </a>
+                    <MeetingLinkButton
+                      url={event.meeting_url}
+                      scheduledAt={event.scheduled_at}
+                      durationMinutes={event.duration_minutes}
+                      variant="admin"
+                    />
                   )}
                 </div>
               </div>

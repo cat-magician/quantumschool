@@ -17,7 +17,9 @@ import {
 import { lessonPageLoadError, lessonPageSaveError, isSaveSuccessMessage } from '../../lib/lessonPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import LessonPageCard from '../../components/LessonPageCard';
+import DocumentSourceInput from '../../components/DocumentSourceInput';
 import ImageSourceInput from '../../components/ImageSourceInput';
+import { FormDate, FormLabel, FormSelect } from '../../components/FormControls';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
@@ -81,6 +83,15 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
+  const [homeworkPages, setHomeworkPages] = useState<{ id: string; title: string }[]>([]);
+
+  const loadHomeworkPages = async () => {
+    const { data } = await supabase
+      .from('homework_pages')
+      .select('id, title')
+      .order('title');
+    setHomeworkPages((data ?? []) as { id: string; title: string }[]);
+  };
 
   const loadList = async () => {
     setLoading(true);
@@ -96,6 +107,10 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
   };
 
   useEffect(() => { loadList(); }, [lessonType]);
+
+  useEffect(() => {
+    void loadHomeworkPages();
+  }, []);
 
   useEffect(() => {
     if (previewMode) {
@@ -395,15 +410,13 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
               <p className="text-[11px] text-slate-600">Без обложки — градиентная заглушка в списке</p>
             )}
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs text-slate-500">Дата занятия</span>
-            <input
-              type="date"
+          <div className="block space-y-1.5">
+            <FormLabel className="text-xs text-slate-500 mb-0">Дата занятия</FormLabel>
+            <FormDate
               value={editor.lesson_date}
-              onChange={(e) => setEditor({ ...editor, lesson_date: e.target.value })}
-              className="w-full max-w-xs px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+              onChange={(lesson_date) => setEditor({ ...editor, lesson_date })}
             />
-          </label>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -434,6 +447,7 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
                 block={block}
                 index={index}
                 total={editor.blocks.length}
+                homeworkPages={homeworkPages}
                 onMove={moveBlock}
                 onRemove={() => removeBlock(block.id)}
                 onContentChange={(patch) => updateBlockContent(block.id, patch)}
@@ -544,6 +558,7 @@ function BlockEditor({
   block,
   index,
   total,
+  homeworkPages,
   onMove,
   onRemove,
   onContentChange,
@@ -551,10 +566,16 @@ function BlockEditor({
   block: EditorBlock;
   index: number;
   total: number;
+  homeworkPages: { id: string; title: string }[];
   onMove: (index: number, dir: -1 | 1) => void;
   onRemove: () => void;
   onContentChange: (patch: Partial<LessonBlockContent>) => void;
 }) {
+  const homeworkOptions = [
+    { value: '', label: '— Не прикреплено —' },
+    ...homeworkPages.map((p) => ({ value: p.id, label: p.title })),
+  ];
+
   return (
     <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -617,11 +638,10 @@ function BlockEditor({
 
       {block.block_type === 'materials' && (
         <div className="space-y-3">
-          <input
+          <DocumentSourceInput
             value={block.content.pdf_url ?? ''}
-            onChange={(e) => onContentChange({ pdf_url: e.target.value })}
-            placeholder="Публичная ссылка Яндекс.Диска (PDF, PPTX, DOCX…)"
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+            onChange={(pdf_url) => onContentChange({ pdf_url })}
+            placeholder="Загрузите PDF/картинку или вставьте ссылку"
           />
           <input
             value={block.content.pdf_title ?? ''}
@@ -642,16 +662,27 @@ function BlockEditor({
 
       {block.block_type === 'homework_link' && (
         <div className="space-y-2">
-          <input
-            value={block.content.url ?? ''}
-            onChange={(e) => onContentChange({ url: e.target.value })}
-            placeholder="Ссылка на страницу домашнего задания"
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+          <FormSelect
+            value={block.content.homework_page_id ?? ''}
+            onChange={(homework_page_id) => {
+              const page = homeworkPages.find((p) => p.id === homework_page_id);
+              onContentChange({
+                homework_page_id,
+                label: page?.title ?? block.content.label ?? 'Перейти к домашнему заданию',
+              });
+            }}
+            options={homeworkOptions}
+            placeholder="Выберите домашнее задание…"
           />
+          {homeworkPages.length === 0 && (
+            <p className="text-[11px] text-slate-500">
+              Сначала создайте домашнее задание во вкладке «Домашние задания».
+            </p>
+          )}
           <input
             value={block.content.label ?? ''}
             onChange={(e) => onContentChange({ label: e.target.value })}
-            placeholder="Текст ссылки"
+            placeholder="Текст кнопки"
             className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
           />
         </div>

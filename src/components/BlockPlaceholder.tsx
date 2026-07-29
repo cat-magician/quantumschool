@@ -41,7 +41,7 @@ const COPY: Record<BlockPlaceholderVariant, { title: string; text: string; Icon:
   },
   materials: {
     title: 'Материалы появятся здесь',
-    text: 'Вставьте публичную ссылку Яндекс.Диска — PDF и презентации откроются прямо на сайте.',
+    text: 'Загрузите PDF или картинку — они откроются прямо на сайте.',
     Icon: BookOpen,
     tone: 'slate',
   },
@@ -83,11 +83,17 @@ const FLUSH_VARIANTS: BlockPlaceholderVariant[] = ['yandex_form', 'questionnaire
 export default function BlockPlaceholder({
   variant,
   minHeight = 420,
+  title,
+  text,
+  actions,
 }: {
   variant: BlockPlaceholderVariant;
   minHeight?: number;
+  title?: string;
+  text?: string;
+  actions?: React.ReactNode;
 }) {
-  const { title, text, Icon, tone } = COPY[variant];
+  const { title: defaultTitle, text: defaultText, Icon, tone } = COPY[variant];
   const colors = toneClasses(tone);
   const flush = FLUSH_VARIANTS.includes(variant);
 
@@ -97,8 +103,13 @@ export default function BlockPlaceholder({
         <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 border ${colors.box}`}>
           <Icon className={`w-8 h-8 ${colors.icon}`} />
         </div>
-        <h4 className="text-lg font-semibold text-slate-800 mb-2">{title}</h4>
-        <p className="text-slate-500 text-sm max-w-md leading-relaxed">{text}</p>
+        <h4 className="text-lg font-semibold text-slate-800 mb-2">{title ?? defaultTitle}</h4>
+        <p className="text-slate-500 text-sm max-w-md leading-relaxed">{text ?? defaultText}</p>
+        {actions && (
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            {actions}
+          </div>
+        )}
       </div>
     </StageEmbedFrame>
   );

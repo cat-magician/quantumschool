@@ -3,7 +3,7 @@ import { Bell } from 'lucide-react';
 import DashboardSiteHomeLink from './DashboardSiteHomeLink';
 import UserAvatar from './UserAvatar';
 import { countUnreadNotifications } from '../lib/notificationReadState';
-import { loadNotificationsForProfile } from '../lib/notificationsUtils';
+import { loadNotificationsForProfile, type NotificationAction } from '../lib/notificationsUtils';
 import type { UserProfile } from '../lib/types';
 import { profileDisplayName } from '../lib/profileUtils';
 import NotificationsPanel from './NotificationsPanel';
@@ -12,10 +12,12 @@ export default function DashboardHeaderActions({
   profile,
   userId,
   onOpenProfile,
+  onNotificationNavigate,
 }: {
   profile: UserProfile;
   userId: string;
   onOpenProfile?: () => void;
+  onNotificationNavigate?: (action: NotificationAction) => void;
 }) {
   const [bellOpen, setBellOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -56,6 +58,10 @@ export default function DashboardHeaderActions({
             userId={userId}
             onClose={() => setBellOpen(false)}
             onReadStateChange={refreshUnread}
+            onNavigate={(action) => {
+              onNotificationNavigate?.(action);
+              setBellOpen(false);
+            }}
           />
         )}
       </div>

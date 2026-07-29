@@ -27,7 +27,7 @@ export function defaultBlockContent(type: LessonBlockType): LessonBlockContent {
     case 'materials':
       return { body: '', pdf_url: '', pdf_title: '' };
     case 'homework_link':
-      return { url: '', label: 'Перейти к домашнему заданию' };
+      return { homework_page_id: '', label: 'Перейти к домашнему заданию' };
     default:
       return {};
   }

@@ -59,7 +59,7 @@ export default function TeachersTab() {
       supabase.from('groups').select('*').eq('group_type', 'teacher').order('name'),
       loadGroupTeachers(supabase),
       supabase.from('group_members').select('*'),
-      supabase.from('homework_submissions').select('user_id, status').eq('status', 'submitted'),
+      supabase.from('homework_page_submissions').select('user_id, status').eq('status', 'submitted'),
       supabase
         .from('schedule_events')
         .select('*')
@@ -145,8 +145,8 @@ export default function TeachersTab() {
     const ok = await confirm({
       title: 'Отклонить заявку?',
       message: applicant
-        ? `${applicant.display_name} не получит доступ к кабинету преподавателя. Кандидат увидит отказ при следующем входе.`
-        : 'Кандидат увидит отказ при следующем входе.',
+        ? `${applicant.display_name} не получит доступ к кабинету преподавателя. Сможет участвовать в отборе как школьник или подать заявку снова через /join/teacher.`
+        : 'Кандидат сможет участвовать в отборе как школьник или подать заявку снова через /join/teacher.',
       confirmLabel: 'Отклонить',
       danger: true,
     });

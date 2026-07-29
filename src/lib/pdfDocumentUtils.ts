@@ -1,8 +1,10 @@
 import {
   fetchYandexPublicDownloadUrl,
   fetchYandexPublicResourceMeta,
+  isDirectImageUrl,
   isYandexDiskUrl,
 } from './yandexDiskImageUtils';
+import { isSupabaseLessonDocumentUrl, looksLikeImageDocumentUrl } from './contentDocumentUtils';
 
 const PDF_EXT = /\.pdf(\?|#|$)/i;
 const OFFICE_EXT = /\.(pptx?|docx?|xlsx?|odp|ods|odt)(\?|#|$)/i;
@@ -36,7 +38,7 @@ export function extractDocumentUrlFromText(text: string): string | null {
   const pdf = extractPdfUrlFromText(text);
   if (pdf) return pdf;
 
-  const yandex = text.match(/https?:\/\/(?:disk\.yandex\.(?:ru|com)|yadi\.sk)\/[^\s<>"']+/i);
+  const yandex = text.match(/https?:\/\/(?:disk(?:\.360)?\.yandex\.(?:ru|com)|yadi\.sk)\/[^\s<>"']+/i);
   return yandex?.[0] ?? null;
 }
 
@@ -55,9 +57,19 @@ export function looksLikePdfUrl(url: string): boolean {
 export function isLessonDocumentUrl(url: string): boolean {
   const trimmed = url.trim();
   if (!trimmed) return false;
+  if (isSupabaseLessonDocumentUrl(trimmed)) return true;
+  if (looksLikeImageDocumentUrl(trimmed) || isDirectImageUrl(trimmed)) return true;
   if (isYandexDiskUrl(trimmed)) return true;
   if (looksLikePdfUrl(trimmed)) return true;
   if (OFFICE_EXT.test(trimmed)) return true;
+  return false;
+}
+
+export function isLessonImageUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (looksLikeImageDocumentUrl(trimmed) || isDirectImageUrl(trimmed)) return true;
+  if (isSupabaseLessonDocumentUrl(trimmed) && looksLikeImageDocumentUrl(trimmed)) return true;
   return false;
 }
 
@@ -131,6 +143,21 @@ async function resolveYandexDiskDocument(publicUrl: string): Promise<ResolvedLes
 export async function resolveLessonDocument(rawUrl: string): Promise<ResolvedLessonDocument> {
   const trimmed = rawUrl.trim();
   if (!trimmed) throw new Error('Пустая ссылка');
+
+  if (isSupabaseLessonDocumentUrl(trimmed)) {
+    if (looksLikeImageDocumentUrl(trimmed)) {
+      throw new Error('Изображение отображается напрямую на странице');
+    }
+    if (looksLikePdfUrl(trimmed)) {
+      return {
+        kind: 'pdf',
+        viewerUrl: trimmed,
+        downloadUrl: trimmed,
+        fileName: filenameFromUrl(trimmed),
+        sourceUrl: trimmed,
+      };
+    }
+  }
 
   if (isYandexDiskUrl(trimmed)) {
     return resolveYandexDiskDocument(trimmed);

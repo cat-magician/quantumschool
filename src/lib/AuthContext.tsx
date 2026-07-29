@@ -10,12 +10,20 @@ import {
   YANDEX_OAUTH_PROVIDER,
 } from './yandexAuthConfig';
 import {
+  getLoginCorridor,
+  markStudentCorridorUnlocked,
+  markTeacherLoginCorridor,
+  markStudentLoginCorridor,
+  clearLoginCorridor,
+} from './loginCorridor';
+import {
   consumeOAuthErrorFromUrl,
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
 import { DASHBOARD_PATH, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
 import { PRIVACY_POLICY_VERSION } from './privacy';
+import { markTeacherPromoted } from './teacherPromotionNotice';
 
 /** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
 const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
@@ -107,6 +115,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return (data as UserProfile | null) ?? existingProfile;
   }, []);
 
+  /** Отказ в преподаватели не должен блокировать ученический кабинет на том же аккаунте. */
+  const clearStaleTeacherRejection = useCallback(async (
+    existingProfile: UserProfile | null,
+  ): Promise<UserProfile | null> => {
+    if (
+      !existingProfile
+      || !existingProfile.teacher_application_rejected
+      || existingProfile.teacher_application
+    ) {
+      return existingProfile;
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({
+        teacher_application_rejected: false,
+        updated_at: now,
+      })
+      .eq('id', existingProfile.id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Clear teacher rejection error:', error.message);
+      return existingProfile;
+    }
+
+    return (data as UserProfile | null) ?? existingProfile;
+  }, []);
+
   const fetchProfile = useCallback(async (
     authUser: User,
     { background = false }: { background?: boolean } = {},
@@ -127,11 +166,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       nextProfile = await syncOAuthProfile(authUser, nextProfile);
       nextProfile = await applyTeacherApplicationIfPending(authUser, nextProfile);
+      nextProfile = await clearStaleTeacherRejection(nextProfile);
+
+      const prevRole = profileRef.current?.role ?? 'student';
+      const nextRole = nextProfile?.role ?? 'student';
+      if (
+        nextProfile
+        && prevRole === 'student'
+        && (nextRole === 'admin' || nextRole === 'superadmin')
+      ) {
+        markTeacherPromoted(authUser.id);
+      }
+
+      if (
+        nextProfile?.teacher_application
+        && getLoginCorridor() === 'student'
+      ) {
+        markStudentCorridorUnlocked(authUser.id);
+      }
+
       setProfile(nextProfile);
     } finally {
       if (!background) setProfileLoading(false);
     }
-  }, [syncOAuthProfile, applyTeacherApplicationIfPending]);
+  }, [syncOAuthProfile, applyTeacherApplicationIfPending, clearStaleTeacherRejection]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user, { background: true });
@@ -234,6 +292,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }) => {
     if (options?.teacherApplication) {
       markTeacherApplicationPending();
+      markTeacherLoginCorridor();
+    } else {
+      markStudentLoginCorridor();
     }
     markOAuthReturnPending();
 
@@ -268,6 +329,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, profile]);
 
   const signOut = async () => {
+    clearLoginCorridor();
     await supabase.auth.signOut();
     setProfile(null);
     setProfileLoading(false);

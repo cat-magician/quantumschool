@@ -9,6 +9,7 @@ export type MobileNavQuickItem = {
   icon: LucideIcon;
   active: boolean;
   disabled?: boolean;
+  badge?: number;
   onClick: () => void;
 };
 
@@ -51,7 +52,14 @@ export default function DashboardMobileNav({
                   className={quickBtnClass(item.active, item.disabled)}
                   aria-label={item.label}
                 >
-                  <item.icon className="w-5 h-5 shrink-0" />
+                  <span className="relative shrink-0">
+                    <item.icon className="w-5 h-5" />
+                    {item.badge != null && item.badge > 0 && (
+                      <span className="absolute -top-1.5 -right-2 min-w-[1rem] h-4 px-0.5 rounded-full bg-blue-500 text-[9px] font-bold text-white flex items-center justify-center tabular-nums">
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
+                  </span>
                   <span className="text-center line-clamp-2">{item.shortLabel ?? item.label}</span>
                 </button>
               ))}

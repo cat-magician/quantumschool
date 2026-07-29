@@ -1,4 +1,6 @@
-import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage } from './types';
+import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from './types';
+import { yandexFormUrl } from './constants';
+import { normalizeContestUrl, parseYandexFormId } from './selectionConfig';
 import { formatDueDate } from './homeworkUtils';
 import { toDatetimeLocalValue } from './scheduleUtils';
 
@@ -73,8 +75,15 @@ export const HOMEWORK_STUDENT_LIST_ORDER = [
 ] as const;
 
 export type HomeworkListSort = 'date' | 'deadline';
+export type HomeworkListFilter = 'all' | 'todo';
 
-/** По умолчанию — порядок публикации; по клику — по сроку сдачи. */
+export function isHomeworkPendingSubmission(
+  submission?: Pick<HomeworkPageSubmission, 'status'> | null,
+): boolean {
+  return !submission || submission.status === 'draft';
+}
+
+/** По умолчанию — по сроку сдачи; «По дате» — порядок публикации. */
 export function sortHomeworkPagesForStudent<T extends Pick<HomeworkPage, 'created_at' | 'due_at' | 'updated_at'>>(
   pages: T[],
   sort: HomeworkListSort,
@@ -192,4 +201,42 @@ function composeHomeworkMarkdown(text: string): string {
 export function normalizeHomeworkMarkdown(body: string) {
   if (!body?.trim()) return '';
   return composeHomeworkMarkdown(repairHomeworkLatex(body));
+}
+
+export type HomeworkSubmissionLink = {
+  label: string;
+  href: string;
+  external: boolean;
+};
+
+/** Ссылки на формы/контесты из блоков страницы ДЗ (для проверки преподавателем). */
+export function homeworkSubmissionLinksFromBlocks(
+  blocks: Pick<HomeworkPageBlock, 'block_type' | 'content'>[],
+): HomeworkSubmissionLink[] {
+  const links: HomeworkSubmissionLink[] = [];
+
+  for (const block of blocks) {
+    if (block.block_type === 'yandex_form') {
+      const formId = parseYandexFormId(block.content.form_id ?? '');
+      if (formId) {
+        links.push({
+          label: 'Яндекс.Форма сдачи',
+          href: yandexFormUrl(formId),
+          external: true,
+        });
+      }
+    }
+    if (block.block_type === 'contest') {
+      const url = normalizeContestUrl(block.content.url ?? '');
+      if (url) {
+        links.push({
+          label: 'Яндекс.Контест',
+          href: url,
+          external: true,
+        });
+      }
+    }
+  }
+
+  return links;
 }

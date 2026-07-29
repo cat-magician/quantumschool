@@ -4,20 +4,58 @@ import { StudentHomeworkList, StudentHomeworkPageView } from '../../components/S
 
 export type LearningSubTab = 'lectures' | 'seminars' | 'homework';
 
-export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab }) {
+export default function StudentLearningTab({
+  subTab,
+  contentPageId,
+  onContentPageChange,
+  onOpenHomeworkPage,
+}: {
+  subTab: LearningSubTab;
+  contentPageId?: string | null;
+  onContentPageChange?: (pageId: string | null) => void;
+  onOpenHomeworkPage?: (pageId: string) => void;
+}) {
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const [openHomeworkId, setOpenHomeworkId] = useState<string | null>(null);
 
   useEffect(() => {
     setOpenLessonId(null);
     setOpenHomeworkId(null);
-  }, [subTab]);
+    if (!contentPageId) return;
+    if (subTab === 'homework') setOpenHomeworkId(contentPageId);
+    else if (subTab === 'lectures' || subTab === 'seminars') setOpenLessonId(contentPageId);
+  }, [subTab, contentPageId]);
+
+  const openLesson = (pageId: string) => {
+    setOpenLessonId(pageId);
+    onContentPageChange?.(pageId);
+  };
+
+  const closeLesson = () => {
+    setOpenLessonId(null);
+    onContentPageChange?.(null);
+  };
+
+  const openHomework = (pageId: string) => {
+    if (onOpenHomeworkPage) {
+      onOpenHomeworkPage(pageId);
+      return;
+    }
+    setOpenHomeworkId(pageId);
+    onContentPageChange?.(pageId);
+  };
+
+  const closeHomework = () => {
+    setOpenHomeworkId(null);
+    onContentPageChange?.(null);
+  };
 
   if (openLessonId) {
     return (
       <StudentLessonPageView
         pageId={openLessonId}
-        onBack={() => setOpenLessonId(null)}
+        onBack={closeLesson}
+        onOpenHomework={openHomework}
       />
     );
   }
@@ -26,7 +64,7 @@ export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab 
     return (
       <StudentHomeworkPageView
         pageId={openHomeworkId}
-        onBack={() => setOpenHomeworkId(null)}
+        onBack={closeHomework}
       />
     );
   }
@@ -34,13 +72,13 @@ export default function StudentLearningTab({ subTab }: { subTab: LearningSubTab 
   return (
     <div className="max-w-3xl space-y-6">
       {subTab === 'lectures' && (
-        <StudentLessonList lessonType="lecture" onOpen={setOpenLessonId} />
+        <StudentLessonList lessonType="lecture" onOpen={openLesson} />
       )}
       {subTab === 'seminars' && (
-        <StudentLessonList lessonType="seminar" onOpen={setOpenLessonId} />
+        <StudentLessonList lessonType="seminar" onOpen={openLesson} />
       )}
       {subTab === 'homework' && (
-        <StudentHomeworkList onOpen={setOpenHomeworkId} />
+        <StudentHomeworkList onOpen={openHomework} />
       )}
     </div>
   );

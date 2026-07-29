@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Atom, GraduationCap } from 'lucide-react';
 import YandexSignInButton from '../components/YandexSignInButton';
 import { isYandexOAuthEnabled } from '../lib/yandexAuthConfig';
+import { markTeacherLoginCorridor } from '../lib/loginCorridor';
 
 export default function TeacherJoin() {
   return (
@@ -44,7 +45,11 @@ export default function TeacherJoin() {
 
           <p className="text-center mt-6 text-sm text-slate-500">
             Уже подавали заявку?{' '}
-            <Link to="/dashboard" className="text-blue-400 hover:text-blue-300">
+            <Link
+              to="/dashboard"
+              onClick={markTeacherLoginCorridor}
+              className="text-blue-400 hover:text-blue-300"
+            >
               Войти в кабинет
             </Link>
           </p>

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   LogOut, Calendar, BarChart3, Home,
   ClipboardList, FileText, FlaskConical, Lock,
-  CheckCircle, BookOpen, Presentation,
+  CheckCircle, BookOpen, Presentation, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { profileDisplayName, profileEmail } from '../lib/profileUtils';
@@ -14,7 +14,9 @@ import {
   parseStudentDashboardSearchParams,
   profilePathFromDashboardSearch,
   studentDashboardStateToSearchParams,
+  type StudentDashboardState,
 } from '../lib/dashboardNavigation';
+import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import UserAvatar from '../components/UserAvatar';
 import { isContestPublished, isEssayPublished, isQuestionnairePublished } from '../lib/selectionConfig';
@@ -33,10 +35,22 @@ import StudentLearningTab, { type LearningSubTab } from './student/LearningTab';
 import StudentProgressTab from './student/ProgressTab';
 import YandexFormEmbed from '../components/YandexFormEmbed';
 import StageEmbedFrame from '../components/StageEmbedFrame';
-import DashboardHomePanel from '../components/DashboardHomePanel';
+import StudentDashboardHome, { type StudentNextAction } from '../components/StudentDashboardHome';
 import TelegramCommunityCard from '../components/TelegramCommunityCard';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
+import NavCountBadge from '../components/NavCountBadge';
+import EnrolledWelcomeModal from '../components/EnrolledWelcomeModal';
+import {
+  ExternalFormHint,
+  ExternalSubmitConfirm,
+  SubmitAcceptedBanner,
+} from '../components/ExternalSubmitConfirm';
+import SelectionStage1Progress, { StepSectionLabel } from '../components/SelectionStage1Progress';
+import { countSelectionPendingSteps, buildEnrolledHomeworkProgress } from '../lib/studentHomeActions';
+import { markEnrollmentWelcomeShown, shouldShowEnrollmentWelcome } from '../lib/enrollmentWelcome';
+import { markHadPendingTeacherApplication } from '../lib/teacherPromotionNotice';
+import { TeacherApplicationPendingBanner } from '../components/TeacherRoleBanners';
 
 type Tab = 'home' | 'selection' | 'learning' | 'schedule' | 'progress';
 type SelectionSubTab = 'stage1' | 'stage2' | 'results';
@@ -72,11 +86,13 @@ export default function StudentDashboard() {
   const isEnrolled = profile?.is_enrolled ?? false;
   const [tab, setTab] = useState<Tab>('home');
   const [selectionSubTab, setSelectionSubTab] = useState<SelectionSubTab>('stage1');
-  const [selectionExpanded, setSelectionExpanded] = useState(false);
   const [learningSubTab, setLearningSubTab] = useState<LearningSubTab>('lectures');
   const [learningExpanded, setLearningExpanded] = useState(false);
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showEnrollmentWelcome, setShowEnrollmentWelcome] = useState(false);
+  const [homeworkPendingCount, setHomeworkPendingCount] = useState(0);
+  const [contentPageId, setContentPageId] = useState<string | null>(null);
   const displayName = profile ? profileDisplayName(profile) : 'Участник';
   const accountSubtitle = profileEmail(profile, user?.email);
   const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
@@ -85,7 +101,7 @@ export default function StudentDashboard() {
 
   const openHome = () => {
     setTab('home');
-    setSelectionExpanded(false);
+    setContentPageId(null);
     setLearningExpanded(false);
     closeMobileNav();
   };
@@ -94,6 +110,53 @@ export default function StudentDashboard() {
     () => (isEnrolled ? SELECTION_SUB_NAV.filter((s) => s.id === 'results') : SELECTION_SUB_NAV),
     [isEnrolled],
   );
+
+  const selectionPendingCount = useMemo(
+    () => (profile ? countSelectionPendingSteps(profile) : 0),
+    [profile],
+  );
+
+  useEffect(() => {
+    if (!user?.id || !isEnrolled) return;
+    if (shouldShowEnrollmentWelcome(user.id, isEnrolled)) {
+      setShowEnrollmentWelcome(true);
+    }
+  }, [user?.id, isEnrolled]);
+
+  useEffect(() => {
+    if (!user?.id || !profile?.teacher_application) return;
+    markHadPendingTeacherApplication(user.id);
+    const id = window.setInterval(() => { void refreshProfile(); }, 60_000);
+    return () => window.clearInterval(id);
+  }, [user?.id, profile?.teacher_application, refreshProfile]);
+
+  useEffect(() => {
+    if (!user?.id || !isEnrolled) {
+      setHomeworkPendingCount(0);
+      return;
+    }
+    Promise.all([
+      supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true),
+      supabase.from('homework_page_submissions').select('*').eq('user_id', user.id),
+    ]).then(([pagesRes, subsRes]) => {
+      const progress = buildEnrolledHomeworkProgress(user.id, pagesRes.data ?? [], subsRes.data ?? []);
+      setHomeworkPendingCount(progress.filter((p) => p.status === 'none' || p.status === 'draft').length);
+    });
+  }, [user?.id, isEnrolled, tab]);
+
+  const openLockedEnrollmentInfo = () => {
+    openSelection('results');
+  };
+
+  const dismissEnrollmentWelcome = () => {
+    if (user?.id) markEnrollmentWelcomeShown(user.id);
+    setShowEnrollmentWelcome(false);
+  };
+
+  const goToLearningFromWelcome = () => {
+    dismissEnrollmentWelcome();
+    openLearning('lectures');
+  };
 
   useEffect(() => {
     if (!user || !isEnrolled) {
@@ -112,7 +175,7 @@ export default function StudentDashboard() {
     setTab(next.tab);
     setSelectionSubTab(next.selectionSubTab ?? (isEnrolled ? 'results' : 'stage1'));
     setLearningSubTab(next.learningSubTab ?? 'lectures');
-    setSelectionExpanded(next.tab === 'selection');
+    setContentPageId(next.contentPageId ?? null);
     setLearningExpanded(next.tab === 'learning');
     setViewReady(true);
   }, [searchParams, isEnrolled]);
@@ -126,7 +189,12 @@ export default function StudentDashboard() {
 
     const params = studentDashboardStateToSearchParams(
       normalizeStudentDashboardState(
-        { tab, selectionSubTab, learningSubTab },
+        {
+          tab,
+          selectionSubTab,
+          learningSubTab,
+          contentPageId: contentPageId ?? undefined,
+        },
         isEnrolled,
       ),
     );
@@ -134,7 +202,7 @@ export default function StudentDashboard() {
     if (!dashboardSearchParamsEqual(params, searchParams)) {
       setSearchParams(params, { replace: true });
     }
-  }, [tab, selectionSubTab, learningSubTab, isEnrolled, viewReady, searchParams, setSearchParams]);
+  }, [tab, selectionSubTab, learningSubTab, contentPageId, isEnrolled, viewReady, searchParams, setSearchParams]);
 
 
   const openProfile = () => {
@@ -144,33 +212,79 @@ export default function StudentDashboard() {
   const navItems: { id: Tab; icon: typeof Home; label: string; locked: boolean }[] = [
     { id: 'selection', icon: ClipboardList, label: 'Отборочный этап', locked: false },
     { id: 'schedule', icon: Calendar, label: 'Расписание', locked: !isEnrolled },
-    { id: 'learning', icon: Home, label: 'Обучение', locked: !isEnrolled },
+    { id: 'learning', icon: GraduationCap, label: 'Обучение', locked: !isEnrolled },
     { id: 'progress', icon: BarChart3, label: 'Прогресс', locked: !isEnrolled },
   ];
 
   const handleTabClick = (id: Tab, locked: boolean) => {
-    if (locked) return;
+    if (locked) {
+      openLockedEnrollmentInfo();
+      return;
+    }
     setTab(id);
-    if (id !== 'selection') setSelectionExpanded(false);
+    setContentPageId(null);
     if (id !== 'learning') setLearningExpanded(false);
     closeMobileNav();
+  };
+
+  const applyStudentNavState = (state: StudentDashboardState) => {
+    const next = normalizeStudentDashboardState(state, isEnrolled);
+    setTab(next.tab);
+    setSelectionSubTab(next.selectionSubTab ?? (isEnrolled ? 'results' : 'stage1'));
+    setLearningSubTab(next.learningSubTab ?? 'lectures');
+    setContentPageId(next.contentPageId ?? null);
+    setLearningExpanded(next.tab === 'learning');
+    closeMobileNav();
+  };
+
+  const handleNotificationNavigate = (action: NotificationAction) => {
+    if (action.audience !== 'student') return;
+    applyStudentNavState(action.state);
   };
 
   const openSelection = (sub: SelectionSubTab) => {
     setTab('selection');
     setSelectionSubTab(sub);
-    setSelectionExpanded(true);
+    setContentPageId(null);
     setLearningExpanded(false);
     closeMobileNav();
   };
 
-  const openLearning = (sub: LearningSubTab) => {
+  const openLearning = (sub: LearningSubTab, pageId?: string | null) => {
     if (!isEnrolled) return;
     setTab('learning');
     setLearningSubTab(sub);
+    setContentPageId(pageId ?? null);
     setLearningExpanded(true);
-    setSelectionExpanded(false);
     closeMobileNav();
+  };
+
+  const openHomeworkPage = (pageId: string) => {
+    openLearning('homework', pageId);
+  };
+
+  const handleHomeAction = (action: StudentNextAction) => {
+    if (action.tab === 'selection' && action.selectionSub) {
+      openSelection(action.selectionSub);
+      return;
+    }
+    if (action.tab === 'learning') {
+      openLearning(action.learningSub ?? 'lectures', action.homeworkPageId);
+      return;
+    }
+    if (action.tab === 'schedule') {
+      setTab('schedule');
+      setContentPageId(null);
+      setLearningExpanded(false);
+      closeMobileNav();
+      return;
+    }
+    if (action.tab === 'progress') {
+      setTab('progress');
+      setContentPageId(null);
+      setLearningExpanded(false);
+      closeMobileNav();
+    }
   };
 
   const toggleLearningSection = () => {
@@ -180,17 +294,6 @@ export default function StudentDashboard() {
     } else {
       setTab('learning');
       setLearningExpanded(true);
-      setSelectionExpanded(false);
-    }
-  };
-
-  const toggleSelectionSection = () => {
-    if (tab === 'selection') {
-      setSelectionExpanded((v) => !v);
-    } else {
-      setTab('selection');
-      setSelectionExpanded(true);
-      setLearningExpanded(false);
     }
   };
 
@@ -210,52 +313,50 @@ export default function StudentDashboard() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
+          <button
+            type="button"
+            onClick={openHome}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
+              tab === 'home'
+                ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Home className="w-5 h-5" />
+            <span className="flex-1 text-left">Главная</span>
+            {!isEnrolled && selectionPendingCount > 0 && (
+              <NavCountBadge count={selectionPendingCount} />
+            )}
+            {isEnrolled && homeworkPendingCount > 0 && (
+              <NavCountBadge count={homeworkPendingCount} />
+            )}
+          </button>
+
           {navItems.map((item) => {
             if (item.id === 'selection') {
-              const isSelectionActive = tab === 'selection';
-              const showSubs = selectionExpanded && isSelectionActive;
               return (
-                <div key={item.id}>
-                  <button
-                    type="button"
-                    onClick={toggleSelectionSection}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
-                      isSelectionActive
-                        ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
-                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    <span>{item.label}</span>
-                  </button>
-                  <div
-                    className={`grid transition-all duration-200 ${
-                      showSubs ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0'
-                    }`}
-                  >
-                    <div className="overflow-hidden">
-                      <div className="space-y-1">
-                        {selectionSubNav.map((sub) => {
-                          const isSubActive = isSelectionActive && selectionSubTab === sub.id;
-                          return (
-                            <button
-                              key={sub.id}
-                              type="button"
-                              onClick={() => openSelection(sub.id)}
-                              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                                isSubActive
-                                  ? 'bg-blue-600/25 text-blue-200 border border-blue-500/25 shadow-sm shadow-blue-500/10'
-                                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-                              }`}
-                            >
-                              <sub.icon className="w-3.5 h-3.5 flex-shrink-0" />
-                              <span>{sub.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
+                <div key={item.id} className="space-y-1 pt-1">
+                  <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                    Отборочный этап
+                  </p>
+                  {selectionSubNav.map((sub) => {
+                    const isSubActive = tab === 'selection' && selectionSubTab === sub.id;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => openSelection(sub.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                          isSubActive
+                            ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <sub.icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="flex-1 text-left">{sub.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               );
             }
@@ -266,11 +367,12 @@ export default function StudentDashboard() {
                   <button
                     key={item.id}
                     type="button"
-                    disabled
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-600 cursor-not-allowed"
+                    onClick={openLockedEnrollmentInfo}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors"
+                    title="Откроется после зачисления — нажмите для статуса"
                   >
                     <item.icon className="w-5 h-5" />
-                    <span>{item.label}</span>
+                    <span className="flex-1 text-left">{item.label}</span>
                     <Lock className="w-3.5 h-3.5 ml-auto text-slate-600" />
                   </button>
                 );
@@ -329,17 +431,17 @@ export default function StudentDashboard() {
                 key={item.id}
                 type="button"
                 onClick={() => handleTabClick(item.id, item.locked)}
-                disabled={item.locked}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
                   item.locked
-                    ? 'text-slate-600 cursor-not-allowed'
+                    ? 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
                     : tab === item.id
                       ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
                       : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
+                title={item.locked ? 'Откроется после зачисления — нажмите для статуса' : undefined}
               >
                 <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <span className="flex-1 text-left">{item.label}</span>
                 {item.locked && <Lock className="w-3.5 h-3.5 ml-auto text-slate-600" />}
               </button>
             );
@@ -350,6 +452,10 @@ export default function StudentDashboard() {
           <div className="px-4 pb-2">
             <p className="text-xs text-slate-500 leading-relaxed px-2">
               {SIDEBAR_HINT.student_not_enrolled}
+              {' '}
+              <button type="button" onClick={openLockedEnrollmentInfo} className="text-blue-400 hover:text-blue-300">
+                Статус →
+              </button>
             </p>
           </div>
         )}
@@ -387,57 +493,90 @@ export default function StudentDashboard() {
       </aside>
 
       <DashboardMobileNav
-        items={navItems.map((item) => ({
-          id: item.id,
-          label: item.label,
-          shortLabel:
-            item.id === 'selection' ? 'Отбор' : item.id === 'progress' ? 'Прогресс' : item.label.split(' ')[0],
-          icon: item.icon,
-          active: tab === item.id,
-          disabled: item.locked,
-          onClick: () => {
-            if (item.locked) return;
-            if (item.id === 'selection') {
-              openSelection(selectionSubTab);
-            } else if (item.id === 'learning') {
-              openLearning(learningSubTab);
-            } else {
-              handleTabClick(item.id, item.locked);
-            }
+        items={[
+          {
+            id: 'home',
+            label: 'Главная',
+            shortLabel: 'Главная',
+            icon: Home,
+            active: tab === 'home',
+            badge:
+              !isEnrolled && selectionPendingCount > 0
+                ? selectionPendingCount
+                : isEnrolled && homeworkPendingCount > 0
+                  ? homeworkPendingCount
+                  : undefined,
+            onClick: openHome,
           },
-        }))}
+          ...navItems.map((item) => ({
+            id: item.id,
+            label: item.label,
+            shortLabel:
+              item.id === 'selection' ? 'Отбор' : item.id === 'progress' ? 'Прогресс' : item.label.split(' ')[0],
+            icon: item.icon,
+            active: tab === item.id,
+            badge:
+              item.id === 'selection' && selectionPendingCount > 0
+                ? selectionPendingCount
+                : item.id === 'learning' && homeworkPendingCount > 0
+                  ? homeworkPendingCount
+                  : undefined,
+            onClick: () => {
+              if (item.locked) {
+                openLockedEnrollmentInfo();
+                return;
+              }
+              if (item.id === 'selection') {
+                openSelection(selectionSubTab);
+              } else if (item.id === 'learning') {
+                openLearning(learningSubTab);
+              } else {
+                handleTabClick(item.id, false);
+              }
+            },
+          })),
+        ]}
         menuOpen={mobileNavOpen}
         onMenuOpenChange={setMobileNavOpen}
         menuTitle="Разделы кабинета"
       >
         {navItems.map((item) => {
           if (item.id === 'selection') {
-            const isSelectionActive = tab === 'selection';
             return (
-              <MobileMenuCollapsibleSection
-                key={item.id}
-                active={isSelectionActive}
-                expanded={selectionExpanded && isSelectionActive}
-                onToggle={toggleSelectionSection}
-                icon={item.icon}
-                label={item.label}
-              >
+              <div key={item.id} className="space-y-1 pt-1">
+                <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                  Отборочный этап
+                </p>
                 {selectionSubNav.map((sub) => (
                   <button
                     key={sub.id}
                     type="button"
                     onClick={() => openSelection(sub.id)}
-                    className={mobileMenuSubBtn(isSelectionActive && selectionSubTab === sub.id)}
+                    className={mobileMenuSubBtn(tab === 'selection' && selectionSubTab === sub.id)}
                   >
                     <sub.icon className="w-3.5 h-3.5 shrink-0" />
                     {sub.label}
                   </button>
                 ))}
-              </MobileMenuCollapsibleSection>
+              </div>
             );
           }
           if (item.id === 'learning') {
             const isLearningActive = tab === 'learning';
+            if (item.locked) {
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={openLockedEnrollmentInfo}
+                  className={`${mobileMenuBtn(false)} text-slate-500`}
+                >
+                  <item.icon className="w-5 h-5 shrink-0" />
+                  <span className="flex-1 text-left">{item.label}</span>
+                  <Lock className="w-4 h-4 shrink-0 text-slate-600" />
+                </button>
+              );
+            }
             return (
               <MobileMenuCollapsibleSection
                 key={item.id}
@@ -446,8 +585,6 @@ export default function StudentDashboard() {
                 onToggle={toggleLearningSection}
                 icon={item.icon}
                 label={item.label}
-                disabled={item.locked}
-                trailing={item.locked ? <Lock className="w-4 h-4 shrink-0 text-slate-600" /> : undefined}
               >
                 {LEARNING_SUB_NAV.map((sub) => (
                   <button
@@ -468,11 +605,10 @@ export default function StudentDashboard() {
               key={item.id}
               type="button"
               onClick={() => handleTabClick(item.id, item.locked)}
-              disabled={item.locked}
-              className={`${mobileMenuBtn(tab === item.id)} ${item.locked ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`${mobileMenuBtn(tab === item.id)} ${item.locked ? 'text-slate-500' : ''}`}
             >
               <item.icon className="w-5 h-5 shrink-0" />
-              {item.label}
+              <span className="flex-1 text-left">{item.label}</span>
               {item.locked && <Lock className="w-4 h-4 ml-auto shrink-0" />}
             </button>
           );
@@ -480,6 +616,10 @@ export default function StudentDashboard() {
         {!isEnrolled && (
           <p className="text-xs text-slate-500 leading-relaxed px-4 py-2">
             {SIDEBAR_HINT.student_not_enrolled}
+            {' '}
+            <button type="button" onClick={openLockedEnrollmentInfo} className="text-blue-400 hover:text-blue-300">
+              Статус зачисления →
+            </button>
           </p>
         )}
         <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
@@ -523,10 +663,13 @@ export default function StudentDashboard() {
                 profile={profile}
                 userId={user.id}
                 onOpenProfile={openProfile}
+                onNotificationNavigate={handleNotificationNavigate}
               />
             )}
           </div>
         </header>
+
+        {profile?.teacher_application && <TeacherApplicationPendingBanner />}
 
         {tab === 'selection' && (
           <MobileSubNavBar
@@ -546,9 +689,16 @@ export default function StudentDashboard() {
 
         <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
           {isEnrolled && groupContext && tab !== 'home' && <StudentGroupInfo context={groupContext} />}
-          {tab === 'home' && (
+          {tab === 'home' && profile && user && (
             <div className="space-y-6">
-              <DashboardHomePanel role="student" displayName={displayName} isEnrolled={isEnrolled} />
+              <StudentDashboardHome
+                profile={profile}
+                userId={user.id}
+                displayName={displayName}
+                isEnrolled={isEnrolled}
+                onAction={handleHomeAction}
+                onOpenHomework={openHomeworkPage}
+              />
               {isEnrolled && <TelegramCommunityCard />}
             </div>
           )}
@@ -557,23 +707,43 @@ export default function StudentDashboard() {
               profile={profile}
               subTab={selectionSubTab}
               onRefresh={refreshProfile}
+              onGoHome={openHome}
+              onGoResults={() => openSelection('results')}
             />
           )}
-          {tab === 'learning' && isEnrolled && <StudentLearningTab subTab={learningSubTab} />}
+          {tab === 'learning' && isEnrolled && (
+            <StudentLearningTab
+              subTab={learningSubTab}
+              contentPageId={contentPageId}
+              onContentPageChange={setContentPageId}
+              onOpenHomeworkPage={openHomeworkPage}
+            />
+          )}
           {tab === 'schedule' && isEnrolled && <StudentScheduleTab />}
-          {tab === 'progress' && isEnrolled && <StudentProgressTab />}
+          {tab === 'progress' && isEnrolled && (
+            <StudentProgressTab onOpenHomework={openHomeworkPage} />
+          )}
         </div>
       </main>
+
+      {showEnrollmentWelcome && (
+        <EnrolledWelcomeModal
+          onGoToLearning={goToLearningFromWelcome}
+          onDismiss={dismissEnrollmentWelcome}
+        />
+      )}
     </div>
   );
 }
 
 function SelectionTab({
-  profile, subTab, onRefresh,
+  profile, subTab, onRefresh, onGoHome, onGoResults,
 }: {
   profile: UserProfile;
   subTab: SelectionSubTab;
   onRefresh: () => Promise<void>;
+  onGoHome?: () => void;
+  onGoResults?: () => void;
 }) {
   const [marking, setMarking] = useState<1 | 2 | null>(null);
   const [questionnaireMarking, setQuestionnaireMarking] = useState(false);
@@ -665,37 +835,40 @@ function SelectionTab({
             <SectionHint text={SECTION_HINT.student.selectionStage1} className="mt-2" />
           </div>
 
+          <SelectionStage1Progress
+            questionnaireDone={!!profile.questionnaire_submitted_at}
+            essayDone={stage1Done}
+          />
+
           <div>
-            <h2 className="text-xl font-bold text-white mb-2">Анкета участника</h2>
+            <StepSectionLabel step={1} total={2} label="Анкета участника" />
             <p className="text-slate-400 leading-relaxed mb-5">
               Заполните анкету в форме ниже.
             </p>
           </div>
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
+            {!profile.questionnaire_submitted_at && questionnairePublished && (
+              <ExternalFormHint />
+            )}
             {questionnairePublished ? (
               <YandexFormEmbed formId={config.questionnaire_form_id} />
             ) : (
-              <StageComingSoon stage="questionnaire" />
+              <StageComingSoon stage="questionnaire" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}
             <div className="mt-4 pt-4 border-t border-white/5">
               {!profile.questionnaire_submitted_at ? (
-                <>
-                  <p className="text-sm text-slate-400 mb-3">
-                    После отправки анкеты в форме нажмите кнопку — преподаватель увидит отметку.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleQuestionnaireSubmitted}
-                    disabled={questionnaireMarking}
-                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {questionnaireMarking ? 'Сохранение...' : 'Я отправил анкету'}
-                  </button>
-                </>
+                <ExternalSubmitConfirm
+                  checkboxLabel="Я отправил анкету в форме выше"
+                  loading={questionnaireMarking}
+                  onConfirm={handleQuestionnaireSubmitted}
+                />
               ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-slate-500">Анкета отмечена как отправленная.</p>
+                <div className="space-y-3">
+                  <SubmitAcceptedBanner
+                    title="Анкета принята"
+                    detail="Преподаватель увидит отметку. Ответы хранятся в Яндекс.Форме."
+                  />
                   <button
                     type="button"
                     onClick={handleQuestionnaireUnsubmitted}
@@ -709,34 +882,36 @@ function SelectionTab({
             </div>
           </div>
 
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center" aria-hidden>
+              <div className="w-full border-t border-white/10" />
+            </div>
+          </div>
+
           <div>
-            <h2 className="text-xl font-bold text-white mb-2">Мотивационное эссе</h2>
+            <StepSectionLabel step={2} total={2} label="Мотивационное эссе" />
             <p className="text-slate-400 leading-relaxed">
-              Заполните и отправьте эссе в форме ниже. Правила и требования указаны в самой форме.
+              Заполните и отправьте эссе в форме ниже. Правила указаны в самой форме.
             </p>
           </div>
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
+            {!stage1Done && essayPublished && (
+              <ExternalFormHint />
+            )}
             {essayPublished ? (
               <YandexFormEmbed formId={config.essay_form_id} />
             ) : (
-              <StageComingSoon stage="essay" />
+              <StageComingSoon stage="essay" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}
             <div className="mt-4 pt-4 border-t border-white/5">
               {!stage1Done ? (
-                <>
-                  <p className="text-sm text-slate-400 mb-4">
-                    После отправки эссе в форме нажмите кнопку — статус обновится автоматически.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleMarkSubmitted(1)}
-                    disabled={marking === 1}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {marking === 1 ? 'Сохранение...' : 'Я отправил эссе'}
-                  </button>
-                </>
+                <ExternalSubmitConfirm
+                  checkboxLabel="Я отправил эссе в форме выше"
+                  loading={marking === 1}
+                  variant="primary"
+                  onConfirm={() => handleMarkSubmitted(1)}
+                />
               ) : (
                 <div className="space-y-3">
                   {stage1Phase === 'graded' ? (
@@ -748,9 +923,10 @@ function SelectionTab({
                       <p className="text-sm text-blue-300/90">Эссе проверено преподавателем.</p>
                     </>
                   ) : (
-                    <p className="text-sm text-emerald-400/90">
-                      Эссе отмечено как отправленное — ожидайте проверки преподавателем.
-                    </p>
+                    <SubmitAcceptedBanner
+                      title="Эссе принято"
+                      detail="Ожидайте проверки. Текст эссе — в Яндекс.Форме."
+                    />
                   )}
                   {canCancelStage1 && (
                     <button
@@ -781,6 +957,9 @@ function SelectionTab({
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
             <h3 className="font-semibold text-white mb-5">Контест</h3>
+            {!stage2Done && contestPublished && (
+              <ExternalFormHint />
+            )}
             {contestPublished ? (
               <StageEmbedFrame flush minHeight={420}>
                 <iframe
@@ -792,7 +971,7 @@ function SelectionTab({
                 />
               </StageEmbedFrame>
             ) : (
-              <StageComingSoon stage="contest" />
+              <StageComingSoon stage="contest" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}
             <div className="mt-4">
               {stage2Done ? (
@@ -806,9 +985,10 @@ function SelectionTab({
                       <p className="text-sm text-blue-300/90">Контест проверен преподавателем.</p>
                     </>
                   ) : (
-                    <p className="text-sm text-emerald-400/90">
-                      Контест отмечен как отправленный — ожидайте проверки преподавателем.
-                    </p>
+                    <SubmitAcceptedBanner
+                      title="Контест принят"
+                      detail="Ожидайте проверки. Решения — в Яндекс.Контесте."
+                    />
                   )}
                   {canCancelStage2 && (
                     <button
@@ -822,19 +1002,12 @@ function SelectionTab({
                   )}
                 </div>
               ) : (
-                <>
-                  <p className="text-sm text-slate-400 mb-4">
-                    После прохождения контеста нажмите кнопку — статус обновится автоматически.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleMarkSubmitted(2)}
-                    disabled={marking === 2}
-                    className="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {marking === 2 ? 'Сохранение...' : 'Я завершил контест'}
-                  </button>
-                </>
+                <ExternalSubmitConfirm
+                  checkboxLabel="Я завершил контест в блоке выше"
+                  loading={marking === 2}
+                  variant="violet"
+                  onConfirm={() => handleMarkSubmitted(2)}
+                />
               )}
             </div>
           </div>
@@ -884,6 +1057,9 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
                 Поздравляем! Вы прошли отбор и зачислены на обучение в «Квантовый кружок».
                 Разделы «Обучение», «Расписание» и «Прогресс» теперь доступны.
               </p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-3 leading-relaxed">
+                Оценки за отбор — в карточках выше. Материалы этапов больше не редактируются.
+              </p>
             </div>
           </div>
           <TelegramCommunityCard compact />
@@ -892,11 +1068,20 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
 
       {verdict === 'rejected' && (
         <div className="rounded-2xl overflow-hidden border border-slate-500/30">
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 px-6 py-8 text-center">
-            <h3 className="text-xl font-bold text-white mb-2">Спасибо за участие</h3>
+          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 px-6 py-8 text-center space-y-3">
+            <h3 className="text-xl font-bold text-white">Спасибо за участие</h3>
             <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
               К сожалению, в этом наборе мы не можем зачислить вас на обучение.
               Благодарим за интерес к программе и желаем успехов в дальнейшем развитии!
+            </p>
+            <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed pt-1">
+              По вопросам:{' '}
+              <a
+                href="mailto:quantumschool@rqc.ru"
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                quantumschool@rqc.ru
+              </a>
             </p>
           </div>
         </div>

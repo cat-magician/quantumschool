@@ -5,6 +5,7 @@ import { useAuth } from './lib/AuthContext';
 import { Instructor } from './lib/types';
 import { DEFAULT_LANDING_CONFIG, fetchLandingConfig } from './lib/landingConfig';
 import AuthModal from './components/AuthModal';
+import StudentCabinetLink from './components/StudentCabinetLink';
 import YandexSignInButton from './components/YandexSignInButton';
 import QuantumBrandTitle from './components/QuantumBrandTitle';
 import HeroQuantumDecor from './components/HeroQuantumDecor';
@@ -167,10 +168,10 @@ function Header({
             </a>
             {user ? (
               <>
-                <a href="/dashboard" className={actionOutline}>
+                <StudentCabinetLink href="/dashboard" className={actionOutline}>
                   <LogIn className="w-4 h-4 shrink-0" />
                   Кабинет
-                </a>
+                </StudentCabinetLink>
                 <button type="button" onClick={signOut} className={actionGhost}>
                   Выйти
                 </button>
@@ -238,14 +239,14 @@ function Header({
             <div className="pt-4 border-t border-slate-100 space-y-2">
               {user ? (
                 <>
-                  <a
+                  <StudentCabinetLink
                     href="/dashboard"
                     onClick={() => setIsMenuOpen(false)}
                     className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
                   >
                     <LogIn className="w-4 h-4 shrink-0" />
                     Личный кабинет
-                  </a>
+                  </StudentCabinetLink>
                   <button
                     type="button"
                     onClick={() => {
@@ -358,12 +359,12 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
               <ChevronRight className="w-5 h-5" />
             </a>
             {user ? (
-              <a
+              <StudentCabinetLink
                 href="/dashboard"
                 className="justify-center px-7 sm:px-8 py-3.5 sm:py-4 bg-white/10 backdrop-blur-sm text-white font-semibold text-base sm:text-lg rounded-2xl border border-white/20 hover:bg-white/20 transition-all duration-300 flex items-center gap-2"
               >
                 <LogIn className="w-5 h-5" /> Личный кабинет
-              </a>
+              </StudentCabinetLink>
             ) : (
               <button
                 type="button"
@@ -596,8 +597,8 @@ function Timeline() {
 
 function About() {
   const topics = ['Квантовые вычисления', 'Квантовая связь', 'Квантовая оптика', 'ИИ и квантовые технологии', 'Профессии будущего'];
-  const seminarItems = ['решать задачи', 'обсуждать лекции', 'разбирать исследования', 'готовиться к проектам'];
-  const topStudentPerks = [
+  const seminarItems = ['решать задачи', 'закреплять материал лекций', 'разбирать исследования', 'готовиться к проектам'];
+  const finalProjectPerks = [
     'собственный итоговый проект с наставником',
     'защита работ перед жюри',
     'сертификат школы',
@@ -646,7 +647,7 @@ function About() {
                     <p className="text-slate-600 text-sm leading-relaxed mb-3">
                       Онлайн-лекции от ведущих учёных и экспертов о квантовых технологиях и современных исследованиях.
                     </p>
-                    <p className="text-blue-600 text-xs font-semibold mb-2">Примерные темы:</p>
+                    <p className="text-blue-600 text-xs font-semibold mb-2">Темы:</p>
                     <div className="flex flex-wrap gap-2">
                       {topics.map(t => (
                         <span key={t} className="inline-flex items-center gap-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg px-2 py-1 bg-white">
@@ -696,16 +697,16 @@ function About() {
                     <div className="flex items-center gap-3 mb-1 flex-wrap">
                       <span className="text-lg font-bold text-blue-600">Итоговый проект</span>
                       <span className="text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">
-                        Для топ-студентов
+                        После основного курса
                       </span>
                     </div>
                     <p className="text-slate-600 text-sm leading-relaxed mb-3">
-                      Финал для самых сильных участников: доведёте идею до результата, защитите работу
+                      Финал для тех, кто освоил программу: доведёте идею до результата, защитите работу
                       и получите признание школы.
                     </p>
                     <p className="text-blue-600 text-xs font-semibold mb-2">Что ждёт финалистов:</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-2">
-                      {topStudentPerks.map((t) => (
+                      {finalProjectPerks.map((t) => (
                         <span key={t} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
                           {t}
@@ -858,16 +859,22 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     viewportWidth: number;
     cardWidth: number;
     endSpacer: number;
+    constrainViewport: boolean;
   } | null>(null);
 
   const measureViewport = useCallback(() => {
     const container = measureRef.current;
     if (!container) return;
 
-    const available = container.clientWidth - INSTRUCTOR_CAROUSEL_NAV_RESERVED;
+    const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+    const navReserved = isDesktop ? INSTRUCTOR_CAROUSEL_NAV_RESERVED : 0;
+    const available = container.clientWidth - navReserved;
     if (available <= 0) return;
 
-    setLayout(computeCarouselLayout(available));
+    setLayout({
+      ...computeCarouselLayout(available),
+      constrainViewport: isDesktop,
+    });
   }, []);
 
   useEffect(() => {
@@ -886,10 +893,11 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
 
   const scrollToCard = (card: HTMLElement, isLast: boolean) => {
     const scroll = scrollRef.current;
-    if (!scroll || !layout) return;
+    if (!scroll) return;
 
+    const viewport = scroll.clientWidth;
     const left = isLast
-      ? card.offsetLeft + card.offsetWidth - layout.viewportWidth
+      ? card.offsetLeft + card.offsetWidth - viewport
       : card.offsetLeft;
 
     scroll.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
@@ -897,7 +905,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
 
   const scroll = (dir: 'left' | 'right') => {
     const scrollEl = scrollRef.current;
-    if (!scrollEl || !layout) return;
+    if (!scrollEl) return;
 
     const cards = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-instructor-card]'));
     if (!cards.length) return;
@@ -932,46 +940,57 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
         </div>
 
         <div ref={measureRef} className="w-full">
-          <div className="flex items-start gap-1.5 w-max max-w-full" data-carousel-row>
+          <div className="flex items-start gap-1.5">
             <div
-              className="min-w-0 flex-shrink-0"
-              style={{ width: layout?.viewportWidth }}
+              ref={scrollRef}
+              className="instructor-carousel-scroll min-w-0 flex-1 scroll-smooth snap-x snap-proximity sm:snap-mandatory pt-2 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0"
+              style={layout?.constrainViewport ? { maxWidth: layout.viewportWidth } : undefined}
             >
-              <div
-                ref={scrollRef}
-                className="flex gap-5 overflow-x-auto scroll-smooth snap-x snap-mandatory pt-2 pb-10 max-w-full"
-                style={{
-                  width: '100%',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                }}
-              >
-              {(loading ? [1, 2, 3, 4] : instructors).map((item, index) => {
-                const cardWidth = layout?.cardWidth ?? INSTRUCTOR_MAX_CARD_W;
-                return loading ? (
-                  <div key={index} className="flex-shrink-0 snap-start pb-3" style={{ width: cardWidth }} data-instructor-card>
-                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] p-6 animate-pulse">
-                      <div className={`w-full bg-slate-200 rounded-xl mb-4 ${cardWidth < 248 ? 'h-40' : 'h-44'}`}></div>
-                      <div className="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
-                      <div className="h-4 bg-slate-200 rounded w-1/2 mb-3"></div>
-                      <div className="h-3 bg-slate-200 rounded w-full"></div>
+              <div className="instructor-carousel-track gap-5 pr-4 sm:pr-2">
+                {(loading ? [1, 2, 3, 4] : instructors).map((item, index) => {
+                  const cardWidth = layout?.cardWidth ?? INSTRUCTOR_MAX_CARD_W;
+                  return loading ? (
+                    <div key={index} className="flex-shrink-0 snap-start pb-3" style={{ width: cardWidth }} data-instructor-card>
+                      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.12)] p-6 animate-pulse">
+                        <div className={`w-full bg-slate-200 rounded-xl mb-4 ${cardWidth < 248 ? 'h-40' : 'h-44'}`}></div>
+                        <div className="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
+                        <div className="h-4 bg-slate-200 rounded w-1/2 mb-3"></div>
+                        <div className="h-3 bg-slate-200 rounded w-full"></div>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <InstructorCard key={(item as Instructor).id} instructor={item as Instructor} cardWidth={cardWidth} />
-                );
-              })}
-              {layout && (
-                <div aria-hidden className="flex-shrink-0" style={{ width: layout.endSpacer }} />
-              )}
+                  ) : (
+                    <InstructorCard key={(item as Instructor).id} instructor={item as Instructor} cardWidth={cardWidth} />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="hidden sm:flex gap-2 flex-shrink-0 pt-2">
+              <button
+                type="button"
+                onClick={() => scroll('left')}
+                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                aria-label="Предыдущий преподаватель"
+              >
+                <ChevronRight className="w-5 h-5 rotate-180" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll('right')}
+                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                aria-label="Следующий преподаватель"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex gap-2 flex-shrink-0 pt-2" data-carousel-nav>
+          <div className="flex sm:hidden gap-2 justify-end pt-2">
             <button
               type="button"
               onClick={() => scroll('left')}
               className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+              aria-label="Предыдущий преподаватель"
             >
               <ChevronRight className="w-5 h-5 rotate-180" />
             </button>
@@ -979,10 +998,10 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
               type="button"
               onClick={() => scroll('right')}
               className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+              aria-label="Следующий преподаватель"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
-          </div>
           </div>
         </div>
       </div>
@@ -1056,13 +1075,13 @@ function ApplicationForm() {
                       Отборочные этапы проходят в личном кабинете
                     </p>
                   </div>
-                  <a
+                  <StudentCabinetLink
                     href="/dashboard"
                     className="inline-flex items-center justify-center gap-2 w-full h-14 px-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
                   >
                     <LogIn className="w-5 h-5" />
                     Личный кабинет
-                  </a>
+                  </StudentCabinetLink>
                 </div>
               ) : (
                 <div className="space-y-8 py-2">
@@ -1124,7 +1143,7 @@ function Footer() {
         </div>
 
         <div className="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-400">
-          <p>© 2024 Квантовый кружок</p>
+          <p>© 2026 Квантовый кружок</p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-blue-400 transition-colors">
               Политика конфиденциальности

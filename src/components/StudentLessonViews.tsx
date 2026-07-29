@@ -71,9 +71,11 @@ export function StudentLessonList({
 export function StudentLessonPageView({
   pageId,
   onBack,
+  onOpenHomework,
 }: {
   pageId: string;
   onBack: () => void;
+  onOpenHomework?: (pageId: string) => void;
 }) {
   const [page, setPage] = useState<LessonPage | null>(null);
   const [blocks, setBlocks] = useState<LessonPageBlock[]>([]);
@@ -149,7 +151,7 @@ export function StudentLessonPageView({
         <h2 className="text-2xl font-bold text-white mt-1">{page.title}</h2>
       </div>
 
-      <LessonPageBlocks blocks={blocks} />
+      <LessonPageBlocks blocks={blocks} onOpenHomework={onOpenHomework} />
     </div>
   );
 }

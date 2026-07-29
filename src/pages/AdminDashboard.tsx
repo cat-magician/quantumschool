@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { profileDisplayName, profileEmail } from '../lib/profileUtils';
@@ -9,10 +9,12 @@ import {
   normalizeAdminDashboardState,
   parseAdminDashboardSearchParams,
   profilePathFromDashboardSearch,
+  type AdminDashboardState,
 } from '../lib/dashboardNavigation';
+import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import {
-  LogOut, Users, ClipboardList, BookOpenCheck, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe,
+  LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck,
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
 import SelectionStage1ConfigTab from './admin/SelectionStage1ConfigTab';
@@ -20,19 +22,33 @@ import SelectionContestConfigTab from './admin/SelectionContestConfigTab';
 import StudentsTab from './admin/StudentsTab';
 import TeachersTab from './admin/TeachersTab';
 import HomeworkTab from './admin/HomeworkTab';
+import HomeworkPagesTab from './admin/HomeworkPagesTab';
 import LessonsTab from './admin/LessonsTab';
 import ScheduleTab from './admin/ScheduleTab';
 import StatisticsTab from './admin/StatisticsTab';
 import SiteContentTab from './admin/SiteContentTab';
-import DashboardHomePanel from '../components/DashboardHomePanel';
+import AdminDashboardHome, { type AdminHomeAction } from '../components/AdminDashboardHome';
 import { SIDEBAR_HINT } from '../lib/dashboardHelpCopy';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import UserAvatar from '../components/UserAvatar';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
+import NavCountBadge from '../components/NavCountBadge';
+import { useAdminUngradedCount } from '../hooks/useAdminUngradedCount';
+import { TeacherPromotedBanner } from '../components/TeacherRoleBanners';
 
-type AdminTab = 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
+type AdminTab =
+  | 'home'
+  | 'results'
+  | 'students'
+  | 'teachers'
+  | 'schedule'
+  | 'lectures'
+  | 'seminars'
+  | 'homework'
+  | 'grading'
+  | 'statistics'
+  | 'site';
 type SelectionAdminSubTab = 'stage1' | 'contest' | 'results';
-type LearningAdminSubTab = 'lectures' | 'seminars' | 'homework';
 
 const SELECTION_ADMIN_SUB_NAV: {
   id: SelectionAdminSubTab;
@@ -50,22 +66,6 @@ const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
   results: 'Результаты',
 };
 
-const LEARNING_ADMIN_SUB_NAV: {
-  id: LearningAdminSubTab;
-  label: string;
-  icon: typeof Presentation;
-}[] = [
-  { id: 'lectures', label: 'Лекции', icon: Presentation },
-  { id: 'seminars', label: 'Семинары', icon: Presentation },
-  { id: 'homework', label: 'Домашние задания', icon: BookOpen },
-];
-
-const LEARNING_ADMIN_HEADER: Record<LearningAdminSubTab, string> = {
-  lectures: 'Лекции',
-  seminars: 'Семинары',
-  homework: 'Домашние задания',
-};
-
 export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const { user, profile, signOut, refreshProfile } = useAuth();
   const navigate = useNavigate();
@@ -73,19 +73,52 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [tab, setTab] = useState<AdminTab>('home');
   const [selectionSubTab, setSelectionSubTab] = useState<SelectionAdminSubTab>('results');
   const [selectionExpanded, setSelectionExpanded] = useState(false);
-  const [learningSubTab, setLearningSubTab] = useState<LearningAdminSubTab>('lectures');
-  const [learningExpanded, setLearningExpanded] = useState(true);
+  const ungradedCount = useAdminUngradedCount(isSuperAdmin);
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
   const accountSubtitle = profileEmail(profile, user?.email);
+
+  const gradingLabel = useMemo(
+    () =>
+      ungradedCount != null && ungradedCount > 0
+        ? `Проверка · ${ungradedCount}`
+        : 'Проверка',
+    [ungradedCount],
+  );
+
+  const navItems: {
+    id: AdminTab;
+    icon: typeof Users;
+    label: string;
+    superAdminOnly?: boolean;
+    badge?: number;
+  }[] = useMemo(
+    () => [
+      { id: 'results', icon: ClipboardList, label: 'Отборочные этапы' },
+      { id: 'students', icon: Users, label: 'Ученики' },
+      { id: 'teachers', icon: GraduationCap, label: 'Преподаватели', superAdminOnly: true },
+      { id: 'schedule', icon: Calendar, label: 'Расписание' },
+      { id: 'lectures', icon: Presentation, label: 'Лекции' },
+      { id: 'seminars', icon: Presentation, label: 'Семинары' },
+      { id: 'homework', icon: BookOpen, label: 'Домашние задания' },
+      {
+        id: 'grading',
+        icon: ClipboardCheck,
+        label: gradingLabel,
+        badge: ungradedCount != null && ungradedCount > 0 ? ungradedCount : undefined,
+      },
+      { id: 'statistics', icon: BarChart3, label: 'Статистика' },
+      { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
+    ],
+    [gradingLabel, ungradedCount],
+  );
 
   const closeMobileNav = () => setMobileNavOpen(false);
 
   const openHome = () => {
     setTab('home');
     setSelectionExpanded(false);
-    setLearningExpanded(false);
     closeMobileNav();
   };
 
@@ -97,9 +130,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     );
     setTab(next.tab);
     setSelectionSubTab(next.selectionSubTab ?? 'results');
-    setLearningSubTab(next.learningSubTab ?? 'lectures');
     setSelectionExpanded(next.tab === 'results');
-    setLearningExpanded(next.tab === 'learning');
     setViewReady(true);
   }, [searchParams, isSuperAdmin]);
 
@@ -111,38 +142,30 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     if (!viewReady) return;
 
     const params = adminDashboardStateToSearchParams(
-      normalizeAdminDashboardState(
-        { tab, selectionSubTab, learningSubTab },
-        isSuperAdmin,
-      ),
+      normalizeAdminDashboardState({ tab, selectionSubTab }, isSuperAdmin),
     );
 
     if (!dashboardSearchParamsEqual(params, searchParams)) {
       setSearchParams(params, { replace: true });
     }
-  }, [tab, selectionSubTab, learningSubTab, isSuperAdmin, viewReady, searchParams, setSearchParams]);
+  }, [tab, selectionSubTab, isSuperAdmin, viewReady, searchParams, setSearchParams]);
 
   const openProfile = () => {
     navigate(profilePathFromDashboardSearch(searchParams));
   };
 
-  const navItems: { id: AdminTab; icon: typeof Users; label: string; superAdminOnly?: boolean }[] = [
-    { id: 'results', icon: ClipboardList, label: 'Отборочные этапы' },
-    { id: 'students', icon: Users, label: 'Ученики' },
-    { id: 'teachers', icon: GraduationCap, label: 'Преподаватели', superAdminOnly: true },
-    { id: 'learning', icon: BookOpenCheck, label: 'Обучение' },
-    { id: 'schedule', icon: Calendar, label: 'Расписание' },
-    { id: 'statistics', icon: BarChart3, label: 'Статистика' },
-    { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
-  ];
-
   const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
+
+  const selectTab = (nextTab: AdminTab) => {
+    setTab(nextTab);
+    if (nextTab !== 'results') setSelectionExpanded(false);
+    closeMobileNav();
+  };
 
   const openSelection = (sub: SelectionAdminSubTab) => {
     setTab('results');
     setSelectionSubTab(sub);
     setSelectionExpanded(true);
-    setLearningExpanded(false);
     closeMobileNav();
   };
 
@@ -152,35 +175,43 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     } else {
       setTab('results');
       setSelectionExpanded(true);
-      setLearningExpanded(false);
     }
   };
 
-  const openLearning = (sub: LearningAdminSubTab) => {
-    setTab('learning');
-    setLearningSubTab(sub);
-    setLearningExpanded(true);
-    setSelectionExpanded(false);
+  const applyAdminNavState = (state: AdminDashboardState) => {
+    const next = normalizeAdminDashboardState(state, isSuperAdmin);
+    setTab(next.tab);
+    setSelectionSubTab(next.selectionSubTab ?? 'results');
+    setSelectionExpanded(next.tab === 'results');
     closeMobileNav();
   };
 
-  const toggleLearningSection = () => {
-    if (tab === 'learning') {
-      setLearningExpanded((v) => !v);
-    } else {
-      setTab('learning');
-      setLearningExpanded(true);
-      setSelectionExpanded(false);
+  const handleNotificationNavigate = (action: NotificationAction) => {
+    if (action.audience !== 'admin') return;
+    applyAdminNavState(action.state);
+  };
+
+  const handleAdminHomeNavigate = (action: AdminHomeAction) => {
+    if (action.selectionSub) {
+      openSelection(action.selectionSub);
+      return;
     }
+    selectTab(action.tab);
   };
 
   const headerTitle = tab === 'home'
     ? 'Личный кабинет'
     : tab === 'results' && isSuperAdmin
       ? SELECTION_ADMIN_HEADER[selectionSubTab]
-      : tab === 'learning'
-        ? LEARNING_ADMIN_HEADER[learningSubTab]
-        : visibleNavItems.find((n) => n.id === tab)?.label;
+      : visibleNavItems.find((n) => n.id === tab)?.label;
+
+  const mobileShortLabel = (id: AdminTab, label: string) => {
+    if (id === 'results') return 'Отбор';
+    if (id === 'statistics') return 'Статист.';
+    if (id === 'homework') return 'ДЗ';
+    if (id === 'grading') return 'Проверка';
+    return label.split(' ')[0];
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
@@ -248,65 +279,20 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               );
             }
 
-            if (item.id === 'learning') {
-              const isLearningActive = tab === 'learning';
-              const showLearningSubs = learningExpanded && isLearningActive;
-              return (
-                <div key={item.id}>
-                  <button
-                    type="button"
-                    onClick={toggleLearningSection}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
-                      isLearningActive
-                        ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
-                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    <span>{item.label}</span>
-                  </button>
-                  <div
-                    className={`grid transition-all duration-200 ${
-                      showLearningSubs ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0'
-                    }`}
-                  >
-                    <div className="overflow-hidden">
-                      <div className="space-y-1">
-                        {LEARNING_ADMIN_SUB_NAV.map((sub) => (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={() => openLearning(sub.id)}
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                              isLearningActive && learningSubTab === sub.id
-                                ? 'bg-blue-600/25 text-blue-200 border border-blue-500/25 shadow-sm shadow-blue-500/10'
-                                : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-                            }`}
-                          >
-                            <sub.icon className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span>{sub.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setTab(item.id)}
+                onClick={() => selectTab(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150 ${
                   tab === item.id
                     ? 'bg-gradient-to-r from-blue-600/30 to-violet-600/30 text-white border border-blue-500/20'
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <item.icon className="w-5 h-5" />
-                {item.label}
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <span className="flex-1 text-left truncate">{item.label}</span>
+                {item.badge != null && item.badge > 0 && <NavCountBadge count={item.badge} />}
               </button>
             );
           })}
@@ -351,25 +337,32 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       </aside>
 
       <DashboardMobileNav
-        items={visibleNavItems.map((item) => ({
-          id: item.id,
-          label: item.label,
-          shortLabel: item.id === 'results' ? 'Отбор' : item.id === 'statistics' ? 'Статист.' : item.label.split(' ')[0],
-          icon: item.icon,
-          active: tab === item.id,
-          onClick: () => {
-            if (item.id === 'results' && isSuperAdmin) {
-              openSelection(selectionSubTab);
-            } else if (item.id === 'learning') {
-              openLearning(learningSubTab);
-            } else {
-              setTab(item.id);
-              setSelectionExpanded(false);
-              setLearningExpanded(false);
-              closeMobileNav();
-            }
+        items={[
+          {
+            id: 'home',
+            label: 'Главная',
+            shortLabel: 'Главная',
+            icon: Home,
+            active: tab === 'home',
+            badge: ungradedCount != null && ungradedCount > 0 ? ungradedCount : undefined,
+            onClick: openHome,
           },
-        }))}
+          ...visibleNavItems.map((item) => ({
+            id: item.id,
+            label: item.label,
+            shortLabel: mobileShortLabel(item.id, item.label),
+            icon: item.icon,
+            active: tab === item.id,
+            badge: item.badge,
+            onClick: () => {
+              if (item.id === 'results' && isSuperAdmin) {
+                openSelection(selectionSubTab);
+              } else {
+                selectTab(item.id);
+              }
+            },
+          })),
+        ]}
         menuOpen={mobileNavOpen}
         onMenuOpenChange={setMobileNavOpen}
         menuTitle="Разделы кабинета"
@@ -400,45 +393,16 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               </MobileMenuCollapsibleSection>
             );
           }
-          if (item.id === 'learning') {
-            const isLearningActive = tab === 'learning';
-            return (
-              <MobileMenuCollapsibleSection
-                key={item.id}
-                active={isLearningActive}
-                expanded={learningExpanded && isLearningActive}
-                onToggle={toggleLearningSection}
-                icon={item.icon}
-                label={item.label}
-              >
-                {LEARNING_ADMIN_SUB_NAV.map((sub) => (
-                  <button
-                    key={sub.id}
-                    type="button"
-                    onClick={() => openLearning(sub.id)}
-                    className={mobileMenuSubBtn(isLearningActive && learningSubTab === sub.id)}
-                  >
-                    <sub.icon className="w-3.5 h-3.5 shrink-0" />
-                    {sub.label}
-                  </button>
-                ))}
-              </MobileMenuCollapsibleSection>
-            );
-          }
           return (
             <button
               key={item.id}
               type="button"
-              onClick={() => {
-                setTab(item.id);
-                setSelectionExpanded(false);
-                setLearningExpanded(false);
-                closeMobileNav();
-              }}
+              onClick={() => selectTab(item.id)}
               className={mobileMenuBtn(tab === item.id)}
             >
               <item.icon className="w-5 h-5 shrink-0" />
-              {item.label}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.badge != null && item.badge > 0 && <NavCountBadge count={item.badge} />}
             </button>
           );
         })}
@@ -482,10 +446,13 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
                 profile={profile}
                 userId={user.id}
                 onOpenProfile={openProfile}
+                onNotificationNavigate={handleNotificationNavigate}
               />
             )}
           </div>
         </header>
+
+        {user && <TeacherPromotedBanner userId={user.id} />}
 
         {isSuperAdmin && tab === 'results' && (
           <MobileSubNavBar
@@ -495,19 +462,12 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           />
         )}
 
-        {tab === 'learning' && (
-          <MobileSubNavBar
-            items={LEARNING_ADMIN_SUB_NAV}
-            activeId={learningSubTab}
-            onSelect={(id) => openLearning(id as LearningAdminSubTab)}
-          />
-        )}
-
         <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
           {tab === 'home' && (
-            <DashboardHomePanel
-              role={isSuperAdmin ? 'superadmin' : 'admin'}
+            <AdminDashboardHome
+              isSuperAdmin={isSuperAdmin}
               displayName={displayName}
+              onNavigate={handleAdminHomeNavigate}
             />
           )}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'stage1' && <SelectionStage1ConfigTab />}
@@ -517,9 +477,10 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           )}
           {tab === 'students' && <StudentsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'teachers' && isSuperAdmin && <TeachersTab />}
-          {tab === 'learning' && learningSubTab === 'lectures' && <LessonsTab lessonType="lecture" />}
-          {tab === 'learning' && learningSubTab === 'seminars' && <LessonsTab lessonType="seminar" />}
-          {tab === 'learning' && learningSubTab === 'homework' && <HomeworkTab isSuperAdmin={isSuperAdmin} />}
+          {tab === 'lectures' && <LessonsTab lessonType="lecture" />}
+          {tab === 'seminars' && <LessonsTab lessonType="seminar" />}
+          {tab === 'homework' && <HomeworkPagesTab />}
+          {tab === 'grading' && <HomeworkTab isSuperAdmin={isSuperAdmin} mode="grading" />}
           {tab === 'schedule' && <ScheduleTab />}
           {tab === 'statistics' && <StatisticsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'site' && isSuperAdmin && <SiteContentTab />}

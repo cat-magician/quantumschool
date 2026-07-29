@@ -211,6 +211,26 @@ body {
     }
   }
 
+  /* Горизонтальная лента карусели — свайп пальцем на мобиле */
+  .instructor-carousel-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .instructor-carousel-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .instructor-carousel-track {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+  }
+
   /* Плашка Bolt на бесплатном тарифе — поднимаем над нижней навигацией кабинета */
   @media (max-width: 1023px) {
     #bolt-watermark,

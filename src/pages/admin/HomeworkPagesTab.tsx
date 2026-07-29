@@ -20,7 +20,7 @@ import {
   formatHomeworkScoreValue,
   parseHomeworkMaxScore,
 } from '../../lib/homeworkUtils';
-import { parseYandexFormId, normalizeContestUrl } from '../../lib/selectionConfig';
+import { parseYandexFormId, normalizeContestUrl, YANDEX_FORM_INPUT_PLACEHOLDER } from '../../lib/selectionConfig';
 import { homeworkPageLoadError, homeworkPageSaveError } from '../../lib/homeworkPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import MarkdownEditor from '../../components/MarkdownEditor';
@@ -641,7 +641,7 @@ function BlockEditor({
           <input
             value={block.content.form_id ?? ''}
             onChange={(e) => onContentChange({ form_id: e.target.value })}
-            placeholder="https://forms.yandex.ru/u/… или ID формы"
+            placeholder={YANDEX_FORM_INPUT_PLACEHOLDER}
             className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
           />
           {parseYandexFormId(block.content.form_id ?? '') ? (

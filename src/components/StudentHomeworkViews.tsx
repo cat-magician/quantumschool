@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import type { HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../lib/types';
 import { homeworkPageLoadError } from '../lib/homeworkPageLoadError';
-import { formatHomeworkDueAt, sortHomeworkPagesForStudent, type HomeworkListSort } from '../lib/homeworkPageUtils';
+import { formatHomeworkDueAt, isHomeworkPendingSubmission, sortHomeworkPagesForStudent, type HomeworkListFilter, type HomeworkListSort } from '../lib/homeworkPageUtils';
 import { DEFAULT_HOMEWORK_MAX_SCORE } from '../lib/homeworkUtils';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
@@ -17,7 +17,8 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
   const [submissions, setSubmissions] = useState<Record<string, HomeworkPageSubmission>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sort, setSort] = useState<HomeworkListSort>('date');
+  const [sort, setSort] = useState<HomeworkListSort>('deadline');
+  const [filter, setFilter] = useState<HomeworkListFilter>('all');
 
   useEffect(() => {
     if (!user) return;
@@ -45,6 +46,11 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
     [pages, sort],
   );
 
+  const visiblePages = useMemo(() => {
+    if (filter === 'all') return sortedPages;
+    return sortedPages.filter((page) => isHomeworkPendingSubmission(submissions[page.id]));
+  }, [sortedPages, filter, submissions]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -71,10 +77,28 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {([
-          ['date', 'По дате'],
+          ['all', 'Все'],
+          ['todo', 'К сдаче'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setFilter(id)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              filter === id
+                ? 'bg-violet-600/20 text-violet-300 border border-violet-500/30'
+                : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="w-px h-8 bg-white/10 self-center hidden sm:block" aria-hidden />
+        {([
           ['deadline', 'По сроку'],
+          ['date', 'По дате'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -91,8 +115,13 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
         ))}
       </div>
 
+      {visiblePages.length === 0 ? (
+        <p className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
+          {filter === 'todo' ? 'Все задания сданы — отлично!' : 'Наставник ещё не опубликовал задания'}
+        </p>
+      ) : (
       <div className="space-y-2">
-      {sortedPages.map((page) => (
+      {visiblePages.map((page) => (
         <HomeworkPageCard
           key={page.id}
           page={page}
@@ -102,6 +131,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
         />
       ))}
       </div>
+      )}
     </div>
   );
 }

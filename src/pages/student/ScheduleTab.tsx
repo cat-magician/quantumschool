@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calendar, Clock, Loader2, Video } from 'lucide-react';
+import { Calendar, Clock, Loader2 } from 'lucide-react';
+import MeetingLinkButton from '../../components/MeetingLinkButton';
 import MonthCalendar from '../../components/MonthCalendar';
 import { supabase } from '../../lib/supabase';
 import type { ScheduleEvent } from '../../lib/types';
@@ -54,16 +55,13 @@ function ScheduleEventCard({ event, isPast }: { event: ScheduleEvent; isPast: bo
             {event.description}
           </p>
         )}
-        {event.meeting_url && isEventActive(event.scheduled_at, event.duration_minutes) && (
-          <a
-            href={event.meeting_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-2 text-sm text-blue-400 hover:text-blue-300"
-          >
-            <Video className="w-3.5 h-3.5" />
-            Ссылка на занятие
-          </a>
+        {event.meeting_url && (
+          <MeetingLinkButton
+            url={event.meeting_url}
+            scheduledAt={event.scheduled_at}
+            durationMinutes={event.duration_minutes}
+            variant="inline"
+          />
         )}
       </div>
     </div>
@@ -164,15 +162,12 @@ export default function StudentScheduleTab() {
             <span className="text-violet-300">{EVENT_TYPE_LABELS[nextEvent.event_type]}</span>
           </div>
           {nextEvent.meeting_url && (
-            <a
-              href={nextEvent.meeting_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
-            >
-              <Video className="w-4 h-4" />
-              Подключиться
-            </a>
+            <MeetingLinkButton
+              url={nextEvent.meeting_url}
+              scheduledAt={nextEvent.scheduled_at}
+              durationMinutes={nextEvent.duration_minutes}
+              variant="hero"
+            />
           )}
         </div>
       )}

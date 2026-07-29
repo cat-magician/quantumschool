@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  CheckCircle, GraduationCap, Loader2, MapPin, Save, School, Search, UserPlus, UserX,
+  CheckCircle, GraduationCap, Loader2, MapPin, School, Search, UserPlus, UserX,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
@@ -38,6 +38,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveErrorId, setSaveErrorId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Partial<StudentRow>>>({});
   const [infoStudentId, setInfoStudentId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -76,33 +77,20 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
     setDraft(s.id, { [field]: score });
   };
 
-  const toggleEnroll = (s: StudentRow) => {
-    const d = getDraft(s);
-    if (d.is_enrolled) {
-      setDraft(s.id, { is_enrolled: false, selection_rejected: false });
-    } else {
-      setDraft(s.id, { is_enrolled: true, selection_rejected: false });
-    }
-  };
-
-  const toggleReject = (s: StudentRow) => {
-    const d = getDraft(s);
-    if (d.selection_rejected) {
-      setDraft(s.id, { is_enrolled: false, selection_rejected: false });
-    } else {
-      setDraft(s.id, { is_enrolled: false, selection_rejected: true });
-    }
-  };
-
-  const hasChanges = (s: StudentRow) => {
+  const hasScoreChanges = (s: StudentRow) => {
     const d = drafts[s.id];
     if (!d) return false;
-    return Object.keys(d).some((k) => d[k as keyof StudentRow] !== s[k as keyof StudentRow]);
+    if ('stage1_score' in d && d.stage1_score !== s.stage1_score) return true;
+    if ('stage2_score' in d && d.stage2_score !== s.stage2_score) return true;
+    return false;
   };
 
-  const save = async (s: StudentRow) => {
-    const d = getDraft(s);
+  const persistStudent = async (s: StudentRow, patch: Partial<StudentRow> = {}) => {
+    const mergedDraft = { ...drafts[s.id], ...patch };
+    const d = { ...s, ...mergedDraft };
     setSavingId(s.id);
+    setSaveErrorId(null);
+
     const { error } = await supabase.from('user_profiles').update({
       stage1_status: normalizeStatus(d.stage1_status, d.stage1_score, d.stage1_submitted_at),
       stage2_status: normalizeStatus(d.stage2_status, d.stage2_score, d.stage2_submitted_at),
@@ -125,8 +113,33 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
         delete next[s.id];
         return next;
       });
+    } else {
+      setSaveErrorId(s.id);
     }
+
     setSavingId(null);
+    return !error;
+  };
+
+  const toggleEnroll = async (s: StudentRow) => {
+    const d = getDraft(s);
+    const patch = d.is_enrolled
+      ? { is_enrolled: false, selection_rejected: false }
+      : { is_enrolled: true, selection_rejected: false };
+    await persistStudent(s, patch);
+  };
+
+  const toggleReject = async (s: StudentRow) => {
+    const d = getDraft(s);
+    const patch = d.selection_rejected
+      ? { is_enrolled: false, selection_rejected: false }
+      : { is_enrolled: false, selection_rejected: true };
+    await persistStudent(s, patch);
+  };
+
+  const saveScoresIfChanged = async (s: StudentRow) => {
+    if (!hasScoreChanges(s)) return;
+    await persistStudent(s);
   };
 
   const removeStudent = (id: string) => {
@@ -217,7 +230,8 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
 
           {filtered.map((s) => {
             const d = getDraft(s);
-            const changed = hasChanges(s);
+            const scoreDraft = hasScoreChanges(s);
+            const saving = savingId === s.id;
             const showInfo = infoStudentId === s.id;
             return (
               <div
@@ -252,6 +266,8 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     submittedAt={d.stage1_submitted_at}
                     viewedAt={d.stage1_viewed_at}
                     onScore={(v) => setScore(s, 1, v)}
+                    onScoreCommit={() => { void saveScoresIfChanged(s); }}
+                    scoreDirty={scoreDraft && 'stage1_score' in (drafts[s.id] ?? {})}
                   />
                   <StageField
                     className="md:col-start-3"
@@ -261,19 +277,24 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     submittedAt={d.stage2_submitted_at}
                     viewedAt={d.stage2_viewed_at}
                     onScore={(v) => setScore(s, 2, v)}
+                    onScoreCommit={() => { void saveScoresIfChanged(s); }}
+                    scoreDirty={scoreDraft && 'stage2_score' in (drafts[s.id] ?? {})}
                   />
 
-                  <div className="flex flex-nowrap items-center justify-start md:justify-end gap-2 md:col-start-4 shrink-0">
+                  <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 md:col-start-4 shrink-0">
                     <button
                       type="button"
-                      onClick={() => toggleEnroll(s)}
-                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[100px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
+                      onClick={() => { void toggleEnroll(s); }}
+                      disabled={saving}
+                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[100px] h-9 px-3 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
                         d.is_enrolled
                           ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                           : 'bg-white/5 text-slate-300 border border-white/10 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/20'
                       }`}
                     >
-                      {d.is_enrolled ? (
+                      {saving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : d.is_enrolled ? (
                         <CheckCircle className="w-4 h-4" />
                       ) : (
                         <UserPlus className="w-4 h-4" />
@@ -282,31 +303,20 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     </button>
                     <button
                       type="button"
-                      onClick={() => toggleReject(s)}
-                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[88px] h-9 px-3 rounded-xl text-sm font-medium transition-colors ${
+                      onClick={() => { void toggleReject(s); }}
+                      disabled={saving}
+                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[88px] h-9 px-3 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
                         d.selection_rejected
                           ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                           : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/20'
                       }`}
                     >
-                      <UserX className="w-4 h-4" />
-                      <span>{d.selection_rejected ? 'Отказ' : 'Отказать'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => save(s)}
-                      disabled={!changed || savingId === s.id}
-                      className={`flex items-center justify-center gap-1.5 w-[72px] h-9 rounded-xl text-sm font-semibold transition-colors ${
-                        changed
-                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                          : 'bg-white/5 text-slate-600 border border-white/5 cursor-default'
-                      } disabled:opacity-50`}
-                    >
-                      {savingId === s.id ? (
+                      {saving ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <Save className="w-4 h-4" />
+                        <UserX className="w-4 h-4" />
                       )}
+                      <span>{d.selection_rejected ? 'Отказ' : 'Отказать'}</span>
                     </button>
                     {isSuperAdmin && !d.is_enrolled && (
                       <SuperadminDeleteAccount
@@ -316,6 +326,17 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                       />
                     )}
                   </div>
+
+                  {scoreDraft && (
+                    <p className="text-xs text-amber-400/90 md:col-span-3 md:col-start-2">
+                      Оценка изменена — сохранится, когда уберёте курсор из поля балла
+                    </p>
+                  )}
+                  {saveErrorId === s.id && (
+                    <p className="text-xs text-rose-400 md:col-span-3 md:col-start-2">
+                      Не удалось сохранить. Попробуйте ещё раз.
+                    </p>
+                  )}
                 </div>
 
                 {showInfo && (
@@ -359,7 +380,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: typeof MapPin; label: str
 }
 
 function StageField({
-  label, status, score, submittedAt, viewedAt, onScore, className = '',
+  label, status, score, submittedAt, viewedAt, onScore, onScoreCommit, scoreDirty = false, className = '',
 }: {
   label: string;
   status: UserProfile['stage1_status'];
@@ -367,13 +388,17 @@ function StageField({
   submittedAt?: string | null;
   viewedAt?: string | null;
   onScore: (v: number | null) => void;
+  onScoreCommit?: () => void;
+  scoreDirty?: boolean;
   className?: string;
 }) {
   const stageLabel = adminStageLabel(status, score, submittedAt, viewedAt);
   const badgeClass = adminStageBadgeClass(status, score, submittedAt, viewedAt);
 
   return (
-    <div className={`flex items-center gap-1.5 flex-nowrap rounded-xl border border-white/5 bg-white/5 px-2.5 py-2 w-full min-w-0 ${className}`}>
+    <div className={`flex items-center gap-1.5 flex-nowrap rounded-xl border px-2.5 py-2 w-full min-w-0 ${
+      scoreDirty ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/5 bg-white/5'
+    } ${className}`}>
       <span className="text-xs text-slate-500 w-9 shrink-0">{label}</span>
       <span className={`text-xs px-1.5 py-0.5 rounded-md border shrink-0 whitespace-nowrap ${badgeClass}`}>
         {stageLabel}
@@ -387,6 +412,10 @@ function StageField({
           onChange={(e) => {
             const v = e.target.value;
             onScore(v === '' ? null : Math.min(10, Math.max(0, Number(v))));
+          }}
+          onBlur={() => onScoreCommit?.()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
           placeholder="—"
           className="w-9 h-8 px-1.5 rounded-lg bg-slate-800 border border-white/10 text-white text-sm text-center placeholder:text-slate-500 focus:placeholder:opacity-0 focus:outline-none focus:border-blue-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"

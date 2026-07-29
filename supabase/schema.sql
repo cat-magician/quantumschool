@@ -2598,6 +2598,46 @@ CREATE POLICY "Staff delete site images" ON storage.objects FOR DELETE
   );
 
 -- ══════════════════════════════════════════════════════════════
+-- Документы занятий (PDF, картинки конспектов)
+-- ══════════════════════════════════════════════════════════════
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('lesson-documents', 'lesson-documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Staff upload lesson documents" ON storage.objects;
+CREATE POLICY "Staff upload lesson documents" ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'lesson-documents'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Staff update lesson documents" ON storage.objects;
+CREATE POLICY "Staff update lesson documents" ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (
+    bucket_id = 'lesson-documents'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'lesson-documents'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Staff delete lesson documents" ON storage.objects;
+CREATE POLICY "Staff delete lesson documents" ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'lesson-documents'
+    AND private.is_staff()
+    AND split_part(name, '/', 1) = auth.uid()::text
+  );
+
+-- ══════════════════════════════════════════════════════════════
 -- Telegram-канал для зачисленных учеников (не публичный)
 -- ══════════════════════════════════════════════════════════════
 

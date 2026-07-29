@@ -1,4 +1,4 @@
-const YANDEX_DISK_HOSTS = ['disk.yandex.ru', 'disk.yandex.com', 'yadi.sk'];
+const YANDEX_DISK_HOSTS = ['disk.yandex.ru', 'disk.yandex.com', 'disk.360.yandex.ru', 'yadi.sk'];
 
 const DIRECT_IMAGE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(\?|$)/i;
 

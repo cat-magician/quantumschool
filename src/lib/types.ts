@@ -233,6 +233,8 @@ export type LessonBlockContent = {
   label?: string;
   pdf_url?: string;
   pdf_title?: string;
+  /** ID страницы домашнего задания из homework_pages */
+  homework_page_id?: string;
 };
 
 export interface LessonPageBlock {

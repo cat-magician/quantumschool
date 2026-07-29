@@ -5,6 +5,8 @@ import {
   fetchSelectionConfig,
   parseYandexFormId,
   saveSelectionConfig,
+  yandexFormInputDisplayUrl,
+  YANDEX_FORM_INPUT_PLACEHOLDER,
 } from '../../lib/selectionConfig';
 import YandexFormEmbed from '../../components/YandexFormEmbed';
 import StageComingSoon from '../../components/StageComingSoon';
@@ -23,7 +25,7 @@ export default function SelectionEssayConfigTab() {
     setLoading(true);
     const cfg = await fetchSelectionConfig();
     setSavedFormId(cfg.essay_form_id);
-    setInput(cfg.essay_form_id ? `https://forms.yandex.ru/u/${cfg.essay_form_id}` : '');
+    setInput(yandexFormInputDisplayUrl(cfg.essay_form_id));
     setPublished(cfg.essay_published);
     setLoading(false);
   };
@@ -90,7 +92,7 @@ export default function SelectionEssayConfigTab() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="https://forms.yandex.ru/u/… или ID формы"
+            placeholder={YANDEX_FORM_INPUT_PLACEHOLDER}
             className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
           />
         </label>

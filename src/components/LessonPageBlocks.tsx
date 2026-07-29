@@ -14,7 +14,13 @@ function TextBlock({ body }: { body: string }) {
   );
 }
 
-export default function LessonPageBlocks({ blocks }: { blocks: LessonPageBlock[] }) {
+export default function LessonPageBlocks({
+  blocks,
+  onOpenHomework,
+}: {
+  blocks: LessonPageBlock[];
+  onOpenHomework?: (pageId: string) => void;
+}) {
   const sorted = [...blocks].sort((a, b) => a.sort_order - b.sort_order);
 
   return (
@@ -64,20 +70,33 @@ export default function LessonPageBlocks({ blocks }: { blocks: LessonPageBlock[]
         }
 
         if (block.block_type === 'homework_link') {
+          const pageId = content.homework_page_id?.trim();
+          const legacyUrl = content.url?.trim();
+          const label = content.label?.trim() || 'Перейти к домашнему заданию';
+
           return (
             <section key={block.id} className="space-y-3">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {LESSON_BLOCK_LABELS.homework_link}
               </h3>
-              {content.url?.trim() ? (
+              {pageId && onOpenHomework ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenHomework(pageId)}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-200 hover:bg-violet-600/30 transition-colors text-sm font-medium"
+                >
+                  <ExternalLink className="w-4 h-4 shrink-0" />
+                  {label}
+                </button>
+              ) : legacyUrl ? (
                 <a
-                  href={content.url.trim()}
+                  href={legacyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-200 hover:bg-violet-600/30 transition-colors text-sm font-medium"
                 >
                   <ExternalLink className="w-4 h-4 shrink-0" />
-                  {content.label?.trim() || 'Перейти к домашнему заданию'}
+                  {label}
                 </a>
               ) : (
                 <BlockPlaceholder variant="homework_link" />

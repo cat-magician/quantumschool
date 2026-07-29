@@ -2,12 +2,24 @@ export type StudentDashboardState = {
   tab: 'home' | 'selection' | 'learning' | 'schedule' | 'progress';
   selectionSubTab?: 'stage1' | 'stage2' | 'results';
   learningSubTab?: 'lectures' | 'seminars' | 'homework';
+  /** ID опубликованной страницы лекции/семинара/ДЗ в «Обучении» */
+  contentPageId?: string;
 };
 
 export type AdminDashboardState = {
-  tab: 'home' | 'results' | 'students' | 'teachers' | 'learning' | 'schedule' | 'statistics' | 'site';
+  tab:
+    | 'home'
+    | 'results'
+    | 'students'
+    | 'teachers'
+    | 'schedule'
+    | 'lectures'
+    | 'seminars'
+    | 'homework'
+    | 'grading'
+    | 'statistics'
+    | 'site';
   selectionSubTab?: 'stage1' | 'contest' | 'results';
-  learningSubTab?: 'lectures' | 'seminars' | 'homework';
 };
 
 export type DashboardReturnState =
@@ -16,14 +28,27 @@ export type DashboardReturnState =
 
 export const DASHBOARD_TAB_PARAM = 'tab';
 export const DASHBOARD_SUB_PARAM = 'sub';
+export const DASHBOARD_PAGE_PARAM = 'page';
 
 const STUDENT_TABS = ['home', 'selection', 'learning', 'schedule', 'progress'] as const;
 const STUDENT_SELECTION_SUBS = ['stage1', 'stage2', 'results'] as const;
 const STUDENT_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
 
-const ADMIN_TABS = ['home', 'results', 'students', 'teachers', 'learning', 'schedule', 'statistics', 'site'] as const;
+const ADMIN_TABS = [
+  'home',
+  'results',
+  'students',
+  'teachers',
+  'schedule',
+  'lectures',
+  'seminars',
+  'homework',
+  'grading',
+  'statistics',
+  'site',
+] as const;
 const ADMIN_SELECTION_SUBS = ['stage1', 'contest', 'results'] as const;
-const ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework'] as const;
+const LEGACY_ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework', 'grading'] as const;
 
 function isStudentTab(value: string): value is StudentDashboardState['tab'] {
   return (STUDENT_TABS as readonly string[]).includes(value);
@@ -54,8 +79,8 @@ function normalizeAdminSelectionSub(value: string | undefined): AdminDashboardSt
   return 'results';
 }
 
-function isAdminLearningSub(value: string): value is NonNullable<AdminDashboardState['learningSubTab']> {
-  return (ADMIN_LEARNING_SUBS as readonly string[]).includes(value);
+function isLegacyAdminLearningSub(value: string): value is (typeof LEGACY_ADMIN_LEARNING_SUBS)[number] {
+  return (LEGACY_ADMIN_LEARNING_SUBS as readonly string[]).includes(value);
 }
 
 export function defaultStudentDashboardState(): StudentDashboardState {
@@ -80,21 +105,33 @@ export function parseStudentDashboardSearchParams(searchParams: URLSearchParams)
     state.learningSubTab = subRaw;
   }
 
+  const pageRaw = searchParams.get(DASHBOARD_PAGE_PARAM)?.trim();
+  if (tabRaw === 'learning' && pageRaw) {
+    state.contentPageId = pageRaw;
+  }
+
   return state;
 }
 
 export function parseAdminDashboardSearchParams(searchParams: URLSearchParams): AdminDashboardState | null {
   const tabRaw = searchParams.get(DASHBOARD_TAB_PARAM);
-  if (!tabRaw || !isAdminTab(tabRaw)) return null;
+  if (!tabRaw) return null;
+
+  if (tabRaw === 'learning') {
+    const subRaw = searchParams.get(DASHBOARD_SUB_PARAM);
+    if (subRaw && isLegacyAdminLearningSub(subRaw)) {
+      return { tab: subRaw };
+    }
+    return { tab: 'lectures' };
+  }
+
+  if (!isAdminTab(tabRaw)) return null;
 
   const state: AdminDashboardState = { tab: tabRaw };
   const subRaw = searchParams.get(DASHBOARD_SUB_PARAM);
 
   if (tabRaw === 'results' && subRaw) {
     state.selectionSubTab = normalizeAdminSelectionSub(subRaw);
-  }
-  if (tabRaw === 'learning' && subRaw && isAdminLearningSub(subRaw)) {
-    state.learningSubTab = subRaw;
   }
 
   return state;
@@ -127,6 +164,8 @@ export function normalizeStudentDashboardState(
     if (!normalized.learningSubTab || !isStudentLearningSub(normalized.learningSubTab)) {
       normalized.learningSubTab = 'lectures';
     }
+  } else {
+    normalized.contentPageId = undefined;
   }
 
   return normalized;
@@ -154,12 +193,6 @@ export function normalizeAdminDashboardState(
     normalized.selectionSubTab = normalizeAdminSelectionSub(normalized.selectionSubTab);
   }
 
-  if (normalized.tab === 'learning') {
-    if (!normalized.learningSubTab || !isAdminLearningSub(normalized.learningSubTab)) {
-      normalized.learningSubTab = 'lectures';
-    }
-  }
-
   return normalized;
 }
 
@@ -177,7 +210,18 @@ export function studentDashboardStateToSearchParams(state: StudentDashboardState
         : undefined;
 
   if (sub) params.set(DASHBOARD_SUB_PARAM, sub);
+  if (state.tab === 'learning' && state.contentPageId) {
+    params.set(DASHBOARD_PAGE_PARAM, state.contentPageId);
+  }
   return params;
+}
+
+export function studentDashboardPath(state: StudentDashboardState, isEnrolled: boolean): string {
+  const params = studentDashboardStateToSearchParams(
+    normalizeStudentDashboardState(state, isEnrolled),
+  );
+  const qs = params.toString();
+  return qs ? `/dashboard?${qs}` : '/dashboard';
 }
 
 export function adminDashboardStateToSearchParams(state: AdminDashboardState): URLSearchParams {
@@ -186,12 +230,7 @@ export function adminDashboardStateToSearchParams(state: AdminDashboardState): U
   const params = new URLSearchParams();
   params.set(DASHBOARD_TAB_PARAM, state.tab);
 
-  const sub =
-    state.tab === 'results'
-      ? state.selectionSubTab
-      : state.tab === 'learning'
-        ? state.learningSubTab
-        : undefined;
+  const sub = state.tab === 'results' ? state.selectionSubTab : undefined;
 
   if (sub) params.set(DASHBOARD_SUB_PARAM, sub);
   return params;

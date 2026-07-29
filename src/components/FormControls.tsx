@@ -250,6 +250,147 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
+function parseDateInput(value: string): Date | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function toDateInputValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+const dateDisplayFmt = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+export function FormDate({
+  value,
+  onChange,
+  className = '',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const parsed = parseDateInput(value);
+  const [month, setMonth] = useState(() => parsed ?? new Date());
+  const [selectedDay, setSelectedDay] = useState<Date | null>(parsed);
+
+  useEffect(() => {
+    const p = parseDateInput(value);
+    setSelectedDay(p);
+    if (p) setMonth(new Date(p.getFullYear(), p.getMonth(), 1));
+  }, [value]);
+
+  useDismissOnOutside(open, () => setOpen(false), [rootRef, panelRef]);
+
+  const { cells, label } = buildMonthGrid(month);
+  const today = new Date();
+
+  const displayText = selectedDay ? dateDisplayFmt.format(selectedDay) : 'Выберите дату';
+
+  const pickDay = (day: Date) => {
+    setSelectedDay(day);
+    onChange(toDateInputValue(day));
+    setOpen(false);
+  };
+
+  const pos = useAnchorPosition(open, btnRef, {
+    panelWidth: Math.min(window.innerWidth - 32, 320),
+  });
+
+  return (
+    <div ref={rootRef} className={`relative ${className}`}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`${formFieldClass} flex items-center justify-between gap-2 text-left cursor-pointer max-w-xs`}
+      >
+        <span className={selectedDay ? 'text-white' : 'text-slate-500'}>{displayText}</span>
+        <Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="fixed z-[200] rounded-2xl border border-white/10 bg-slate-900 shadow-2xl p-4 w-[min(100vw-2rem,320px)]"
+            style={{ top: pos.top, left: pos.left }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <button
+                type="button"
+                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+                className="p-2 rounded-lg hover:bg-white/5 text-slate-400"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-semibold text-white capitalize">{label}</span>
+              <button
+                type="button"
+                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+                className="p-2 rounded-lg hover:bg-white/5 text-slate-400"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 text-center text-xs text-slate-500 mb-2">
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="py-1">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {cells.map((date, i) => {
+                if (!date) return <div key={`empty-${i}`} />;
+                const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+                const isSelected = selectedDay && isSameDay(date, selectedDay);
+                const isToday = isSameDay(date, today);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => pickDay(date)}
+                    className={`aspect-square rounded-lg text-sm transition-colors ${
+                      isSelected
+                        ? 'bg-blue-600 text-white'
+                        : isToday
+                          ? 'bg-blue-600/20 text-blue-300'
+                          : 'text-slate-300 hover:bg-white/5'
+                    }`}
+                  >
+                    {date.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => pickDay(today)}
+              className="w-full mt-4 py-2 rounded-xl text-xs font-medium text-blue-400 hover:bg-blue-600/10 transition-colors"
+            >
+              Сегодня
+            </button>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 const numberInputClass = `${formFieldClass} text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`;
 
 function clamp(n: number, min: number, max: number) {

@@ -5,18 +5,21 @@ import {
   isNotificationRead,
   markNotificationsRead,
 } from '../lib/notificationReadState';
-import { loadNotificationsForProfile, type AppNotification } from '../lib/notificationsUtils';
+import { loadNotificationsForProfile, type AppNotification, type NotificationAction } from '../lib/notificationsUtils';
 import type { UserProfile } from '../lib/types';
 
-function NotificationRow({ item, wasNew }: { item: AppNotification; wasNew: boolean }) {
-  return (
-    <li
-      className={`px-4 py-3 border-l-2 ${
-        wasNew
-          ? 'bg-blue-500/8 border-blue-500'
-          : 'border-transparent opacity-80'
-      }`}
-    >
+function NotificationRow({
+  item,
+  wasNew,
+  onAction,
+}: {
+  item: AppNotification;
+  wasNew: boolean;
+  onAction?: (action: NotificationAction) => void;
+}) {
+  const clickable = !!(item.action && onAction);
+  const inner = (
+    <>
       <div className="flex items-start gap-2">
         {wasNew && (
           <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-hidden />
@@ -36,6 +39,36 @@ function NotificationRow({ item, wasNew }: { item: AppNotification; wasNew: bool
           </p>
         </div>
       </div>
+    </>
+  );
+
+  if (!clickable) {
+    return (
+      <li
+        className={`px-4 py-3 border-l-2 ${
+          wasNew
+            ? 'bg-blue-500/8 border-blue-500'
+            : 'border-transparent opacity-80'
+        }`}
+      >
+        {inner}
+      </li>
+    );
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onAction!(item.action!)}
+        className={`w-full text-left px-4 py-3 border-l-2 transition-colors hover:bg-white/5 ${
+          wasNew
+            ? 'bg-blue-500/8 border-blue-500'
+            : 'border-transparent opacity-80'
+        }`}
+      >
+        {inner}
+      </button>
     </li>
   );
 }
@@ -45,11 +78,13 @@ export default function NotificationsPanel({
   userId,
   onClose,
   onReadStateChange,
+  onNavigate,
 }: {
   profile: UserProfile;
   userId: string;
   onClose: () => void;
   onReadStateChange?: () => void;
+  onNavigate?: (action: NotificationAction) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const markedOnOpenRef = useRef(false);
@@ -140,6 +175,7 @@ export default function NotificationsPanel({
                 key={item.id}
                 item={item}
                 wasNew={wasNewIds.has(item.id)}
+                onAction={onNavigate}
               />
             ))}
           </ul>

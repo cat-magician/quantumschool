@@ -17,7 +17,11 @@ import {
   SUBMISSION_STATUS_LABELS,
 } from '../../lib/homeworkUtils';
 import AchievementBadgeStrip from '../../components/achievements/AchievementBadgeStrip';
-export default function StudentProgressTab() {
+export default function StudentProgressTab({
+  onOpenHomework,
+}: {
+  onOpenHomework?: (pageId: string) => void;
+}) {
   const { user } = useAuth();
   const [publishedPages, setPublishedPages] = useState<Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[]>([]);
   const [submissions, setSubmissions] = useState<HomeworkPageSubmission[]>([]);
@@ -131,30 +135,51 @@ export default function StudentProgressTab() {
         <div className="space-y-1.5">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-0.5">Домашние задания</h3>
           <div className="max-h-[min(50vh,18rem)] overflow-y-auto space-y-1.5 pr-0.5">
-            {homeworkPages.map((p) => (
-              <div
-                key={p.pageId}
-                className="bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-white truncate">{p.title}</div>
-                  {p.status === 'submitted' && (
-                    <div className="text-xs text-amber-400/80 mt-0.5">{SUBMISSION_STATUS_LABELS.submitted}</div>
-                  )}
+            {homeworkPages.map((p) => {
+              const row = (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-white truncate">{p.title}</div>
+                    {p.status === 'submitted' && (
+                      <div className="text-xs text-amber-400/80 mt-0.5">{SUBMISSION_STATUS_LABELS.submitted}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2.5 flex-shrink-0">
+                    {p.score !== null && (
+                      <div className="text-right tabular-nums leading-none">
+                        <span className="text-xl font-bold text-white">{formatHomeworkScoreValue(p.score)}</span>
+                        <span className="text-sm text-slate-500">/{formatHomeworkScoreValue(p.maxScore)}</span>
+                      </div>
+                    )}
+                    <span className={`text-[11px] px-2 py-0.5 rounded-md border ${HOMEWORK_STATUS_COLORS[p.status]}`}>
+                      {HOMEWORK_STATUS_LABELS[p.status]}
+                    </span>
+                  </div>
+                </>
+              );
+
+              if (onOpenHomework) {
+                return (
+                  <button
+                    key={p.pageId}
+                    type="button"
+                    onClick={() => onOpenHomework(p.pageId)}
+                    className="w-full bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 text-left hover:border-violet-500/25 transition-colors"
+                  >
+                    {row}
+                  </button>
+                );
+              }
+
+              return (
+                <div
+                  key={p.pageId}
+                  className="bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3"
+                >
+                  {row}
                 </div>
-                <div className="flex items-center gap-2.5 flex-shrink-0">
-                  {p.score !== null && (
-                    <div className="text-right tabular-nums leading-none">
-                      <span className="text-xl font-bold text-white">{formatHomeworkScoreValue(p.score)}</span>
-                      <span className="text-sm text-slate-500">/{formatHomeworkScoreValue(p.maxScore)}</span>
-                    </div>
-                  )}
-                  <span className={`text-[11px] px-2 py-0.5 rounded-md border ${HOMEWORK_STATUS_COLORS[p.status]}`}>
-                    {HOMEWORK_STATUS_LABELS[p.status]}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : (

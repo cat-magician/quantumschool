@@ -114,7 +114,7 @@ export default function PdfDocumentViewer({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium"
             >
               <ExternalLink className="w-4 h-4" />
-              Открыть на Яндекс.Диске
+              {isYandexDiskUrl(rawUrl) ? 'Открыть на Яндекс.Диске' : 'Открыть файл'}
             </a>
           </div>
         )}

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, ExternalLink, Eye, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
-import type { Group, GroupMember, HomeworkPage, HomeworkPageSubmission } from '../../lib/types';
+import type { Group, GroupMember, HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../../lib/types';
 import {
   groupsForTeacher,
   loadGroupTeachers,
@@ -22,6 +22,8 @@ import {
 import UserAvatar from '../../components/UserAvatar';
 import { profileEmail } from '../../lib/profileUtils';
 import { homeworkPageLoadError } from '../../lib/homeworkPageLoadError';
+import { homeworkSubmissionLinksFromBlocks } from '../../lib/homeworkPageUtils';
+import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPreview';
 import HomeworkPagesTab from './HomeworkPagesTab';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
@@ -45,10 +47,19 @@ function submissionHasGrade(s: HomeworkPageSubmission) {
   return s.status === 'graded';
 }
 
-export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+export default function HomeworkTab({
+  isSuperAdmin,
+  initialSection = 'pages',
+  mode = 'combined',
+}: {
+  isSuperAdmin: boolean;
+  initialSection?: Section;
+  /** combined — вкладки «Задания / Проверка»; grading — только проверка (без дубля в боковом меню) */
+  mode?: 'combined' | 'grading';
+}) {
   const { user } = useAuth();
   const { toast } = useAppDialog();
-  const [section, setSection] = useState<Section>('pages');
+  const [section, setSection] = useState<Section>(initialSection);
   const [pages, setPages] = useState<Pick<HomeworkPage, 'id' | 'title'>[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<HomeworkPageSubmission[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -59,7 +70,17 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [gradingId, setGradingId] = useState<string | null>(null);
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, { score: string; feedback: string }>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [gradingFilter, setGradingFilter] = useState<GradingFilter>('all');
+  const [gradingFilter, setGradingFilter] = useState<GradingFilter>('ungraded');
+  const [pageBlocksMap, setPageBlocksMap] = useState<Record<string, HomeworkPageBlock[]>>({});
+  const [pageMetaMap, setPageMetaMap] = useState<Record<string, Pick<HomeworkPage, 'id' | 'title' | 'due_at'>>>({});
+  const [previewPageId, setPreviewPageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSection(mode === 'grading' ? 'grading' : initialSection);
+  }, [initialSection, mode]);
+
+  const showSectionTabs = mode === 'combined';
+  const activeSection = mode === 'grading' ? 'grading' : section;
 
   const loadGrading = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return;
@@ -71,7 +92,7 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     const [pRes, sRes, gRes, membersRes, gtRows] = await Promise.all([
       supabase
         .from('homework_pages')
-        .select('id, title')
+        .select('id, title, due_at')
         .eq('is_published', true)
         .order('due_at', { ascending: true, nullsFirst: false }),
       supabase
@@ -84,18 +105,34 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
       loadGroupTeachers(supabase),
     ]);
     if (pRes.error) setLoadError(homeworkPageLoadError(pRes.error.message));
-    else setPages((pRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title'>[]);
+    else {
+      const pageRows = (pRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[];
+      setPages(pageRows.map(({ id, title }) => ({ id, title })));
+      setPageMetaMap(Object.fromEntries(pageRows.map((p) => [p.id, p])));
+    }
     if (sRes.error) {
       setLoadError(homeworkPageLoadError(sRes.error.message));
       setAllSubmissions([]);
+      setPageBlocksMap({});
     } else if (sRes.data) {
       const subs = sRes.data as HomeworkPageSubmission[];
       const userIds = [...new Set(subs.map((s) => s.user_id))];
-      const { data: profiles } = userIds.length
-        ? await supabase.from('user_profiles').select('id, display_name, email, avatar_url').in('id', userIds)
-        : { data: [] };
+      const pageIds = [...new Set(subs.map((s) => s.page_id))];
+      const [{ data: profiles }, { data: blocks }] = await Promise.all([
+        userIds.length
+          ? supabase.from('user_profiles').select('id, display_name, email, avatar_url').in('id', userIds)
+          : Promise.resolve({ data: [] }),
+        pageIds.length
+          ? supabase.from('homework_page_blocks').select('*').in('page_id', pageIds)
+          : Promise.resolve({ data: [] }),
+      ]);
       const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
       setAllSubmissions(subs.map((s) => ({ ...s, student: profileMap[s.user_id] ?? null })));
+      const blocksMap: Record<string, HomeworkPageBlock[]> = {};
+      for (const block of (blocks ?? []) as HomeworkPageBlock[]) {
+        (blocksMap[block.page_id] ??= []).push(block);
+      }
+      setPageBlocksMap(blocksMap);
     }
     const rawGroups = (gRes.data ?? []) as Group[];
     const visibleGroups = isSuperAdmin
@@ -236,39 +273,41 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
 
   return (
     <div className={`space-y-6 max-w-4xl relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
-      {refreshing && section === 'grading' && (
+      {refreshing && activeSection === 'grading' && (
         <div className="absolute top-0 right-0 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/90 border border-white/10 text-xs text-slate-400">
           <Loader2 className="w-3 h-3 animate-spin" />
           Обновление…
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setSection('pages')}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-            section === 'pages'
-              ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-              : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
-          }`}
-        >
-          Задания
-        </button>
-        <button
-          type="button"
-          onClick={() => setSection('grading')}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-            section === 'grading'
-              ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-              : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
-          }`}
-        >
-          Проверка{ungradedCount > 0 ? ` · ${ungradedCount}` : ''}
-        </button>
-      </div>
+      {showSectionTabs && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSection('pages')}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              section === 'pages'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
+            }`}
+          >
+            Задания
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection('grading')}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              section === 'grading'
+                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
+            }`}
+          >
+            Проверка{ungradedCount > 0 ? ` · ${ungradedCount}` : ''}
+          </button>
+        </div>
+      )}
 
-      {section === 'pages' ? (
+      {activeSection === 'pages' ? (
         <HomeworkPagesTab />
       ) : (
         <div className="space-y-6">
@@ -331,6 +370,9 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                     submission={s}
                     draft={getGradeDraft(s)}
                     gradingId={gradingId}
+                    blocks={pageBlocksMap[s.page_id] ?? []}
+                    pageMeta={pageMetaMap[s.page_id]}
+                    onOpenPreview={() => setPreviewPageId(s.page_id)}
                     onScoreChange={(v) => setGradeDraft(s.id, { score: v }, s)}
                     onFeedbackChange={(v) => setGradeDraft(s.id, { feedback: v }, s)}
                     onSave={() => gradeSubmission(s)}
@@ -345,11 +387,37 @@ export default function HomeworkTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                 submission={s}
                 draft={getGradeDraft(s)}
                 gradingId={gradingId}
+                blocks={pageBlocksMap[s.page_id] ?? []}
+                pageMeta={pageMetaMap[s.page_id]}
+                onOpenPreview={() => setPreviewPageId(s.page_id)}
                 onScoreChange={(v) => setGradeDraft(s.id, { score: v }, s)}
                 onFeedbackChange={(v) => setGradeDraft(s.id, { feedback: v }, s)}
                 onSave={() => gradeSubmission(s)}
               />
             ))
+          )}
+
+          {previewPageId && pageMetaMap[previewPageId] && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="w-full max-w-3xl max-h-[min(90vh,48rem)] overflow-y-auto rounded-2xl bg-slate-950 border border-white/10 p-5 sm:p-6 shadow-2xl">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <h3 className="text-lg font-semibold text-white">Как видит ученик</h3>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPageId(null)}
+                    className="text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5"
+                  >
+                    Закрыть
+                  </button>
+                </div>
+                <HomeworkPageStudentPreview
+                  title={pageMetaMap[previewPageId].title}
+                  dueAt={pageMetaMap[previewPageId].due_at}
+                  blocks={pageBlocksMap[previewPageId] ?? []}
+                  preview
+                />
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -361,6 +429,9 @@ function SubmissionGradeCard({
   submission: s,
   draft,
   gradingId,
+  blocks,
+  pageMeta,
+  onOpenPreview,
   onScoreChange,
   onFeedbackChange,
   onSave,
@@ -368,6 +439,9 @@ function SubmissionGradeCard({
   submission: HomeworkPageSubmission;
   draft: { score: string; feedback: string };
   gradingId: string | null;
+  blocks: HomeworkPageBlock[];
+  pageMeta?: Pick<HomeworkPage, 'id' | 'title' | 'due_at'>;
+  onOpenPreview?: () => void;
   onScoreChange: (v: string) => void;
   onFeedbackChange: (v: string) => void;
   onSave: () => void;
@@ -386,6 +460,7 @@ function SubmissionGradeCard({
   const badgeLabel = hasGrade && s.score !== null
     ? formatHomeworkScoreShort(s.score, maxScore)
     : 'Без оценки';
+  const submissionLinks = homeworkSubmissionLinksFromBlocks(blocks);
 
   return (
     <div className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden">
@@ -402,6 +477,33 @@ function SubmissionGradeCard({
               <p className="text-xs text-slate-500 truncate">{studentSubtitle}</p>
             )}
             <p className="text-sm text-blue-300 mt-1 line-clamp-2 break-words">{s.page?.title}</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {pageMeta && onOpenPreview && (
+                <button
+                  type="button"
+                  onClick={onOpenPreview}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-white/5 text-slate-300 border border-white/10 hover:text-white hover:bg-white/10"
+                >
+                  <Eye className="w-3 h-3" />
+                  Условие задания
+                </button>
+              )}
+              {submissionLinks.map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-violet-500/10 text-violet-200 border border-violet-500/20 hover:bg-violet-500/20"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  {link.label}
+                </a>
+              ))}
+            </div>
+            {submissionLinks.length > 0 && (
+              <p className="text-[11px] text-slate-600 mt-1.5">Ответ ученика — в форме или контесте по ссылке</p>
+            )}
           </div>
           <div className="flex flex-col items-start sm:items-end gap-1 shrink-0 text-xs">
             <span className={`inline-flex px-2 py-0.5 rounded-md border ${badgeClass}`}>

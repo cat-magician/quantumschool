@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { AdminDashboardState, StudentDashboardState } from './dashboardNavigation';
 import {
   groupsForTeacher,
   loadGroupTeachers,
@@ -11,13 +12,19 @@ import {
   formatHomeworkScoreShort,
 } from './homeworkUtils';
 import { studentStagePhase } from './selectionDisplayUtils';
+import { isNotificationRead } from './notificationReadState';
 import type { Group, HomeworkPage, HomeworkPageSubmission, LessonPageType, UserProfile } from './types';
+
+export type NotificationAction =
+  | { audience: 'student'; state: StudentDashboardState }
+  | { audience: 'admin'; state: AdminDashboardState };
 
 export type AppNotification = {
   id: string;
   title: string;
   body: string;
   createdAt: string;
+  action?: NotificationAction;
 };
 
 const RECENT_DAYS = 14;
@@ -57,6 +64,7 @@ function appendSelectionStageNotifications(
       title: 'Эссе проверено',
       body: `Оценка этапа 1: ${profile.stage1_score} из 10`,
       createdAt: profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
     });
   } else if (s1 === 'awaiting_grade') {
     items.push({
@@ -64,6 +72,7 @@ function appendSelectionStageNotifications(
       title: 'Эссе на проверке',
       body: 'Преподаватель проверяет ваше эссе',
       createdAt: profile.stage1_submitted_at ?? profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'stage1' } },
     });
   }
 
@@ -73,6 +82,7 @@ function appendSelectionStageNotifications(
       title: 'Контест проверен',
       body: `Оценка этапа 2: ${profile.stage2_score} из 10`,
       createdAt: profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
     });
   } else if (s2 === 'awaiting_grade') {
     items.push({
@@ -80,6 +90,7 @@ function appendSelectionStageNotifications(
       title: 'Контест на проверке',
       body: 'Ожидайте оценку за этап 2',
       createdAt: profile.stage2_submitted_at ?? profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'stage2' } },
     });
   }
 }
@@ -133,6 +144,14 @@ async function loadStudentNotifications(
           ? `Получена оценка: ${formatHomeworkScoreShort(s.score, s.page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE)}`
           : 'Работа проверена',
         createdAt: s.graded_at,
+        action: {
+          audience: 'student',
+          state: {
+            tab: 'learning',
+            learningSubTab: 'homework',
+            contentPageId: s.page_id,
+          },
+        },
       });
     }
   }
@@ -145,6 +164,10 @@ async function loadStudentNotifications(
           title: 'Новое домашнее задание',
           body: page.title,
           createdAt: page.updated_at,
+          action: {
+            audience: 'student',
+            state: { tab: 'learning', learningSubTab: 'homework', contentPageId: page.id },
+          },
         });
       }
     }
@@ -156,6 +179,14 @@ async function loadStudentNotifications(
           title: lessonPublishedTitle(lesson.lesson_type),
           body: lesson.title,
           createdAt: lesson.updated_at,
+          action: {
+            audience: 'student',
+            state: {
+              tab: 'learning',
+              learningSubTab: lesson.lesson_type === 'lecture' ? 'lectures' : 'seminars',
+              contentPageId: lesson.id,
+            },
+          },
         });
       }
     }
@@ -169,11 +200,33 @@ async function loadStudentNotifications(
           title: urgency === 'overdue' ? 'Просрочено задание' : 'Скоро срок сдачи',
           body: page.title,
           createdAt: page.due_at ?? new Date().toISOString(),
+          action: {
+            audience: 'student',
+            state: { tab: 'learning', learningSubTab: 'homework', contentPageId: page.id },
+          },
         });
       }
     }
   } else {
     appendSelectionStageNotifications(items, profile);
+  }
+
+  if (profile.is_enrolled && !isNotificationRead(userId, 'selection-enrolled')) {
+    items.push({
+      id: 'selection-enrolled',
+      title: 'Вы зачислены на обучение',
+      body: 'Разделы «Обучение», «Расписание» и «Прогресс» открыты',
+      createdAt: profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
+    });
+  } else if ((profile.selection_rejected ?? false) && !isNotificationRead(userId, 'selection-rejected')) {
+    items.push({
+      id: 'selection-rejected',
+      title: 'Решение по отбору',
+      body: 'Итоги отбора — в разделе «Результаты»',
+      createdAt: profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
+    });
   }
 
   return sortByDate(items).slice(0, NOTIFICATION_LIMIT);
@@ -227,6 +280,7 @@ async function loadStaffNotifications(
         title: 'Заявка преподавателя',
         body: a.display_name ?? 'Новый кандидат',
         createdAt: a.created_at,
+        action: { audience: 'admin', state: { tab: 'teachers' } },
       });
     }
   }
@@ -245,6 +299,7 @@ async function loadStaffNotifications(
       title: 'Работа на проверке',
       body: s.page?.title ?? 'Домашнее задание',
       createdAt: s.submitted_at ?? s.updated_at,
+      action: { audience: 'admin', state: { tab: 'grading' } },
     });
   }
 
@@ -260,6 +315,7 @@ async function loadStaffNotifications(
         title: 'Эссе на проверке',
         body: student.display_name ?? 'Участник отбора',
         createdAt: student.stage1_submitted_at,
+        action: { audience: 'admin', state: { tab: 'results', selectionSubTab: 'results' } },
       });
     }
 
@@ -274,6 +330,7 @@ async function loadStaffNotifications(
         title: 'Контест на проверке',
         body: student.display_name ?? 'Участник отбора',
         createdAt: student.stage2_submitted_at,
+        action: { audience: 'admin', state: { tab: 'results', selectionSubTab: 'results' } },
       });
     }
   }
@@ -285,6 +342,7 @@ async function loadStaffNotifications(
       title: 'Ближайшее занятие',
       body: e.title,
       createdAt: e.scheduled_at,
+      action: { audience: 'admin', state: { tab: 'schedule' } },
     });
   }
 

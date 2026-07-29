@@ -8,6 +8,7 @@ import AdminDashboard from './AdminDashboard';
 import TeacherApplicationGate from './TeacherApplicationGate';
 import PrivacyConsentGate from '../components/PrivacyConsentGate';
 import { profileNeedsPrivacyConsent } from '../lib/profileUtils';
+import { shouldShowTeacherApplicationGate } from '../lib/loginCorridor';
 
 export default function Dashboard() {
   const { user, profile, loading, oauthError, clearOAuthError, signOut, refreshProfile } = useAuth();
@@ -97,16 +98,12 @@ export default function Dashboard() {
 
   const role = profile.role ?? 'student';
 
-  if (profile.teacher_application_rejected && role === 'student') {
-    return <TeacherApplicationGate mode="rejected" />;
-  }
-
-  if (profile.teacher_application && role === 'student') {
-    return <TeacherApplicationGate mode="pending" />;
-  }
-
   if (role === 'superadmin' || role === 'admin') {
     return <AdminDashboard isSuperAdmin={role === 'superadmin'} />;
+  }
+
+  if (shouldShowTeacherApplicationGate(profile, user.id)) {
+    return <TeacherApplicationGate />;
   }
 
   return <StudentDashboard />;

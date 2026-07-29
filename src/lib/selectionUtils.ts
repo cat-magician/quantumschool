@@ -40,19 +40,25 @@ export async function markStageSubmitted(
 
   const { data } = await supabase
     .from('user_profiles')
-    .select(field)
+    .select(`${field}, ${viewField}`)
     .eq('id', userId)
     .maybeSingle();
 
-  const current = (data as ProfileFields | null)?.[field];
+  const profile = data as ProfileFields | null;
+  const current = profile?.[field];
   if (current !== 'pending') return { error: 'Уже отмечено' };
 
-  return supabase.from('user_profiles').update({
+  const update: ProfileFields = {
     [field]: 'submitted',
     [atField]: now,
-    [viewField]: now,
     updated_at: now,
-  }).eq('id', userId);
+  };
+  // viewed_at задаётся один раз (markStageViewed); повторная запись блокируется триггером.
+  if (!profile?.[viewField]) {
+    update[viewField] = now;
+  }
+
+  return supabase.from('user_profiles').update(update).eq('id', userId);
 }
 
 export async function markStageUnsubmitted(
