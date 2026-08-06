@@ -76,7 +76,6 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const ungradedCount = useAdminUngradedCount(isSuperAdmin);
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [contentListResetKey, setContentListResetKey] = useState(0);
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
   const accountSubtitle = profileEmail(profile, user?.email);
 
@@ -137,8 +136,6 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
 
   useEffect(() => {
     void refreshProfile();
-    const id = window.setInterval(() => { void refreshProfile(); }, 45_000);
-    return () => window.clearInterval(id);
   }, [refreshProfile]);
 
   useEffect(() => {
@@ -160,14 +157,6 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   const selectTab = (nextTab: AdminTab) => {
-    if (
-      nextTab === tab
-      && (nextTab === 'lectures' || nextTab === 'seminars' || nextTab === 'homework')
-    ) {
-      setContentListResetKey((k) => k + 1);
-      closeMobileNav();
-      return;
-    }
     setTab(nextTab);
     if (nextTab !== 'results') setSelectionExpanded(false);
     closeMobileNav();
@@ -488,15 +477,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           )}
           {tab === 'students' && <StudentsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'teachers' && isSuperAdmin && <TeachersTab />}
-          {tab === 'lectures' && (
-            <LessonsTab key={`lecture-${contentListResetKey}`} lessonType="lecture" />
-          )}
-          {tab === 'seminars' && (
-            <LessonsTab key={`seminar-${contentListResetKey}`} lessonType="seminar" />
-          )}
-          {tab === 'homework' && (
-            <HomeworkPagesTab key={`homework-${contentListResetKey}`} />
-          )}
+          {tab === 'lectures' && <LessonsTab lessonType="lecture" />}
+          {tab === 'seminars' && <LessonsTab lessonType="seminar" />}
+          {tab === 'homework' && <HomeworkPagesTab />}
           {tab === 'grading' && <HomeworkTab isSuperAdmin={isSuperAdmin} mode="grading" />}
           {tab === 'schedule' && <ScheduleTab />}
           {tab === 'statistics' && <StatisticsTab isSuperAdmin={isSuperAdmin} />}
