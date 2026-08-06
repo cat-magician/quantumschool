@@ -24,6 +24,7 @@ import {
 import { DASHBOARD_PATH, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
 import { PRIVACY_POLICY_VERSION } from './privacy';
 import { markTeacherPromoted } from './teacherPromotionNotice';
+import { markJustDemotedFromTeacher } from './studentCabinetSnapshot';
 
 /** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
 const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
@@ -176,6 +177,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         && nextRole === 'admin'
       ) {
         markTeacherPromoted(authUser.id);
+      }
+
+      if (
+        nextProfile
+        && prevRole === 'admin'
+        && nextRole === 'student'
+      ) {
+        markJustDemotedFromTeacher(authUser.id);
+        markStudentCorridorUnlocked(authUser.id);
       }
 
       if (
