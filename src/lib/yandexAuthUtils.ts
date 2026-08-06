@@ -16,8 +16,4 @@ export function yandexDisplayName(user: User): string | null {
   return parts.length ? parts.join(' ') : null;
 }
 
-export const DASHBOARD_PATH = '/dashboard';
-
-export function oauthDashboardRedirectPath(): string {
-  return `${window.location.origin}${DASHBOARD_PATH}`;
-}
+export { DASHBOARD_ROUTE as DASHBOARD_PATH, dashboardPathname, oauthDashboardRedirectPath } from './appPaths';
