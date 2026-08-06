@@ -21,9 +21,10 @@ import {
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
-import { dashboardPathname, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
+import { DASHBOARD_PATH, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
 import { PRIVACY_POLICY_VERSION } from './privacy';
 import { markTeacherPromoted } from './teacherPromotionNotice';
+import { markJustDemotedFromTeacher } from './studentCabinetSnapshot';
 
 /** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
 const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
@@ -179,6 +180,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (
+        nextProfile
+        && prevRole === 'admin'
+        && nextRole === 'student'
+      ) {
+        markJustDemotedFromTeacher(authUser.id);
+        markStudentCorridorUnlocked(authUser.id);
+      }
+
+      if (
         nextProfile?.teacher_application
         && getLoginCorridor() === 'student'
       ) {
@@ -225,16 +235,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // иначе возвращает на Site URL — дотягиваем до кабинета вручную.
     const redirectAfterOAuthIfNeeded = (): boolean => {
       if (!consumeOAuthReturnPending()) return false;
-      if (window.location.pathname === dashboardPathname()) return false;
+      if (window.location.pathname === DASHBOARD_PATH) return false;
       window.location.replace(oauthDashboardRedirectPath());
       return true;
     };
 
     // Supabase при ошибке или если redirectTo не в allowlist шлёт на Site URL (/),
     // а экран ошибки и обмен code→session настроены на /dashboard.
-    if (hasOAuthCallbackInUrl() && window.location.pathname !== dashboardPathname()) {
+    if (hasOAuthCallbackInUrl() && window.location.pathname !== DASHBOARD_PATH) {
       window.location.replace(
-        `${dashboardPathname()}${window.location.search}${window.location.hash}`,
+        `${window.location.origin}${DASHBOARD_PATH}${window.location.search}${window.location.hash}`,
       );
       return;
     }

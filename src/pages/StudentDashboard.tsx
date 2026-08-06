@@ -51,6 +51,11 @@ import { countSelectionPendingSteps, buildEnrolledHomeworkProgress } from '../li
 import { markEnrollmentWelcomeShown, shouldShowEnrollmentWelcome } from '../lib/enrollmentWelcome';
 import { markHadPendingTeacherApplication } from '../lib/teacherPromotionNotice';
 import { TeacherApplicationPendingBanner } from '../components/TeacherRoleBanners';
+import {
+  consumeJustDemotedFromTeacher,
+  loadStudentCabinetSnapshot,
+  saveStudentCabinetSnapshot,
+} from '../lib/studentCabinetSnapshot';
 
 type Tab = 'home' | 'selection' | 'learning' | 'schedule' | 'progress';
 type SelectionSubTab = 'stage1' | 'stage2' | 'results';
@@ -167,7 +172,16 @@ export default function StudentDashboard() {
   }, [user, isEnrolled]);
 
   useEffect(() => {
-    const parsed = parseStudentDashboardSearchParams(searchParams);
+    let parsed = parseStudentDashboardSearchParams(searchParams);
+    const tabRaw = searchParams.get('tab');
+    const justDemoted = user?.id ? consumeJustDemotedFromTeacher(user.id) : false;
+    // После исключения из штата URL может ещё быть админским (?tab=lectures) —
+    // восстанавливаем последний ученический кабинет из снимка.
+    if (user?.id && (justDemoted || (!parsed && tabRaw))) {
+      const snap = loadStudentCabinetSnapshot(user.id);
+      if (snap && (justDemoted || !parsed)) parsed = snap;
+    }
+
     const next = normalizeStudentDashboardState(
       parsed ?? defaultStudentDashboardState(),
       isEnrolled,
@@ -178,7 +192,7 @@ export default function StudentDashboard() {
     setContentPageId(next.contentPageId ?? null);
     setLearningExpanded(next.tab === 'learning');
     setViewReady(true);
-  }, [searchParams, isEnrolled]);
+  }, [searchParams, isEnrolled, user?.id]);
 
   useEffect(() => {
     void refreshProfile();
@@ -187,22 +201,26 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!viewReady) return;
 
-    const params = studentDashboardStateToSearchParams(
-      normalizeStudentDashboardState(
-        {
-          tab,
-          selectionSubTab,
-          learningSubTab,
-          contentPageId: contentPageId ?? undefined,
-        },
-        isEnrolled,
-      ),
+    const normalized = normalizeStudentDashboardState(
+      {
+        tab,
+        selectionSubTab,
+        learningSubTab,
+        contentPageId: contentPageId ?? undefined,
+      },
+      isEnrolled,
     );
+
+    if (user?.id) {
+      saveStudentCabinetSnapshot(user.id, normalized);
+    }
+
+    const params = studentDashboardStateToSearchParams(normalized);
 
     if (!dashboardSearchParamsEqual(params, searchParams)) {
       setSearchParams(params, { replace: true });
     }
-  }, [tab, selectionSubTab, learningSubTab, contentPageId, isEnrolled, viewReady, searchParams, setSearchParams]);
+  }, [tab, selectionSubTab, learningSubTab, contentPageId, isEnrolled, viewReady, searchParams, setSearchParams, user?.id]);
 
 
   const openProfile = () => {
@@ -252,6 +270,17 @@ export default function StudentDashboard() {
 
   const openLearning = (sub: LearningSubTab, pageId?: string | null) => {
     if (!isEnrolled) return;
+    // Повторный клик по активной подвкладке — назад к списку карточек
+    if (
+      pageId == null
+      && tab === 'learning'
+      && learningSubTab === sub
+      && contentPageId
+    ) {
+      setContentPageId(null);
+      closeMobileNav();
+      return;
+    }
     setTab('learning');
     setLearningSubTab(sub);
     setContentPageId(pageId ?? null);

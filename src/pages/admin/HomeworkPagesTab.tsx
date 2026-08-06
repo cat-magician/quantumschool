@@ -90,6 +90,7 @@ export default function HomeworkPagesTab() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [listActionId, setListActionId] = useState<string | null>(null);
 
   const loadList = async () => {
     setLoading(true);
@@ -277,6 +278,43 @@ export default function HomeworkPagesTab() {
       return;
     }
     closeEditor();
+  };
+
+  const togglePublishFromList = async (page: HomeworkPage) => {
+    setListActionId(page.id);
+    setLoadError(null);
+    const nextPublished = !page.is_published;
+    const { error } = await supabase
+      .from('homework_pages')
+      .update({ is_published: nextPublished, updated_at: new Date().toISOString() })
+      .eq('id', page.id);
+    setListActionId(null);
+    if (error) {
+      setLoadError(homeworkPageSaveError(error, nextPublished ? 'Не удалось опубликовать' : 'Не удалось снять с публикации'));
+      return;
+    }
+    setPages((prev) => prev.map((p) => (
+      p.id === page.id ? { ...p, is_published: nextPublished } : p
+    )));
+  };
+
+  const deleteFromList = async (page: HomeworkPage) => {
+    const ok = await confirm({
+      title: 'Удалить задание?',
+      message: `«${page.title}» и все блоки будут удалены без возможности восстановления.`,
+      confirmLabel: 'Удалить',
+      danger: true,
+    });
+    if (!ok) return;
+    setListActionId(page.id);
+    setLoadError(null);
+    const { error } = await supabase.from('homework_pages').delete().eq('id', page.id);
+    setListActionId(null);
+    if (error) {
+      setLoadError(homeworkPageSaveError(error, 'Не удалось удалить'));
+      return;
+    }
+    setPages((prev) => prev.filter((p) => p.id !== page.id));
   };
 
   const updateBlockContent = (id: string, patch: Partial<HomeworkBlockContent>) => {
@@ -551,7 +589,14 @@ export default function HomeworkPagesTab() {
       ) : (
         <div className="space-y-3">
           {pages.map((page) => (
-            <HomeworkPageCard key={page.id} page={page} onClick={() => openEdit(page.id)} />
+            <HomeworkPageCard
+              key={page.id}
+              page={page}
+              onClick={() => openEdit(page.id)}
+              onTogglePublish={() => { void togglePublishFromList(page); }}
+              onDelete={() => { void deleteFromList(page); }}
+              actionBusy={listActionId === page.id}
+            />
           ))}
         </div>
       )}
