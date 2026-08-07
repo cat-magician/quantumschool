@@ -34,9 +34,9 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_YANDEX_OAUTH_PROVIDER: ${{ secrets.VITE_YANDEX_OAUTH_PROVIDER }}
           VITE_YANDEX_OAUTH_ENABLED: ${{ secrets.VITE_YANDEX_OAUTH_ENABLED }}
-          # https://cat-magician.github.io/quantumschool/
-          # When switching to custom domain, set repository variable PAGES_BASE_PATH to "/".
-          VITE_BASE_PATH: ${{ vars.PAGES_BASE_PATH || format('/{0}/', github.event.repository.name) }}
+          # Custom domain https://quantumschool.ru/ — site is served from domain root.
+          # Override with repository variable PAGES_BASE_PATH if needed (e.g. "/quantumschool/" for github.io only).
+          VITE_BASE_PATH: ${{ vars.PAGES_BASE_PATH || '/' }}
 
       - name: SPA fallback for client-side routes
         run: cp dist/index.html dist/404.html
