@@ -17,7 +17,9 @@ export function appHref(path: string): string {
 
 /** Public asset from /public (icons, logos, images). */
 export function publicAsset(path: string): string {
-  return appHref(path);
+  const normalized = path.startsWith('/') ? path.slice(1) : path;
+  const encoded = normalized.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  return appHref(`/${encoded}`);
 }
 
 export const DASHBOARD_ROUTE = '/dashboard';

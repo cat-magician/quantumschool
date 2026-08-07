@@ -415,7 +415,7 @@ const FCK_SUPPORT = {
 const PARTNER_LOGOS = [
   {
     name: 'МФТИ',
-    logo: publicAsset('/Лого_МФТИ.png'),
+    logo: publicAsset('/mfti-logo.png'),
     imgClass: 'h-full w-auto max-w-none object-contain scale-[1.7] sm:scale-[1.85]',
     cellClass: 'overflow-hidden',
   },
