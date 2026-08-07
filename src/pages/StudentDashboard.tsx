@@ -16,6 +16,7 @@ import {
   studentDashboardStateToSearchParams,
   type StudentDashboardState,
 } from '../lib/dashboardNavigation';
+import { publicAsset } from '../lib/appPaths';
 import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import UserAvatar from '../components/UserAvatar';
@@ -336,7 +337,7 @@ export default function StudentDashboard() {
             className="flex items-center gap-3 w-full text-left rounded-xl hover:bg-white/5 transition-colors -m-2 p-2"
             title="Личный кабинет"
           >
-            <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-9 h-9 brightness-0 invert shrink-0" />
+            <img src={publicAsset('/logo_qc.svg')} alt="Квантовый кружок" className="w-9 h-9 brightness-0 invert shrink-0" />
             <span className="font-bold text-white">Квантовый кружок</span>
           </button>
         </div>

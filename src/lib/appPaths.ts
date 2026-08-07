@@ -15,6 +15,11 @@ export function appHref(path: string): string {
   return base ? `${base}${normalized}` : normalized;
 }
 
+/** Public asset from /public (icons, logos, images). */
+export function publicAsset(path: string): string {
+  return appHref(path);
+}
+
 export const DASHBOARD_ROUTE = '/dashboard';
 
 export function dashboardPathname(): string {

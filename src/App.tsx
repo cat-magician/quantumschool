@@ -12,7 +12,7 @@ import HeroQuantumDecor from './components/HeroQuantumDecor';
 import HeroBadgePill from './components/HeroBadgePill';
 import InstructorCardPreview from './components/InstructorCardPreview';
 import { isYandexOAuthEnabled } from './lib/yandexAuthConfig';
-import { appHref } from './lib/appPaths';
+import { appHref, publicAsset } from './lib/appPaths';
 import {
   Atom,
   GraduationCap,
@@ -138,7 +138,7 @@ function Header({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-20">
           <a href="#home" className="flex items-center gap-3 group">
-            <img src="/logo_qc.svg" alt="Квантовый кружок" className={`w-10 h-10 transform group-hover:rotate-12 transition-all duration-300 ${scrolled ? '' : 'brightness-0 invert'}`} />
+            <img src={publicAsset('/logo_qc.svg')} alt="Квантовый кружок" className={`w-10 h-10 transform group-hover:rotate-12 transition-all duration-300 ${scrolled ? '' : 'brightness-0 invert'}`} />
             <span className={`text-xl font-bold transition-colors ${scrolled ? 'text-slate-900' : 'text-white'}`}>
               Квантовый кружок
             </span>
@@ -326,7 +326,7 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
         <HeroQuantumDecor />
 
         <div className="absolute bottom-0 right-0 w-[140px] sm:w-[280px] md:w-[340px] lg:w-[400px] h-auto opacity-90 pointer-events-none max-sm:opacity-50 max-sm:translate-x-2 animate-bounce" style={{ animationDuration: '4s' }} aria-hidden>
-          <img src="/image.svg" alt="" className="w-full h-auto" loading="lazy" decoding="async" />
+          <img src={publicAsset('/image.svg')} alt="" className="w-full h-auto" loading="lazy" decoding="async" />
         </div>
       </div>
 
@@ -408,25 +408,25 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
 
 const FCK_SUPPORT = {
   shortName: 'ФЦК МФТИ',
-  logo: '/fck_mfti_logo_small.png',
+  logo: publicAsset('/fck_mfti_logo_small.png'),
   description: 'Проект реализуется при поддержке Фонда целевого капитала МФТИ',
 };
 
 const PARTNER_LOGOS = [
   {
     name: 'МФТИ',
-    logo: '/Лого_МФТИ.png',
+    logo: publicAsset('/Лого_МФТИ.png'),
     imgClass: 'h-full w-auto max-w-none object-contain scale-[1.7] sm:scale-[1.85]',
     cellClass: 'overflow-hidden',
   },
   {
     name: 'Российский квантовый центр',
-    logo: '/rossiyskiy_kvantovyy_centr.jpg',
+    logo: publicAsset('/rossiyskiy_kvantovyy_centr.jpg'),
     imgClass: 'max-h-full max-w-full object-contain',
   },
   {
     name: 'Росатом',
-    logo: '/logo-2.jpg',
+    logo: publicAsset('/logo-2.jpg'),
     imgClass: 'max-h-full max-w-full object-contain',
   },
 ];
@@ -1119,7 +1119,7 @@ function Footer() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
           <div className="flex items-center gap-3 min-w-0">
-            <img src="/logo_qc.svg" alt="Квантовый кружок" className="w-10 h-10 flex-shrink-0 brightness-0 invert" />
+            <img src={publicAsset('/logo_qc.svg')} alt="Квантовый кружок" className="w-10 h-10 flex-shrink-0 brightness-0 invert" />
             <div className="min-w-0">
               <p className="text-lg font-semibold leading-tight">Квантовый кружок</p>
               <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-sm">
