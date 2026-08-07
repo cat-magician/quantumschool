@@ -12,7 +12,6 @@ import HeroQuantumDecor from './components/HeroQuantumDecor';
 import HeroBadgePill from './components/HeroBadgePill';
 import InstructorCardPreview from './components/InstructorCardPreview';
 import { isYandexOAuthEnabled } from './lib/yandexAuthConfig';
-import { appHref } from './lib/appPaths';
 import {
   Atom,
   GraduationCap,
@@ -164,12 +163,12 @@ function Header({
           </nav>
 
           <div className="hidden lg:flex items-center gap-2">
-            <a href={appHref('/join/teacher')} className={actionGhost}>
+            <a href="/join/teacher" className={actionGhost}>
               Для преподавателей
             </a>
             {user ? (
               <>
-                <StudentCabinetLink href={appHref('/dashboard')} className={actionOutline}>
+                <StudentCabinetLink href="/dashboard" className={actionOutline}>
                   <LogIn className="w-4 h-4 shrink-0" />
                   Кабинет
                 </StudentCabinetLink>
@@ -224,7 +223,7 @@ function Header({
               </a>
             ))}
             <a
-              href={appHref('/join/teacher')}
+              href="/join/teacher"
               onClick={() => setIsMenuOpen(false)}
               className="block w-full text-center h-11 leading-[2.75rem] rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
             >
@@ -241,7 +240,7 @@ function Header({
               {user ? (
                 <>
                   <StudentCabinetLink
-                    href={appHref('/dashboard')}
+                    href="/dashboard"
                     onClick={() => setIsMenuOpen(false)}
                     className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm"
                   >
@@ -361,7 +360,7 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
             </a>
             {user ? (
               <StudentCabinetLink
-                href={appHref('/dashboard')}
+                href="/dashboard"
                 className="justify-center px-7 sm:px-8 py-3.5 sm:py-4 bg-white/10 backdrop-blur-sm text-white font-semibold text-base sm:text-lg rounded-2xl border border-white/20 hover:bg-white/20 transition-all duration-300 flex items-center gap-2"
               >
                 <LogIn className="w-5 h-5" /> Личный кабинет
@@ -1031,7 +1030,7 @@ function ApplicationForm() {
             </p>
             <p className="text-slate-500 text-sm mb-8 leading-relaxed">
               Мы обрабатываем персональные данные в соответствии с{' '}
-              <a href={appHref('/privacy')} target="_blank" className="text-blue-600 hover:text-blue-700 font-medium underline">
+              <a href="/privacy" target="_blank" className="text-blue-600 hover:text-blue-700 font-medium underline">
                 Политикой конфиденциальности
               </a>
               .
@@ -1077,7 +1076,7 @@ function ApplicationForm() {
                     </p>
                   </div>
                   <StudentCabinetLink
-                    href={appHref('/dashboard')}
+                    href="/dashboard"
                     className="inline-flex items-center justify-center gap-2 w-full h-14 px-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
                   >
                     <LogIn className="w-5 h-5" />
@@ -1146,10 +1145,10 @@ function Footer() {
         <div className="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-400">
           <p>© 2026 Квантовый кружок</p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <a href={appHref('/privacy')} className="hover:text-blue-400 transition-colors">
+            <a href="/privacy" className="hover:text-blue-400 transition-colors">
               Политика конфиденциальности
             </a>
-            <a href={appHref('/privacy#contacts')} className="hover:text-blue-400 transition-colors">
+            <a href="/privacy#contacts" className="hover:text-blue-400 transition-colors">
               Обработка персональных данных
             </a>
           </div>

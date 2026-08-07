@@ -10,7 +10,6 @@ import { useAppDialog } from '../../lib/AppDialogContext';
 import type { Group, GroupMember, ScheduleEvent, UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
 import { profileEmail } from '../../lib/profileUtils';
-import { appHref } from '../../lib/appPaths';
 import { loadGroupTeachers, loadGroupStaffProfiles } from '../../lib/groupUtils';
 import {
   formatEventDateTime,
@@ -226,7 +225,7 @@ export default function TeachersTab() {
         </h3>
         <p className="text-xs text-slate-500 -mt-1">
           Регистрация через{' '}
-          <a href={appHref('/join/teacher')} className="text-blue-400 hover:text-blue-300">/join/teacher</a>
+          <a href="/join/teacher" className="text-blue-400 hover:text-blue-300">/join/teacher</a>
           . После одобрения кандидат появится в штате — назначьте его в группу во вкладке «Ученики».
         </p>
 
