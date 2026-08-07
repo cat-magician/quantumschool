@@ -1,4 +1,4 @@
-/** Vite base path without trailing slash, e.g. "/quantumschool1" or "". */
+/** Vite base path without trailing slash, e.g. "/quantumschool" or "". */
 export function appBasePath(): string {
   return import.meta.env.BASE_URL.replace(/\/$/, '');
 }
