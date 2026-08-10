@@ -329,8 +329,8 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex">
-      <aside className="hidden lg:flex flex-col w-64 bg-slate-900/80 border-r border-white/5 backdrop-blur-sm fixed h-full z-20">
-        <div className="p-6 border-b border-white/5">
+      <aside className="hidden lg:flex flex-col w-64 bg-slate-900/80 border-r border-white/5 backdrop-blur-sm fixed h-full min-h-0 overflow-hidden z-20">
+        <div className="shrink-0 p-6 border-b border-white/5">
           <button
             type="button"
             onClick={openHome}
@@ -342,7 +342,7 @@ export default function StudentDashboard() {
           </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-site p-4 space-y-1">
           <button
             type="button"
             onClick={openHome}
@@ -479,7 +479,7 @@ export default function StudentDashboard() {
         </nav>
 
         {!isEnrolled && (
-          <div className="px-4 pb-2">
+          <div className="shrink-0 px-4 pb-2">
             <p className="text-xs text-slate-500 leading-relaxed px-2">
               {SIDEBAR_HINT.student_not_enrolled}
               {' '}
@@ -490,7 +490,7 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        <div className="p-4 border-t border-white/5">
+        <div className="shrink-0 p-4 border-t border-white/5">
           <button
             type="button"
             onClick={openProfile}
