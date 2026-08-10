@@ -895,16 +895,33 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     };
   }, [visibleInstructors, loading, measureViewport]);
 
-  const scrollToCard = (card: HTMLElement, isLast: boolean) => {
-    const scroll = scrollRef.current;
-    if (!scroll) return;
+  const getCurrentCardIndex = (scrollEl: HTMLElement, cards: HTMLElement[]) => {
+    const scrollCenter = scrollEl.scrollLeft + scrollEl.clientWidth / 2;
+    let bestIndex = 0;
+    let bestDistance = Infinity;
 
-    const viewport = scroll.clientWidth;
-    const left = isLast
-      ? card.offsetLeft + card.offsetWidth - viewport
-      : card.offsetLeft;
+    for (let i = 0; i < cards.length; i++) {
+      const cardCenter = cards[i].offsetLeft + cards[i].offsetWidth / 2;
+      const distance = Math.abs(cardCenter - scrollCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
 
-    scroll.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+    return bestIndex;
+  };
+
+  const scrollToCard = (index: number, cards: HTMLElement[]) => {
+    const scrollEl = scrollRef.current;
+    const card = cards[index];
+    if (!scrollEl || !card) return;
+
+    const maxScroll = scrollEl.scrollWidth - scrollEl.clientWidth;
+    scrollEl.scrollTo({
+      left: Math.min(maxScroll, Math.max(0, card.offsetLeft)),
+      behavior: 'smooth',
+    });
   };
 
   const scroll = (dir: 'left' | 'right') => {
@@ -914,21 +931,13 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     const cards = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-instructor-card]'));
     if (!cards.length) return;
 
-    let currentIndex = 0;
-    for (let i = 0; i < cards.length; i++) {
-      if (cards[i].offsetLeft + cards[i].offsetWidth / 2 >= scrollEl.scrollLeft) {
-        currentIndex = i;
-        break;
-      }
-      currentIndex = i;
-    }
-
+    const currentIndex = getCurrentCardIndex(scrollEl, cards);
     const nextIndex =
       dir === 'right'
         ? Math.min(cards.length - 1, currentIndex + 1)
         : Math.max(0, currentIndex - 1);
 
-    scrollToCard(cards[nextIndex], nextIndex === cards.length - 1);
+    scrollToCard(nextIndex, cards);
   };
 
   return (
@@ -966,6 +975,9 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
                     <InstructorCard key={(item as Instructor).id} instructor={item as Instructor} cardWidth={cardWidth} />
                   );
                 })}
+                {!loading && layout && layout.endSpacer > 0 && (
+                  <div className="flex-shrink-0 snap-start" style={{ width: layout.endSpacer }} aria-hidden="true" />
+                )}
               </div>
             </div>
 
