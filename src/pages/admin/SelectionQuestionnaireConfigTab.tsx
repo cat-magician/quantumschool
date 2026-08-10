@@ -3,7 +3,7 @@ import { CheckCircle, ClipboardList, Loader2, Save } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import {
   fetchSelectionConfig,
-  parseYandexFormId,
+  parseOptionalYandexFormId,
   saveSelectionConfig,
   yandexFormInputDisplayUrl,
   YANDEX_FORM_INPUT_PLACEHOLDER,
@@ -21,16 +21,21 @@ export default function SelectionQuestionnaireConfigTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    const cfg = await fetchSelectionConfig();
-    setSavedFormId(cfg.questionnaire_form_id);
-    setInput(yandexFormInputDisplayUrl(cfg.questionnaire_form_id));
-    setPublished(cfg.questionnaire_published);
-    setLoading(false);
-  };
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      const cfg = await fetchSelectionConfig();
+      setSavedFormId(cfg.questionnaire_form_id);
+      setInput(yandexFormInputDisplayUrl(cfg.questionnaire_form_id));
+      setPublished(cfg.questionnaire_published);
+      setLoading(false);
+    })();
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const flash = (message: string) => {
+    setSuccess(message);
+    window.setTimeout(() => setSuccess(''), 3500);
+  };
 
   const handleSaveLink = async () => {
     if (!user) return;
@@ -38,8 +43,8 @@ export default function SelectionQuestionnaireConfigTab() {
     setError('');
     setSuccess('');
 
-    const formId = parseYandexFormId(input);
-    if (!formId) {
+    const formId = parseOptionalYandexFormId(input);
+    if (formId === false) {
       setError('Укажите ссылку на Яндекс.Форму или ID формы');
       setSaving(false);
       return;
@@ -54,9 +59,10 @@ export default function SelectionQuestionnaireConfigTab() {
     }
 
     setSavedFormId(formId);
-    setSuccess('Ссылка сохранена');
+    setInput(formId ? yandexFormInputDisplayUrl(formId) : '');
+    if (!formId) setPublished(false);
+    flash(formId ? 'Ссылка сохранена' : 'Ссылка удалена');
     setSaving(false);
-    await load();
   };
 
   const handlePublish = async () => {
@@ -65,8 +71,8 @@ export default function SelectionQuestionnaireConfigTab() {
     setError('');
     setSuccess('');
 
-    const formId = parseYandexFormId(input);
-    if (!formId) {
+    const formId = parseOptionalYandexFormId(input);
+    if (formId === false || !formId) {
       setError('Укажите ссылку на Яндекс.Форму или ID формы');
       setSaving(false);
       return;
@@ -84,10 +90,10 @@ export default function SelectionQuestionnaireConfigTab() {
     }
 
     setSavedFormId(formId);
+    setInput(yandexFormInputDisplayUrl(formId));
     setPublished(true);
-    setSuccess('Анкета опубликована — ученики видят её на этапе 1');
+    flash('Анкета опубликована — ученики видят её на этапе 1');
     setSaving(false);
-    await load();
   };
 
   const handleUnpublish = async () => {
@@ -105,9 +111,8 @@ export default function SelectionQuestionnaireConfigTab() {
     }
 
     setPublished(false);
-    setSuccess('Анкета снята с публикации — ученики видят заглушку');
+    flash('Анкета снята с публикации — ученики видят заглушку');
     setSaving(false);
-    await load();
   };
 
   if (loading) {
@@ -118,7 +123,7 @@ export default function SelectionQuestionnaireConfigTab() {
     );
   }
 
-  const hasPreview = !!savedFormId.trim();
+  const showStudentPreview = published && !!savedFormId.trim();
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -187,10 +192,10 @@ export default function SelectionQuestionnaireConfigTab() {
 
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
         <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
-        {hasPreview ? (
+        {showStudentPreview ? (
           <YandexFormEmbed formId={savedFormId} />
         ) : (
-          <StageComingSoon stage="questionnaire" />
+          <StageComingSoon stage="questionnaire" studentPreview />
         )}
       </div>
     </div>

@@ -3,7 +3,7 @@ import { CheckCircle, ClipboardList, FileText, Loader2, Save } from 'lucide-reac
 import { useAuth } from '../../lib/AuthContext';
 import {
   fetchSelectionConfig,
-  parseYandexFormId,
+  parseOptionalYandexFormId,
   saveSelectionConfig,
   yandexFormInputDisplayUrl,
   YANDEX_FORM_INPUT_PLACEHOLDER,
@@ -28,23 +28,28 @@ export default function SelectionStage1ConfigTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    const cfg = await fetchSelectionConfig();
-    setSavedQuestionnaireId(cfg.questionnaire_form_id);
-    setQuestionnaireInput(yandexFormInputDisplayUrl(cfg.questionnaire_form_id));
-    setQuestionnairePublished(cfg.questionnaire_published);
-    setSavedEssayId(cfg.essay_form_id);
-    setEssayInput(yandexFormInputDisplayUrl(cfg.essay_form_id));
-    setEssayPublished(cfg.essay_published);
-    setLoading(false);
-  };
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      const cfg = await fetchSelectionConfig();
+      setSavedQuestionnaireId(cfg.questionnaire_form_id);
+      setQuestionnaireInput(yandexFormInputDisplayUrl(cfg.questionnaire_form_id));
+      setQuestionnairePublished(cfg.questionnaire_published);
+      setSavedEssayId(cfg.essay_form_id);
+      setEssayInput(yandexFormInputDisplayUrl(cfg.essay_form_id));
+      setEssayPublished(cfg.essay_published);
+      setLoading(false);
+    })();
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const flash = (message: string) => {
+    setSuccess(message);
+    window.setTimeout(() => setSuccess(''), 3500);
+  };
 
   const parseFieldInput = (field: Stage1Field) => {
     const input = field === 'questionnaire' ? questionnaireInput : essayInput;
-    return parseYandexFormId(input);
+    return parseOptionalYandexFormId(input);
   };
 
   const handleSaveLink = async (field: Stage1Field) => {
@@ -54,7 +59,7 @@ export default function SelectionStage1ConfigTab() {
     setSuccess('');
 
     const formId = parseFieldInput(field);
-    if (!formId) {
+    if (formId === false) {
       setError('Укажите ссылку на Яндекс.Форму или ID формы');
       setSavingField(null);
       return;
@@ -75,14 +80,17 @@ export default function SelectionStage1ConfigTab() {
 
     if (field === 'questionnaire') {
       setSavedQuestionnaireId(formId);
-      setSuccess('Ссылка на анкету сохранена');
+      setQuestionnaireInput(formId ? yandexFormInputDisplayUrl(formId) : '');
+      if (!formId) setQuestionnairePublished(false);
+      flash(formId ? 'Ссылка на анкету сохранена' : 'Ссылка на анкету удалена');
     } else {
       setSavedEssayId(formId);
-      setSuccess('Ссылка на форму эссе сохранена');
+      setEssayInput(formId ? yandexFormInputDisplayUrl(formId) : '');
+      if (!formId) setEssayPublished(false);
+      flash(formId ? 'Ссылка на форму эссе сохранена' : 'Ссылка на форму эссе удалена');
     }
 
     setSavingField(null);
-    await load();
   };
 
   const handlePublish = async (field: Stage1Field) => {
@@ -92,7 +100,7 @@ export default function SelectionStage1ConfigTab() {
     setSuccess('');
 
     const formId = parseFieldInput(field);
-    if (!formId) {
+    if (formId === false || !formId) {
       setError('Укажите ссылку на Яндекс.Форму или ID формы');
       setSavingField(null);
       return;
@@ -113,16 +121,17 @@ export default function SelectionStage1ConfigTab() {
 
     if (field === 'questionnaire') {
       setSavedQuestionnaireId(formId);
+      setQuestionnaireInput(yandexFormInputDisplayUrl(formId));
       setQuestionnairePublished(true);
-      setSuccess('Анкета опубликована — ученики видят её на этапе 1');
+      flash('Анкета опубликована — ученики видят её на этапе 1');
     } else {
       setSavedEssayId(formId);
+      setEssayInput(yandexFormInputDisplayUrl(formId));
       setEssayPublished(true);
-      setSuccess('Форма эссе опубликована — ученики видят её на этапе 1');
+      flash('Форма эссе опубликована — ученики видят её на этапе 1');
     }
 
     setSavingField(null);
-    await load();
   };
 
   const handleUnpublish = async (field: Stage1Field) => {
@@ -146,14 +155,13 @@ export default function SelectionStage1ConfigTab() {
 
     if (field === 'questionnaire') {
       setQuestionnairePublished(false);
-      setSuccess('Анкета снята с публикации — ученики видят заглушку');
+      flash('Анкета снята с публикации — ученики видят заглушку');
     } else {
       setEssayPublished(false);
-      setSuccess('Форма эссе снята с публикации — ученики видят заглушку');
+      flash('Форма эссе снята с публикации — ученики видят заглушку');
     }
 
     setSavingField(null);
-    await load();
   };
 
   if (loading) {
@@ -164,8 +172,8 @@ export default function SelectionStage1ConfigTab() {
     );
   }
 
-  const questionnairePreview = !!savedQuestionnaireId.trim();
-  const essayPreview = !!savedEssayId.trim();
+  const questionnairePreview = questionnairePublished && !!savedQuestionnaireId.trim();
+  const essayPreview = essayPublished && !!savedEssayId.trim();
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -296,7 +304,7 @@ export default function SelectionStage1ConfigTab() {
           {questionnairePreview ? (
             <YandexFormEmbed formId={savedQuestionnaireId} />
           ) : (
-            <StageComingSoon stage="questionnaire" />
+            <StageComingSoon stage="questionnaire" studentPreview />
           )}
         </div>
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
@@ -304,7 +312,7 @@ export default function SelectionStage1ConfigTab() {
           {essayPreview ? (
             <YandexFormEmbed formId={savedEssayId} />
           ) : (
-            <StageComingSoon stage="essay" />
+            <StageComingSoon stage="essay" studentPreview />
           )}
         </div>
       </div>

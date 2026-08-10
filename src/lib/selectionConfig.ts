@@ -119,6 +119,20 @@ export function normalizeContestUrl(input: string): string | null {
   }
 }
 
+/** Пустая строка — очистить ссылку; непустая — нормализовать или false при ошибке. */
+export function parseOptionalContestUrl(input: string): string | false {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  return normalizeContestUrl(trimmed) ?? false;
+}
+
+/** Пустая строка — очистить форму; непустая — распарсить или false при ошибке. */
+export function parseOptionalYandexFormId(input: string): string | false {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  return parseYandexFormId(trimmed) ?? false;
+}
+
 export async function fetchSelectionConfig(): Promise<SelectionStageConfig> {
   const { data, error } = await supabase
     .from('selection_stage_config')

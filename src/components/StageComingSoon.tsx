@@ -23,15 +23,19 @@ export default function StageComingSoon({
   minHeight = 420,
   onGoHome,
   onGoResults,
+  studentPreview = false,
 }: {
   stage: Stage;
   minHeight?: number;
   onGoHome?: () => void;
   onGoResults?: () => void;
+  /** В админке: показать текст так же, как у учеников (без кнопок). */
+  studentPreview?: boolean;
 }) {
   const variant = stage === 'contest' ? 'contest' : stage === 'questionnaire' ? 'questionnaire' : 'yandex_form';
   const studentCopy = STUDENT_COPY[stage];
   const showStudentHints = !!(onGoHome || onGoResults);
+  const useStudentCopy = showStudentHints || studentPreview;
 
   const actions: ReactNode = showStudentHints ? (
     <>
@@ -60,8 +64,8 @@ export default function StageComingSoon({
     <BlockPlaceholder
       variant={variant}
       minHeight={minHeight}
-      title={showStudentHints ? studentCopy.title : undefined}
-      text={showStudentHints ? studentCopy.text : undefined}
+      title={useStudentCopy ? studentCopy.title : undefined}
+      text={useStudentCopy ? studentCopy.text : undefined}
       actions={actions}
     />
   );

@@ -3,7 +3,7 @@ import { CheckCircle, FlaskConical, Loader2, Save } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import {
   fetchSelectionConfig,
-  normalizeContestUrl,
+  parseOptionalContestUrl,
   saveSelectionConfig,
 } from '../../lib/selectionConfig';
 import StageEmbedFrame from '../../components/StageEmbedFrame';
@@ -21,16 +21,24 @@ export default function SelectionContestConfigTab() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    const cfg = await fetchSelectionConfig();
+  const applyConfig = (cfg: Awaited<ReturnType<typeof fetchSelectionConfig>>) => {
     setSavedUrl(cfg.contest_url);
     setInput(cfg.contest_url);
     setPublished(cfg.contest_published);
-    setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      applyConfig(await fetchSelectionConfig());
+      setLoading(false);
+    })();
+  }, []);
+
+  const flash = (message: string) => {
+    setSuccess(message);
+    window.setTimeout(() => setSuccess(''), 3500);
+  };
 
   const handleSaveLink = async () => {
     if (!user) return;
@@ -38,9 +46,9 @@ export default function SelectionContestConfigTab() {
     setError('');
     setSuccess('');
 
-    const contestUrl = normalizeContestUrl(input);
-    if (!contestUrl) {
-      setError('Укажите корректную ссылку на контест (https://…)');
+    const contestUrl = parseOptionalContestUrl(input);
+    if (contestUrl === false) {
+      setError('Укажите корректную ссылку на контест (https://…) или очистите поле');
       setSaving(false);
       return;
     }
@@ -54,9 +62,16 @@ export default function SelectionContestConfigTab() {
     }
 
     setSavedUrl(contestUrl);
-    setSuccess('Ссылка сохранена');
+    setInput(contestUrl);
+    if (contestUrl && !published) {
+      flash('Ссылка сохранена');
+    } else if (!contestUrl) {
+      setPublished(false);
+      flash('Ссылка удалена');
+    } else {
+      flash('Ссылка сохранена');
+    }
     setSaving(false);
-    await load();
   };
 
   const handlePublish = async () => {
@@ -65,8 +80,8 @@ export default function SelectionContestConfigTab() {
     setError('');
     setSuccess('');
 
-    const contestUrl = normalizeContestUrl(input);
-    if (!contestUrl) {
+    const contestUrl = parseOptionalContestUrl(input);
+    if (contestUrl === false || !contestUrl) {
       setError('Укажите корректную ссылку на контест (https://…)');
       setSaving(false);
       return;
@@ -84,10 +99,10 @@ export default function SelectionContestConfigTab() {
     }
 
     setSavedUrl(contestUrl);
+    setInput(contestUrl);
     setPublished(true);
-    setSuccess('Контест опубликован — ученики видят его на этапе 2');
+    flash('Контест опубликован — ученики видят его на этапе 2');
     setSaving(false);
-    await load();
   };
 
   const handleUnpublish = async () => {
@@ -105,9 +120,8 @@ export default function SelectionContestConfigTab() {
     }
 
     setPublished(false);
-    setSuccess('Контест снят с публикации — ученики видят заглушку');
+    flash('Контест снят с публикации — ученики видят заглушку');
     setSaving(false);
-    await load();
   };
 
   if (loading) {
@@ -118,7 +132,7 @@ export default function SelectionContestConfigTab() {
     );
   }
 
-  const hasPreview = !!savedUrl.trim();
+  const showStudentPreview = published && !!savedUrl.trim();
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -188,7 +202,7 @@ export default function SelectionContestConfigTab() {
 
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
         <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
-        {hasPreview ? (
+        {showStudentPreview ? (
           <StageEmbedFrame flush minHeight={420}>
             <iframe
               src={savedUrl}
@@ -199,7 +213,7 @@ export default function SelectionContestConfigTab() {
             />
           </StageEmbedFrame>
         ) : (
-          <StageComingSoon stage="contest" />
+          <StageComingSoon stage="contest" studentPreview />
         )}
       </div>
     </div>
