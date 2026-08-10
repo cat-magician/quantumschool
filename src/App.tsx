@@ -898,48 +898,9 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
   const getMaxScroll = (scrollEl: HTMLElement) =>
     Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
 
-  const getCardAlignLeft = (scrollEl: HTMLElement, card: HTMLElement) => {
-    const scrollRect = scrollEl.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    return scrollEl.scrollLeft + (cardRect.left - scrollRect.left);
-  };
-
-  const getCurrentCardIndex = (scrollEl: HTMLElement, cards: HTMLElement[]) => {
-    const maxScroll = getMaxScroll(scrollEl);
-    if (maxScroll > 0 && scrollEl.scrollLeft >= maxScroll - 1) {
-      return cards.length - 1;
-    }
-
-    const scrollRect = scrollEl.getBoundingClientRect();
-    let bestIndex = 0;
-    let bestDistance = Infinity;
-
-    for (let i = 0; i < cards.length; i++) {
-      const distance = Math.abs(cards[i].getBoundingClientRect().left - scrollRect.left);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = i;
-      }
-    }
-
-    return bestIndex;
-  };
-
-  const scrollToCard = (index: number, cards: HTMLElement[]) => {
-    const scrollEl = scrollRef.current;
-    const card = cards[index];
-    if (!scrollEl || !card) return;
-
-    const maxScroll = getMaxScroll(scrollEl);
-    if (maxScroll <= 0) return;
-
-    const alignLeft = getCardAlignLeft(scrollEl, card);
-    const target =
-      index === cards.length - 1
-        ? Math.min(maxScroll, Math.max(0, alignLeft + card.offsetWidth - scrollEl.clientWidth))
-        : Math.min(maxScroll, Math.max(0, alignLeft));
-
-    scrollEl.scrollTo({ left: target, behavior: 'smooth' });
+  const getScrollStep = (cards: HTMLElement[]) => {
+    if (cards.length < 2) return cards[0]?.offsetWidth ?? INSTRUCTOR_CAROUSEL_GAP;
+    return cards[1].offsetLeft - cards[0].offsetLeft;
   };
 
   const scroll = (dir: 'left' | 'right') => {
@@ -947,16 +908,28 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     if (!scrollEl) return;
 
     const cards = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-instructor-card]'));
-    if (!cards.length || getMaxScroll(scrollEl) <= 0) return;
+    if (!cards.length) return;
 
-    const currentIndex = getCurrentCardIndex(scrollEl, cards);
-    const nextIndex =
-      dir === 'right'
-        ? Math.min(cards.length - 1, currentIndex + 1)
-        : Math.max(0, currentIndex - 1);
+    const maxScroll = getMaxScroll(scrollEl);
+    if (maxScroll <= 0) return;
 
-    if (nextIndex === currentIndex) return;
-    scrollToCard(nextIndex, cards);
+    const step = getScrollStep(cards);
+    if (step <= 0) return;
+
+    const current = scrollEl.scrollLeft;
+    const atStart = current <= 1;
+    const atEnd = current >= maxScroll - 1;
+
+    let target: number;
+    if (dir === 'right') {
+      if (atEnd) return;
+      target = Math.min(maxScroll, current + step);
+    } else {
+      if (atStart) return;
+      target = Math.max(0, current - step);
+    }
+
+    scrollEl.scrollTo({ left: target, behavior: 'smooth' });
   };
 
   const canScrollCarousel =
