@@ -82,7 +82,7 @@ function renderBlock(block: HomeworkPageBlock) {
           {HOMEWORK_BLOCK_LABELS.yandex_form}
         </h4>
         {formId ? (
-          <YandexFormEmbed formId={formId} />
+            <YandexFormEmbed formId={formId} />
         ) : (
           <BlockPlaceholder variant="yandex_form" />
         )}

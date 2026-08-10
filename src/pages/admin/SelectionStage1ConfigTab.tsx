@@ -42,14 +42,18 @@ export default function SelectionStage1ConfigTab() {
 
   useEffect(() => { load(); }, []);
 
-  const handleSave = async (field: Stage1Field, nextPublished: boolean) => {
+  const parseFieldInput = (field: Stage1Field) => {
+    const input = field === 'questionnaire' ? questionnaireInput : essayInput;
+    return parseYandexFormId(input);
+  };
+
+  const handleSaveLink = async (field: Stage1Field) => {
     if (!user) return;
     setSavingField(field);
     setError('');
     setSuccess('');
 
-    const input = field === 'questionnaire' ? questionnaireInput : essayInput;
-    const formId = parseYandexFormId(input);
+    const formId = parseFieldInput(field);
     if (!formId) {
       setError('Укажите ссылку на Яндекс.Форму или ID формы');
       setSavingField(null);
@@ -58,8 +62,8 @@ export default function SelectionStage1ConfigTab() {
 
     const patch =
       field === 'questionnaire'
-        ? { questionnaire_form_id: formId, questionnaire_published: nextPublished }
-        : { essay_form_id: formId, essay_published: nextPublished };
+        ? { questionnaire_form_id: formId }
+        : { essay_form_id: formId };
 
     const { error: saveError } = await saveSelectionConfig(patch, user.id);
 
@@ -71,20 +75,81 @@ export default function SelectionStage1ConfigTab() {
 
     if (field === 'questionnaire') {
       setSavedQuestionnaireId(formId);
-      setQuestionnairePublished(nextPublished);
-      setSuccess(
-        nextPublished
-          ? 'Анкета опубликована — ученики видят её на этапе 1'
-          : 'Анкета сохранена',
-      );
+      setSuccess('Ссылка на анкету сохранена');
     } else {
       setSavedEssayId(formId);
-      setEssayPublished(nextPublished);
-      setSuccess(
-        nextPublished
-          ? 'Форма эссе опубликована — ученики видят её на этапе 1'
-          : 'Форма эссе сохранена',
-      );
+      setSuccess('Ссылка на форму эссе сохранена');
+    }
+
+    setSavingField(null);
+    await load();
+  };
+
+  const handlePublish = async (field: Stage1Field) => {
+    if (!user) return;
+    setSavingField(field);
+    setError('');
+    setSuccess('');
+
+    const formId = parseFieldInput(field);
+    if (!formId) {
+      setError('Укажите ссылку на Яндекс.Форму или ID формы');
+      setSavingField(null);
+      return;
+    }
+
+    const patch =
+      field === 'questionnaire'
+        ? { questionnaire_form_id: formId, questionnaire_published: true }
+        : { essay_form_id: formId, essay_published: true };
+
+    const { error: saveError } = await saveSelectionConfig(patch, user.id);
+
+    if (saveError) {
+      setError('Не удалось опубликовать. Проверьте, что применена миграция selection_stage_config.');
+      setSavingField(null);
+      return;
+    }
+
+    if (field === 'questionnaire') {
+      setSavedQuestionnaireId(formId);
+      setQuestionnairePublished(true);
+      setSuccess('Анкета опубликована — ученики видят её на этапе 1');
+    } else {
+      setSavedEssayId(formId);
+      setEssayPublished(true);
+      setSuccess('Форма эссе опубликована — ученики видят её на этапе 1');
+    }
+
+    setSavingField(null);
+    await load();
+  };
+
+  const handleUnpublish = async (field: Stage1Field) => {
+    if (!user) return;
+    setSavingField(field);
+    setError('');
+    setSuccess('');
+
+    const patch =
+      field === 'questionnaire'
+        ? { questionnaire_published: false }
+        : { essay_published: false };
+
+    const { error: saveError } = await saveSelectionConfig(patch, user.id);
+
+    if (saveError) {
+      setError('Не удалось снять с публикации.');
+      setSavingField(null);
+      return;
+    }
+
+    if (field === 'questionnaire') {
+      setQuestionnairePublished(false);
+      setSuccess('Анкета снята с публикации — ученики видят заглушку');
+    } else {
+      setEssayPublished(false);
+      setSuccess('Форма эссе снята с публикации — ученики видят заглушку');
     }
 
     setSavingField(null);
@@ -99,15 +164,15 @@ export default function SelectionStage1ConfigTab() {
     );
   }
 
-  const questionnairePreview = questionnairePublished && !!savedQuestionnaireId.trim();
-  const essayPreview = essayPublished && !!savedEssayId.trim();
+  const questionnairePreview = !!savedQuestionnaireId.trim();
+  const essayPreview = !!savedEssayId.trim();
 
   return (
     <div className="max-w-3xl space-y-8">
       <div>
         <h2 className="text-xl font-bold text-white mb-1">Этап 1</h2>
         <p className="text-slate-400 text-sm">
-          Анкета участника и мотивационное эссе. После публикации формы появятся у учеников на этапе 1.
+          «Сохранить» — черновик и предпросмотр. «Опубликовать» — форма появится у учеников на этапе 1.
         </p>
         <SectionHint text={SECTION_HINT.admin.selectionStage1} className="mt-1.5" />
       </div>
@@ -131,18 +196,18 @@ export default function SelectionStage1ConfigTab() {
         </label>
         <div className="flex items-center gap-2 text-sm">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
-            questionnairePreview
+            questionnairePublished
               ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
               : 'text-slate-400 bg-white/5 border-white/10'
           }`}>
-            {questionnairePreview ? <CheckCircle className="w-3.5 h-3.5" /> : <ClipboardList className="w-3.5 h-3.5" />}
-            {questionnairePreview ? 'Опубликовано' : 'Не опубликовано'}
+            {questionnairePublished ? <CheckCircle className="w-3.5 h-3.5" /> : <ClipboardList className="w-3.5 h-3.5" />}
+            {questionnairePublished ? 'Опубликовано' : 'Черновик'}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => handleSave('questionnaire', questionnairePublished)}
+            onClick={() => handleSaveLink('questionnaire')}
             disabled={savingField === 'questionnaire'}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
           >
@@ -151,7 +216,7 @@ export default function SelectionStage1ConfigTab() {
           </button>
           <button
             type="button"
-            onClick={() => handleSave('questionnaire', true)}
+            onClick={() => handlePublish('questionnaire')}
             disabled={savingField === 'questionnaire'}
             className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
           >
@@ -160,7 +225,7 @@ export default function SelectionStage1ConfigTab() {
           {questionnairePublished && (
             <button
               type="button"
-              onClick={() => handleSave('questionnaire', false)}
+              onClick={() => handleUnpublish('questionnaire')}
               disabled={savingField === 'questionnaire'}
               className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
             >
@@ -186,18 +251,18 @@ export default function SelectionStage1ConfigTab() {
         </label>
         <div className="flex items-center gap-2 text-sm">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
-            essayPreview
+            essayPublished
               ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
               : 'text-slate-400 bg-white/5 border-white/10'
           }`}>
-            {essayPreview ? <CheckCircle className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-            {essayPreview ? 'Опубликовано' : 'Не опубликовано'}
+            {essayPublished ? <CheckCircle className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+            {essayPublished ? 'Опубликовано' : 'Черновик'}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => handleSave('essay', essayPublished)}
+            onClick={() => handleSaveLink('essay')}
             disabled={savingField === 'essay'}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
           >
@@ -206,7 +271,7 @@ export default function SelectionStage1ConfigTab() {
           </button>
           <button
             type="button"
-            onClick={() => handleSave('essay', true)}
+            onClick={() => handlePublish('essay')}
             disabled={savingField === 'essay'}
             className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
           >
@@ -215,7 +280,7 @@ export default function SelectionStage1ConfigTab() {
           {essayPublished && (
             <button
               type="button"
-              onClick={() => handleSave('essay', false)}
+              onClick={() => handleUnpublish('essay')}
               disabled={savingField === 'essay'}
               className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
             >
@@ -228,7 +293,7 @@ export default function SelectionStage1ConfigTab() {
       <div className="space-y-6">
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
           <h3 className="font-semibold text-white mb-5">Предпросмотр: анкета</h3>
-          {questionnairePreview && savedQuestionnaireId ? (
+          {questionnairePreview ? (
             <YandexFormEmbed formId={savedQuestionnaireId} />
           ) : (
             <StageComingSoon stage="questionnaire" />
@@ -236,7 +301,7 @@ export default function SelectionStage1ConfigTab() {
         </div>
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
           <h3 className="font-semibold text-white mb-5">Предпросмотр: эссе</h3>
-          {essayPreview && savedEssayId ? (
+          {essayPreview ? (
             <YandexFormEmbed formId={savedEssayId} />
           ) : (
             <StageComingSoon stage="essay" />

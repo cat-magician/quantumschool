@@ -2,12 +2,12 @@ import StageEmbedFrame from './StageEmbedFrame';
 import {
   yandexFormIframeName,
   yandexFormIframeSrc,
-} from '../lib/constants';
+} from '../lib/selectionConfig';
 
-interface YandexFormEmbedProps {
+type YandexFormEmbedProps = {
   formId: string;
   title?: string;
-}
+};
 
 /** Яндекс.Форма во встроенном iframe; embed.js в index.html подстраивает высоту. */
 export default function YandexFormEmbed({
@@ -17,8 +17,10 @@ export default function YandexFormEmbed({
   const src = yandexFormIframeSrc(formId);
   const frameName = yandexFormIframeName(formId);
 
+  if (!src) return null;
+
   return (
-    <div className="w-full">
+    <div className="yandex-form-embed w-full">
       {title && (
         <p className="text-sm text-slate-500 mb-4">{title}</p>
       )}
