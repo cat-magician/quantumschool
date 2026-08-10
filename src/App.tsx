@@ -831,7 +831,7 @@ function computeCarouselLayout(available: number) {
   return {
     viewportWidth,
     cardWidth: cardW,
-    endSpacer: Math.max(0, viewportWidth - cardW),
+    visibleCount,
   };
 }
 
@@ -862,7 +862,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
   const [layout, setLayout] = useState<{
     viewportWidth: number;
     cardWidth: number;
-    endSpacer: number;
+    visibleCount: number;
     constrainViewport: boolean;
   } | null>(null);
 
@@ -895,14 +895,27 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     };
   }, [visibleInstructors, loading, measureViewport]);
 
+  const getMaxScroll = (scrollEl: HTMLElement) =>
+    Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+
+  const getCardAlignLeft = (scrollEl: HTMLElement, card: HTMLElement) => {
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    return scrollEl.scrollLeft + (cardRect.left - scrollRect.left);
+  };
+
   const getCurrentCardIndex = (scrollEl: HTMLElement, cards: HTMLElement[]) => {
-    const scrollCenter = scrollEl.scrollLeft + scrollEl.clientWidth / 2;
+    const maxScroll = getMaxScroll(scrollEl);
+    if (maxScroll > 0 && scrollEl.scrollLeft >= maxScroll - 1) {
+      return cards.length - 1;
+    }
+
+    const scrollRect = scrollEl.getBoundingClientRect();
     let bestIndex = 0;
     let bestDistance = Infinity;
 
     for (let i = 0; i < cards.length; i++) {
-      const cardCenter = cards[i].offsetLeft + cards[i].offsetWidth / 2;
-      const distance = Math.abs(cardCenter - scrollCenter);
+      const distance = Math.abs(cards[i].getBoundingClientRect().left - scrollRect.left);
       if (distance < bestDistance) {
         bestDistance = distance;
         bestIndex = i;
@@ -917,11 +930,16 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     const card = cards[index];
     if (!scrollEl || !card) return;
 
-    const maxScroll = scrollEl.scrollWidth - scrollEl.clientWidth;
-    scrollEl.scrollTo({
-      left: Math.min(maxScroll, Math.max(0, card.offsetLeft)),
-      behavior: 'smooth',
-    });
+    const maxScroll = getMaxScroll(scrollEl);
+    if (maxScroll <= 0) return;
+
+    const alignLeft = getCardAlignLeft(scrollEl, card);
+    const target =
+      index === cards.length - 1
+        ? Math.min(maxScroll, Math.max(0, alignLeft + card.offsetWidth - scrollEl.clientWidth))
+        : Math.min(maxScroll, Math.max(0, alignLeft));
+
+    scrollEl.scrollTo({ left: target, behavior: 'smooth' });
   };
 
   const scroll = (dir: 'left' | 'right') => {
@@ -929,7 +947,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     if (!scrollEl) return;
 
     const cards = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-instructor-card]'));
-    if (!cards.length) return;
+    if (!cards.length || getMaxScroll(scrollEl) <= 0) return;
 
     const currentIndex = getCurrentCardIndex(scrollEl, cards);
     const nextIndex =
@@ -937,8 +955,12 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
         ? Math.min(cards.length - 1, currentIndex + 1)
         : Math.max(0, currentIndex - 1);
 
+    if (nextIndex === currentIndex) return;
     scrollToCard(nextIndex, cards);
   };
+
+  const canScrollCarousel =
+    !loading && visibleInstructors.length > (layout?.visibleCount ?? INSTRUCTOR_MAX_VISIBLE);
 
   return (
     <section id="instructors" className="py-24 bg-slate-100/90">
@@ -975,17 +997,15 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
                     <InstructorCard key={(item as Instructor).id} instructor={item as Instructor} cardWidth={cardWidth} />
                   );
                 })}
-                {!loading && layout && layout.endSpacer > 0 && (
-                  <div className="flex-shrink-0 snap-start" style={{ width: layout.endSpacer }} aria-hidden="true" />
-                )}
               </div>
             </div>
 
-            <div className="hidden sm:flex gap-2 flex-shrink-0 pt-2">
+            <div className={`hidden sm:flex gap-2 flex-shrink-0 pt-2 ${canScrollCarousel ? '' : 'invisible pointer-events-none'}`}>
               <button
                 type="button"
                 onClick={() => scroll('left')}
-                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                disabled={!canScrollCarousel}
+                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
                 aria-label="Предыдущий преподаватель"
               >
                 <ChevronRight className="w-5 h-5 rotate-180" />
@@ -993,7 +1013,8 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
               <button
                 type="button"
                 onClick={() => scroll('right')}
-                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                disabled={!canScrollCarousel}
+                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
                 aria-label="Следующий преподаватель"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -1001,11 +1022,12 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
             </div>
           </div>
 
-          <div className="flex sm:hidden gap-2 justify-end pt-2">
+          <div className={`flex sm:hidden gap-2 justify-end pt-2 ${canScrollCarousel ? '' : 'hidden'}`}>
             <button
               type="button"
               onClick={() => scroll('left')}
-              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+              disabled={!canScrollCarousel}
+              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
               aria-label="Предыдущий преподаватель"
             >
               <ChevronRight className="w-5 h-5 rotate-180" />
@@ -1013,7 +1035,8 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
             <button
               type="button"
               onClick={() => scroll('right')}
-              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+              disabled={!canScrollCarousel}
+              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
               aria-label="Следующий преподаватель"
             >
               <ChevronRight className="w-5 h-5" />
