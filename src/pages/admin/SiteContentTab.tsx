@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import { DEFAULT_LANDING_CONFIG, fetchLandingConfig, formatHeroBadgeText, saveLandingConfig } from '../../lib/landingConfig';
@@ -15,6 +15,7 @@ import {
   INSTRUCTOR_BIO_EXPAND_HINT,
   INSTRUCTOR_FIELD_LIMITS,
   COMMUNITY_FIELD_LIMITS,
+  isInstructorPublishable,
 } from '../../lib/siteContentLimits';
 import { supabase } from '../../lib/supabase';
 import type { Instructor } from '../../lib/types';
@@ -33,6 +34,37 @@ type InstructorDraft = {
 };
 
 const emptyDraft = (): InstructorDraft => ({ name: '', title: '', bio: '', image_url: '' });
+
+function draftFromRow(row: Instructor): InstructorDraft {
+  return {
+    id: row.id,
+    name: row.name,
+    title: row.title,
+    bio: row.bio,
+    image_url: row.image_url,
+  };
+}
+
+function draftMatchesRow(draft: InstructorDraft, row: Instructor) {
+  return (
+    draft.name.trim() === row.name.trim() &&
+    draft.title.trim() === row.title.trim() &&
+    draft.bio.trim() === row.bio.trim() &&
+    draft.image_url.trim() === row.image_url.trim()
+  );
+}
+
+function reorderList<T extends { id: string }>(items: T[], fromId: string, toId: string): T[] {
+  if (fromId === toId) return items;
+  const fromIndex = items.findIndex((item) => item.id === fromId);
+  const toIndex = items.findIndex((item) => item.id === toId);
+  if (fromIndex < 0 || toIndex < 0) return items;
+
+  const next = [...items];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
 
 function FieldCounter({ value, max }: { value: string; max: number }) {
   const left = max - value.length;
@@ -59,37 +91,45 @@ export default function SiteContentTab() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const pendingOrderRef = useRef<Instructor[]>([]);
+  const orderAtDragStartRef = useRef<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const applyInstructorRows = (rows: Instructor[]) => {
+    setInstructors(rows);
+    setDrafts(Object.fromEntries(rows.map((row) => [row.id, draftFromRow(row)])));
+  };
+
+  const loadInstructors = async () => {
+    const instructorsRes = await supabase.from('instructors').select('*').order('sort_order');
+    if (instructorsRes.error) {
+      setError('Не удалось загрузить карточки преподавателей');
+      return false;
+    }
+    applyInstructorRows((instructorsRes.data ?? []) as Instructor[]);
+    return true;
+  };
 
   const load = async () => {
     setLoading(true);
     setError('');
-    const [landingConfig, communityConfig, instructorsRes] = await Promise.all([
+    const [landingConfig, communityConfig, instructorsOk] = await Promise.all([
       fetchLandingConfig(),
       fetchCommunityConfig(),
-      supabase.from('instructors').select('*').order('sort_order'),
+      loadInstructors(),
     ]);
 
     setBadgeText(landingConfig.hero_badge_text);
     setTelegramUrl(communityConfig.telegram_invite_url);
     setTelegramMessage(communityConfig.telegram_invite_message);
-    const rows = (instructorsRes.data ?? []) as Instructor[];
-    setInstructors(rows);
-    setDrafts(
-      Object.fromEntries(
-        rows.map((row) => [
-          row.id,
-          {
-            id: row.id,
-            name: row.name,
-            title: row.title,
-            bio: row.bio,
-            image_url: row.image_url,
-          },
-        ]),
-      ),
-    );
+    if (!instructorsOk) {
+      setError('Не удалось загрузить карточки преподавателей');
+    }
     setLoading(false);
   };
 
@@ -165,30 +205,81 @@ export default function SiteContentTab() {
     await load();
   };
 
+  const dirtyInstructorIds = useMemo(
+    () =>
+      instructors
+        .filter((row) => {
+          const draft = drafts[row.id];
+          return draft && !draftMatchesRow(draft, row);
+        })
+        .map((row) => row.id),
+    [drafts, instructors],
+  );
+
+  const persistInstructorDraft = async (id: string, draft: InstructorDraft) => {
+    const payload = {
+      name: draft.name.trim(),
+      title: draft.title.trim(),
+      bio: draft.bio.trim(),
+      image_url: draft.image_url.trim(),
+    };
+
+    const { error: saveError } = await supabase.from('instructors').update(payload).eq('id', id);
+    if (saveError) return false;
+
+    setInstructors((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, ...payload } : row)),
+    );
+    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...payload } }));
+    return true;
+  };
+
   const handleSaveInstructor = async (id: string) => {
     const draft = drafts[id];
     if (!draft || !validateDraft(draft)) return;
 
     setSavingId(id);
     setError('');
-    const { error: saveError } = await supabase
-      .from('instructors')
-      .update({
-        name: draft.name.trim(),
-        title: draft.title.trim(),
-        bio: draft.bio.trim(),
-        image_url: draft.image_url.trim(),
-      })
-      .eq('id', id);
-
+    const ok = await persistInstructorDraft(id, draft);
     setSavingId(null);
-    if (saveError) {
+
+    if (!ok) {
       setError('Не удалось сохранить карточку преподавателя');
       return;
     }
 
     flash('Карточка опубликована на главной');
-    await load();
+  };
+
+  const handleSaveAllInstructors = async () => {
+    if (!dirtyInstructorIds.length) return;
+
+    const invalidId = dirtyInstructorIds.find((id) => {
+      const draft = drafts[id];
+      return !draft || !isInstructorPublishable(draft);
+    });
+    if (invalidId) {
+      setError('У каждой изменённой карточки должны быть имя, должность и фото');
+      return;
+    }
+
+    setSavingAll(true);
+    setError('');
+    const results = await Promise.all(
+      dirtyInstructorIds.map((id) => persistInstructorDraft(id, drafts[id])),
+    );
+    setSavingAll(false);
+
+    if (results.some((ok) => !ok)) {
+      setError('Не удалось сохранить часть карточек');
+      return;
+    }
+
+    flash(
+      dirtyInstructorIds.length === 1
+        ? 'Карточка опубликована на главной'
+        : `Опубликовано карточек: ${dirtyInstructorIds.length}`,
+    );
   };
 
   const handleCreateInstructor = async () => {
@@ -200,27 +291,33 @@ export default function SiteContentTab() {
       ? Math.max(...instructors.map((i) => i.sort_order ?? 0)) + 1
       : 1;
 
-    const { error: createError } = await supabase.from('instructors').insert({
-      name: newDraft.name.trim(),
-      title: newDraft.title.trim(),
-      bio: newDraft.bio.trim(),
-      image_url: newDraft.image_url.trim(),
-      specialization: '',
-      specializations: [],
-      role: 'lecturer',
-      sort_order: nextOrder,
-    });
+    const { data, error: createError } = await supabase
+      .from('instructors')
+      .insert({
+        name: newDraft.name.trim(),
+        title: newDraft.title.trim(),
+        bio: newDraft.bio.trim(),
+        image_url: newDraft.image_url.trim(),
+        specialization: '',
+        specializations: [],
+        role: 'lecturer',
+        sort_order: nextOrder,
+      })
+      .select('*')
+      .single();
 
     setCreating(false);
-    if (createError) {
+    if (createError || !data) {
       setError('Не удалось добавить преподавателя');
       return;
     }
 
+    const created = data as Instructor;
+    setInstructors((prev) => [...prev, created]);
+    setDrafts((prev) => ({ ...prev, [created.id]: draftFromRow(created) }));
     setNewDraft(null);
     setExpandedId(null);
     flash('Преподаватель опубликован на главной');
-    await load();
   };
 
   const handleDeleteInstructor = async (id: string, name: string) => {
@@ -242,8 +339,63 @@ export default function SiteContentTab() {
       return;
     }
 
+    setInstructors((prev) => prev.filter((row) => row.id !== id));
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    if (expandedId === id) setExpandedId(null);
     flash('Карточка удалена с главной');
-    await load();
+  };
+
+  const persistInstructorOrder = async (ordered: Instructor[]) => {
+    const withOrder = ordered.map((row, index) => ({ ...row, sort_order: index + 1 }));
+    setInstructors(withOrder);
+
+    setReordering(true);
+    setError('');
+    const results = await Promise.all(
+      withOrder.map((row) =>
+        supabase.from('instructors').update({ sort_order: row.sort_order }).eq('id', row.id),
+      ),
+    );
+    setReordering(false);
+
+    if (results.some(({ error: orderError }) => orderError)) {
+      setError('Не удалось сохранить порядок карточек');
+      await loadInstructors();
+      return;
+    }
+
+    flash('Порядок карточек сохранён');
+  };
+
+  const handleDragStart = (id: string) => {
+    pendingOrderRef.current = instructors;
+    orderAtDragStartRef.current = instructors.map((row) => row.id);
+    setDragId(id);
+    setDropTargetId(id);
+  };
+
+  const handleDragOver = (event: React.DragEvent, targetId: string) => {
+    event.preventDefault();
+    if (!dragId || dragId === targetId) return;
+
+    setDropTargetId(targetId);
+    const next = reorderList(pendingOrderRef.current, dragId, targetId);
+    pendingOrderRef.current = next;
+    setInstructors(next);
+  };
+
+  const handleDragEnd = async () => {
+    const ordered = pendingOrderRef.current;
+    const orderChanged =
+      ordered.map((row) => row.id).join('|') !== orderAtDragStartRef.current.join('|');
+    setDragId(null);
+    setDropTargetId(null);
+    if (!orderChanged) return;
+    await persistInstructorOrder(ordered);
   };
 
   const updateDraft = (id: string, patch: Partial<InstructorDraft>) => {
@@ -382,21 +534,35 @@ export default function SiteContentTab() {
             <p className="text-slate-400 text-sm max-w-xl">
               Фото — сверху карточки, как в карусели на главной. Длинное описание на сайте
               сворачивается до трёх строк; посетитель развернёт его кнопкой «Читать далее» прямо в карточке.
+              Перетаскивайте карточки за ручку слева, чтобы изменить порядок на главной.
             </p>
           </div>
-          {!newDraft && (
-            <button
-              type="button"
-              onClick={() => {
-                setNewDraft(emptyDraft());
-                setExpandedId('new');
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-sm font-medium transition-colors shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              Добавить
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {dirtyInstructorIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleSaveAllInstructors}
+                disabled={savingAll || Boolean(savingId) || reordering}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {savingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Сохранить все ({dirtyInstructorIds.length})
+              </button>
+            )}
+            {!newDraft && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewDraft(emptyDraft());
+                  setExpandedId('new');
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Добавить
+              </button>
+            )}
+          </div>
         </div>
 
         {newDraft && expandedId === 'new' && (
@@ -416,38 +582,67 @@ export default function SiteContentTab() {
         <div className="space-y-2">
           {instructors.map((instructor) => {
             const draft =
-              drafts[instructor.id] ?? {
-                name: instructor.name,
-                title: instructor.title,
-                bio: instructor.bio,
-                image_url: instructor.image_url,
-              };
+              drafts[instructor.id] ?? draftFromRow(instructor);
             const isOpen = expandedId === instructor.id;
+            const isDirty = !draftMatchesRow(draft, instructor);
+            const isDragging = dragId === instructor.id;
+            const isDropTarget = dropTargetId === instructor.id && dragId !== instructor.id;
 
             return (
-              <div key={instructor.id} className="rounded-xl border border-white/10 bg-slate-950/40 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(isOpen ? null : instructor.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
-                >
-                  <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-800 shrink-0">
-                    {draft.image_url.trim() ? (
-                      <LessonCoverImage url={draft.image_url} className="w-full h-full object-cover" />
+              <div
+                key={instructor.id}
+                onDragOver={(event) => handleDragOver(event, instructor.id)}
+                className={`rounded-xl border bg-slate-950/40 overflow-hidden transition-colors ${
+                  isDragging
+                    ? 'border-blue-400/40 opacity-60'
+                    : isDropTarget
+                      ? 'border-blue-400/60'
+                      : 'border-white/10'
+                }`}
+              >
+                <div className="flex items-stretch">
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={() => handleDragStart(instructor.id)}
+                    onDragEnd={() => void handleDragEnd()}
+                    disabled={reordering || savingAll}
+                    className="flex items-center justify-center px-2 text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] cursor-grab active:cursor-grabbing disabled:opacity-40 shrink-0"
+                    aria-label="Перетащить для изменения порядка"
+                    title="Перетащите для изменения порядка"
+                  >
+                    <GripVertical className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(isOpen ? null : instructor.id)}
+                    className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors min-w-0"
+                  >
+                    <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-800 shrink-0">
+                      {draft.image_url.trim() ? (
+                        <LessonCoverImage url={draft.image_url} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-slate-700" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{draft.name.trim() || 'Без имени'}</p>
+                        {isDirty && (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-amber-400 shrink-0">
+                            не сохранено
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 truncate">{draft.title.trim() || 'Должность не указана'}</p>
+                    </div>
+                    {isOpen ? (
+                      <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" />
                     ) : (
-                      <div className="w-full h-full bg-slate-700" />
+                      <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
                     )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{draft.name.trim() || 'Без имени'}</p>
-                    <p className="text-xs text-slate-400 truncate">{draft.title.trim() || 'Должность не указана'}</p>
-                  </div>
-                  {isOpen ? (
-                    <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
-                  )}
-                </button>
+                  </button>
+                </div>
 
                 {isOpen && (
                   <div className="border-t border-white/5 p-3 sm:p-4">

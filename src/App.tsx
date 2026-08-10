@@ -11,6 +11,7 @@ import QuantumBrandTitle from './components/QuantumBrandTitle';
 import HeroQuantumDecor from './components/HeroQuantumDecor';
 import HeroBadgePill from './components/HeroBadgePill';
 import InstructorCardPreview from './components/InstructorCardPreview';
+import { isInstructorPublishable } from './lib/siteContentLimits';
 import { isYandexOAuthEnabled } from './lib/yandexAuthConfig';
 import { appHref, publicAsset } from './lib/appPaths';
 import {
@@ -845,6 +846,7 @@ function InstructorCard({ instructor, cardWidth }: { instructor: Instructor; car
           imageUrl={instructor.image_url}
           width={cardWidth}
           interactive
+          live
           className="transition-all duration-500 group-hover:shadow-[0_16px_36px_-10px_rgba(15,23,42,0.18)] group-hover:border-slate-300"
           imageClassName="transform group-hover:scale-105 transition-transform duration-700"
         />
@@ -854,6 +856,7 @@ function InstructorCard({ instructor, cardWidth }: { instructor: Instructor; car
 }
 
 function Instructors({ instructors, loading }: { instructors: Instructor[]; loading: boolean }) {
+  const visibleInstructors = instructors.filter((instructor) => isInstructorPublishable(instructor));
   const measureRef = React.useRef<HTMLDivElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<{
@@ -890,7 +893,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
       ro.disconnect();
       window.removeEventListener('resize', measureViewport);
     };
-  }, [instructors, loading, measureViewport]);
+  }, [visibleInstructors, loading, measureViewport]);
 
   const scrollToCard = (card: HTMLElement, isLast: boolean) => {
     const scroll = scrollRef.current;
@@ -948,7 +951,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
               style={layout?.constrainViewport ? { maxWidth: layout.viewportWidth } : undefined}
             >
               <div className="instructor-carousel-track gap-5 pr-4 sm:pr-2">
-                {(loading ? [1, 2, 3, 4] : instructors).map((item, index) => {
+                {(loading ? [1, 2, 3, 4] : visibleInstructors).map((item, index) => {
                   const cardWidth = layout?.cardWidth ?? INSTRUCTOR_MAX_CARD_W;
                   return loading ? (
                     <div key={index} className="flex-shrink-0 snap-start pb-3" style={{ width: cardWidth }} data-instructor-card>
