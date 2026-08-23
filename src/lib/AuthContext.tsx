@@ -22,6 +22,11 @@ import {
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
 import { dashboardPathname, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
+import {
+  SUPPORT_EMAIL,
+  loginToAuthEmail,
+  translateLoginAuthError,
+} from './loginAuthConfig';
 import { PRIVACY_POLICY_VERSION } from './privacy';
 import { markTeacherPromoted } from './teacherPromotionNotice';
 import { markJustDemotedFromTeacher } from './studentCabinetSnapshot';
@@ -36,6 +41,18 @@ interface AuthContextValue {
   /** Сессия или профиль ещё загружаются */
   loading: boolean;
   signInWithYandex: (options?: {
+    teacherApplication?: boolean;
+  }) => Promise<{ error: string | null }>;
+  signInWithLogin: (params: {
+    login: string;
+    password: string;
+    teacherApplication?: boolean;
+  }) => Promise<{ error: string | null }>;
+  signUpWithLogin: (params: {
+    login: string;
+    password: string;
+    name: string;
+    recoveryEmail?: string;
     teacherApplication?: boolean;
   }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -297,15 +314,93 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loading = initializing || (Boolean(user) && profileLoading && profile === null);
 
-  const signInWithYandex = async (options?: {
-    teacherApplication?: boolean;
-  }) => {
-    if (options?.teacherApplication) {
+  /**
+   * Куда вести после входа и подавать ли заявку преподавателя. Ставится до
+   * запроса: профиль подтягивается из onAuthStateChange и успевает раньше,
+   * чем вернётся await.
+   */
+  const markLoginIntent = (teacherApplication?: boolean) => {
+    if (teacherApplication) {
       markTeacherApplicationPending();
       markTeacherLoginCorridor();
     } else {
       markStudentLoginCorridor();
     }
+  };
+
+  /** Вход не состоялся — снять заявку, иначе она уедет со следующим входом. */
+  const abandonLoginIntent = () => {
+    consumeTeacherApplicationPending();
+  };
+
+  const signInWithLogin = async ({ login, password, teacherApplication }: {
+    login: string;
+    password: string;
+    teacherApplication?: boolean;
+  }) => {
+    markLoginIntent(teacherApplication);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: loginToAuthEmail(login),
+      password,
+    });
+
+    if (error) {
+      abandonLoginIntent();
+      return { error: translateLoginAuthError(error.message) };
+    }
+
+    return { error: null };
+  };
+
+  const signUpWithLogin = async ({
+    login, password, name, recoveryEmail, teacherApplication,
+  }: {
+    login: string;
+    password: string;
+    name: string;
+    recoveryEmail?: string;
+    teacherApplication?: boolean;
+  }) => {
+    markLoginIntent(teacherApplication);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: loginToAuthEmail(login),
+      password,
+      options: {
+        data: {
+          full_name: name.trim(),
+          recovery_email: recoveryEmail?.trim().toLowerCase() || null,
+        },
+      },
+    });
+
+    if (error) {
+      abandonLoginIntent();
+      return { error: translateLoginAuthError(error.message) };
+    }
+
+    // Сессии нет — в проекте включён Confirm email. Письмо уйдёт на техничес-
+    // кий адрес и не дойдёт ни до кого, аккаунт останется неподтверждённым.
+    if (!data.session) {
+      abandonLoginIntent();
+      console.error(
+        'Supabase зарегистрировал пользователя без сессии. '
+        + 'Выключите Authentication → Sign In / Providers → Email → Confirm email: '
+        + 'технические адреса логинов не принимают почту.',
+      );
+      return {
+        error: `Регистрация по логину сейчас недоступна. Войдите через Яндекс ID или напишите на ${SUPPORT_EMAIL}`,
+      };
+    }
+
+    return { error: null };
+  };
+
+  const signInWithYandex = async (options?: {
+    teacherApplication?: boolean;
+  }) => {
+    markLoginIntent(options?.teacherApplication);
     markOAuthReturnPending();
 
     const { error } = await supabase.auth.signInWithOAuth({
@@ -349,8 +444,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, loading, signInWithYandex, signOut, refreshProfile,
-      recordPrivacyConsent, oauthError, clearOAuthError,
+      user, session, profile, loading, signInWithYandex, signInWithLogin, signUpWithLogin,
+      signOut, refreshProfile, recordPrivacyConsent, oauthError, clearOAuthError,
     }}
     >
       {children}

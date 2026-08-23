@@ -17,8 +17,9 @@ import {
 import {
   canEditApplicationFields,
   formatProfileDate,
+  profileAccountLabel,
   profileDisplayName,
-  profileEmail,
+  profileLogin,
   profileToEditable,
   roleBadgeClass,
   roleLabel,
@@ -147,7 +148,8 @@ export default function ProfilePage() {
   const isStaff = profile.role === 'admin' || profile.role === 'superadmin';
   const showApplicationFields = canEditApplicationFields(profile);
   const visibleName = profileDisplayName(profile);
-  const emailLabel = profileEmail(profile, user.email) ?? '—';
+  const accountLabel = profileAccountLabel(profile, user.email) ?? '—';
+  const accountLogin = profileLogin(profile, user.email);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -186,7 +188,7 @@ export default function ProfilePage() {
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-bold truncate">{visibleName}</h1>
-              <p className="text-sm text-slate-500 mt-1 truncate">{emailLabel}</p>
+              <p className="text-sm text-slate-500 mt-1 truncate">{accountLabel}</p>
               <span className={`inline-flex mt-3 px-2.5 py-1 rounded-lg text-xs font-medium border ${roleBadgeClass(profile)}`}>
                 {roleLabel(profile)}
               </span>
@@ -231,7 +233,14 @@ export default function ProfilePage() {
             <User className="w-3.5 h-3.5" />
             Основное
           </h2>
-          <InfoRow label="Почта Яндекс ID" value={emailLabel} />
+          {accountLogin ? (
+            <>
+              <InfoRow label="Логин" value={accountLogin} />
+              <InfoRow label="Почта для восстановления" value={profile.recovery_email?.trim() || 'не указана'} />
+            </>
+          ) : (
+            <InfoRow label="Почта Яндекс ID" value={accountLabel} />
+          )}
           {editing ? (
             <div className="py-3 border-b border-white/5 last:border-0 space-y-1.5">
               <span className="text-sm text-slate-500">Имя</span>

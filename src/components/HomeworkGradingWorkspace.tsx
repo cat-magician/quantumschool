@@ -18,7 +18,7 @@ import {
   DEFAULT_HOMEWORK_MAX_SCORE,
 } from '../lib/homeworkUtils';
 import { homeworkSubmissionLinksFromBlocks } from '../lib/homeworkPageUtils';
-import { profileEmail } from '../lib/profileUtils';
+import { profileAccountLabel } from '../lib/profileUtils';
 import UserAvatar from './UserAvatar';
 import HomeworkPageStudentPreview from './HomeworkPageStudentPreview';
 import SectionHint from './SectionHint';
@@ -596,7 +596,7 @@ function SubmissionGradePanel({
 }) {
   const FEEDBACK_MAX = 1000;
   const name = s.student?.display_name ?? 'Ученик';
-  const studentSubtitle = profileEmail(s.student);
+  const studentSubtitle = profileAccountLabel(s.student);
   const hasGrade = submissionHasGrade(s);
   const submittedWhen = formatSubmissionWhen(s.submitted_at);
   const gradedWhen = formatSubmissionWhen(s.graded_at);

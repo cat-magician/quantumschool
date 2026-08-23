@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import type { Group, GroupMember } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileDisplayName, profileEmail } from '../../lib/profileUtils';
+import { profileAccountLabel, profileDisplayName } from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import {
@@ -120,15 +120,15 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   const teacherPickerItems = useMemo((): PickerRow[] => groupStaff.map((a) => ({
     id: a.id,
     title: `${a.display_name}${a.id === user?.id ? ' (вы)' : ''}`,
-    subtitle: `${profileEmail(a) ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`.trim() || undefined,
-    searchText: `${a.display_name} ${a.email ?? ''} ${a.role}`,
+    subtitle: `${profileAccountLabel(a) ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`.trim() || undefined,
+    searchText: `${a.display_name} ${profileAccountLabel(a) ?? ''} ${a.role}`,
   })), [groupStaff, user?.id]);
 
   const availableStudentPickerItems = useMemo((): PickerRow[] => availableForGroup.map((s) => ({
     id: s.id,
     title: profileDisplayName(s),
-    subtitle: profileEmail(s) ?? undefined,
-    searchText: `${s.display_name} ${s.email ?? ''}`,
+    subtitle: profileAccountLabel(s) ?? undefined,
+    searchText: `${s.display_name} ${profileAccountLabel(s) ?? ''}`,
     leading: (
       <UserAvatar displayName={profileDisplayName(s)} avatarUrl={s.avatar_url} size="chip" />
     ),
@@ -167,8 +167,8 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   const staffPickerItems = useMemo((): PickerRow[] => staffNotInGroup.map((a) => ({
     id: a.id,
     title: `${a.display_name}${a.id === user?.id ? ' (вы)' : ''}`,
-    subtitle: `${profileEmail(a) ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`.trim() || undefined,
-    searchText: `${a.display_name} ${a.email ?? ''} ${a.role}`,
+    subtitle: `${profileAccountLabel(a) ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`.trim() || undefined,
+    searchText: `${a.display_name} ${profileAccountLabel(a) ?? ''} ${a.role}`,
     leading: (
       <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="chip" />
     ),
@@ -777,7 +777,7 @@ function StudentCard({
           <UserAvatar displayName={profileDisplayName(student)} avatarUrl={student.avatar_url} size="md" />
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-white truncate text-sm leading-snug">{profileDisplayName(student)}</div>
-            <div className="text-xs text-slate-500 truncate mt-0.5">{profileEmail(student) ?? '—'}</div>
+            <div className="text-xs text-slate-500 truncate mt-0.5">{profileAccountLabel(student) ?? '—'}</div>
             {!student.is_enrolled && (
               <div className="mt-1">
                 <QuestionnaireStatusHint submittedAt={student.questionnaire_submitted_at} compact />

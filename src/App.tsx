@@ -5,6 +5,8 @@ import { useAuth } from './lib/AuthContext';
 import { Instructor } from './lib/types';
 import { DEFAULT_LANDING_CONFIG, fetchLandingConfig } from './lib/landingConfig';
 import AuthModal from './components/AuthModal';
+import LoginPasswordForm from './components/LoginPasswordForm';
+import { isLoginAuthEnabled } from './lib/loginAuthConfig';
 import StudentCabinetLink from './components/StudentCabinetLink';
 import YandexSignInButton from './components/YandexSignInButton';
 import QuantumBrandTitle from './components/QuantumBrandTitle';
@@ -1098,20 +1100,32 @@ function ApplicationForm() {
               ) : (
                 <div className="space-y-8 py-2">
                   <div className="text-center space-y-2">
-                    <h3 className="text-2xl sm:text-3xl font-bold text-slate-900">Регистрация через Яндекс ID</h3>
+                    <h3 className="text-2xl sm:text-3xl font-bold text-slate-900">Регистрация</h3>
                     <p className="text-slate-500 leading-relaxed max-w-sm mx-auto text-base">
                       Создайте личный кабинет и начните обучение в нашем кружке.
                     </p>
                   </div>
 
-                  {isYandexOAuthEnabled() ? (
+                  {isYandexOAuthEnabled() && (
                     <YandexSignInButton
                       size="xl"
                       label="Создать аккаунт с Яндекс ID"
                     />
-                  ) : (
+                  )}
+
+                  {isYandexOAuthEnabled() && isLoginAuthEnabled() && (
+                    <div className="flex items-center gap-3">
+                      <span className="h-px flex-1 bg-slate-200" />
+                      <span className="text-xs text-slate-400 uppercase tracking-wide">или придумайте логин</span>
+                      <span className="h-px flex-1 bg-slate-200" />
+                    </div>
+                  )}
+
+                  <LoginPasswordForm tone="light" initialMode="signup" />
+
+                  {!isYandexOAuthEnabled() && !isLoginAuthEnabled() && (
                     <p className="text-sm text-amber-700 text-center px-4 py-3 bg-amber-50 rounded-xl">
-                      Регистрация через Яндекс ID временно недоступна. Напишите на quantumschool@rqc.ru
+                      Регистрация временно недоступна. Напишите на quantumschool@rqc.ru
                     </p>
                   )}
                 </div>

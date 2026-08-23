@@ -6,7 +6,7 @@ import {
   CheckCircle, BookOpen, Presentation, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
-import { profileDisplayName, profileEmail } from '../lib/profileUtils';
+import { profileAccountLabel, profileDisplayName } from '../lib/profileUtils';
 import {
   dashboardSearchParamsEqual,
   defaultStudentDashboardState,
@@ -100,7 +100,7 @@ export default function StudentDashboard() {
   const [homeworkPendingCount, setHomeworkPendingCount] = useState(0);
   const [contentPageId, setContentPageId] = useState<string | null>(null);
   const displayName = profile ? profileDisplayName(profile) : 'Участник';
-  const accountSubtitle = profileEmail(profile, user?.email);
+  const accountSubtitle = profileAccountLabel(profile, user?.email);
   const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
 
   const closeMobileNav = () => setMobileNavOpen(false);

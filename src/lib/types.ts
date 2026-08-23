@@ -69,6 +69,10 @@ export interface UserProfile {
   stage1_score: number | null;
   stage2_score: number | null;
   email: string | null;
+  /** Придуманный логин; у аккаунтов Яндекс ID — null. */
+  login?: string | null;
+  /** Необязательная настоящая почта, только для восстановления доступа. */
+  recovery_email?: string | null;
   privacy_consent_at: string | null;
   privacy_policy_version: string | null;
   teacher_application?: boolean;

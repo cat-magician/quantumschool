@@ -7,9 +7,10 @@ import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import { supabase } from '../../lib/supabase';
 import type { UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileDisplayName, profileEmail } from '../../lib/profileUtils';
+import { profileAccountLabel, profileDisplayName, profileLogin } from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import SuperadminDeleteAccount from '../../components/SuperadminDeleteAccount';
+import SuperadminResetPassword from '../../components/SuperadminResetPassword';
 import { adminStageBadgeClass, adminStageLabel } from '../../lib/selectionDisplayUtils';
 import { removeUserFromAllGroups } from '../../lib/groupUtils';
 
@@ -162,7 +163,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
     const matchesSearch =
       !q ||
       d.display_name.toLowerCase().includes(q) ||
-      (d.email ?? '').toLowerCase().includes(q);
+      (profileAccountLabel(d) ?? '').toLowerCase().includes(q);
     const matchesFilter =
       filter === 'all' ||
       (filter === 'enrolled' && d.is_enrolled) ||
@@ -253,7 +254,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     <UserAvatar displayName={profileDisplayName(d)} avatarUrl={d.avatar_url} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-white text-sm leading-snug">{profileDisplayName(d)}</div>
-                      <div className="text-xs text-slate-500 truncate mt-0.5">{profileEmail(d) ?? '—'}</div>
+                      <div className="text-xs text-slate-500 truncate mt-0.5">{profileAccountLabel(d) ?? '—'}</div>
                       {!d.is_enrolled && (
                         <div className="mt-1">
                           <QuestionnaireStatusHint submittedAt={d.questionnaire_submitted_at} compact />
@@ -322,6 +323,13 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                       )}
                       <span>{d.selection_rejected ? 'Отказ' : 'Отказать'}</span>
                     </button>
+                    {isSuperAdmin && profileLogin(d) && (
+                      <SuperadminResetPassword
+                        userId={s.id}
+                        userName={profileDisplayName(d)}
+                        login={profileLogin(d) ?? ''}
+                      />
+                    )}
                     {isSuperAdmin && !d.is_enrolled && (
                       <SuperadminDeleteAccount
                         userId={s.id}

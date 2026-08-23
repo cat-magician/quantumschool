@@ -3,7 +3,7 @@ import { GraduationCap, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
-import { profileEmail } from '../lib/profileUtils';
+import { profileAccountLabel } from '../lib/profileUtils';
 import { markStudentCorridorUnlocked, markStudentLoginCorridor } from '../lib/loginCorridor';
 
 /** Заглушка для кандидата, который зашёл через коридор преподавателя. */
@@ -50,7 +50,7 @@ export default function TeacherApplicationGate() {
           <p className="text-xs text-slate-500 -mt-2 mb-1">Аккаунт создан: {submittedAt}</p>
         )}
         <p className="text-xs text-slate-600 mb-4">
-          Почта: <span className="text-slate-400">{profileEmail(profile, user?.email) ?? '—'}</span>
+          Аккаунт: <span className="text-slate-400">{profileAccountLabel(profile, user?.email) ?? '—'}</span>
         </p>
         <div className="flex flex-col gap-3">
           <button

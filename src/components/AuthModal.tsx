@@ -1,12 +1,17 @@
 import { X, Atom } from 'lucide-react';
 import YandexSignInButton from './YandexSignInButton';
+import LoginPasswordForm from './LoginPasswordForm';
 import { isYandexOAuthEnabled } from '../lib/yandexAuthConfig';
+import { isLoginAuthEnabled } from '../lib/loginAuthConfig';
 
 interface AuthModalProps {
   onClose: () => void;
 }
 
 export default function AuthModal({ onClose }: AuthModalProps) {
+  const yandex = isYandexOAuthEnabled();
+  const loginPassword = isLoginAuthEnabled();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" onClick={onClose}>
       <div
@@ -24,22 +29,37 @@ export default function AuthModal({ onClose }: AuthModalProps) {
         </div>
 
         <h2 className="text-xl font-bold text-white text-center mb-1">Вход в личный кабинет</h2>
-        <p className="text-slate-400 text-sm text-center mb-6">Через Яндекс ID</p>
+        <p className="text-slate-400 text-sm text-center mb-6">
+          {yandex ? 'Через Яндекс ID или по логину' : 'По логину и паролю'}
+        </p>
 
-        {isYandexOAuthEnabled() ? (
+        {yandex && (
           <YandexSignInButton
             size="lg"
             label="Войти с Яндекс ID"
             errorClassName="text-rose-400"
           />
-        ) : (
+        )}
+
+        {yandex && loginPassword && (
+          <div className="flex items-center gap-3 my-6">
+            <span className="h-px flex-1 bg-white/10" />
+            <span className="text-xs text-slate-500 uppercase tracking-wide">или</span>
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
+        )}
+
+        <LoginPasswordForm tone="dark" onSuccess={onClose} />
+
+        {!yandex && !loginPassword && (
           <p className="text-sm text-amber-400 text-center">
-            Вход через Яндекс ID временно недоступен. Обратитесь к организаторам.
+            Вход временно недоступен. Обратитесь к организаторам.
           </p>
         )}
 
         <p className="mt-6 text-center text-xs text-slate-500 leading-relaxed">
-          Если аккаунта ещё нет, он создастся при первом входе.
+          Если аккаунта ещё нет, он создастся при первом входе через Яндекс ID
+          или на вкладке «Регистрация».
         </p>
       </div>
     </div>

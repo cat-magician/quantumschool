@@ -1,4 +1,5 @@
 import type { UserProfile } from './types';
+import { loginFromAuthEmail } from './loginAuthConfig';
 
 export function roleLabel(profile: UserProfile): string {
   if (profile.role === 'superadmin') return 'Суперадмин';
@@ -42,12 +43,39 @@ export function profileDisplayName(
   return profile.display_name?.trim() || 'Участник';
 }
 
-/** Почта из Яндекс ID — единственный идентификатор пользователя. */
+/**
+ * Настоящая почта аккаунта. У входа по логину её нет: адрес в auth.users
+ * технический, письма туда не уходят, показывать его нельзя.
+ */
 export function profileEmail(
   profile: Pick<UserProfile, 'email'> | null | undefined,
   authEmail?: string | null,
 ): string | null {
-  return authEmail?.trim() || profile?.email?.trim() || null;
+  const value = authEmail?.trim() || profile?.email?.trim() || null;
+  if (!value || loginFromAuthEmail(value)) return null;
+  return value;
+}
+
+/** Логин аккаунта; у входа через Яндекс ID — null. */
+export function profileLogin(
+  profile: Pick<UserProfile, 'email' | 'login'> | null | undefined,
+  authEmail?: string | null,
+): string | null {
+  const stored = profile?.login?.trim();
+  if (stored) return stored;
+  return loginFromAuthEmail(authEmail ?? profile?.email ?? null);
+}
+
+/** Чем подписан аккаунт в списках: почтой Яндекс ID или логином. */
+export function profileAccountLabel(
+  profile: Pick<UserProfile, 'email' | 'login'> | null | undefined,
+  authEmail?: string | null,
+): string | null {
+  const email = profileEmail(profile, authEmail);
+  if (email) return email;
+
+  const login = profileLogin(profile, authEmail);
+  return login ? `логин: ${login}` : null;
 }
 
 export function profileToEditable(profile: UserProfile): ProfileEditableFields {

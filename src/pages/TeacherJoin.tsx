@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Atom, GraduationCap } from 'lucide-react';
 import YandexSignInButton from '../components/YandexSignInButton';
+import LoginPasswordForm from '../components/LoginPasswordForm';
 import { isYandexOAuthEnabled } from '../lib/yandexAuthConfig';
+import { isLoginAuthEnabled } from '../lib/loginAuthConfig';
 import { markTeacherLoginCorridor } from '../lib/loginCorridor';
 
 export default function TeacherJoin() {
@@ -26,20 +28,32 @@ export default function TeacherJoin() {
           </div>
           <h1 className="text-xl font-bold text-white text-center mb-1">Заявка преподавателя</h1>
           <p className="text-slate-400 text-sm text-center mb-8 leading-relaxed">
-            Войдите через Яндекс ID — заявка отправится автоматически. Для школьников —{' '}
+            Войдите любым способом — заявка отправится автоматически. Для школьников —{' '}
             <Link to="/#contact" className="text-blue-400 hover:text-blue-300">регистрация на главной</Link>.
           </p>
 
-          {isYandexOAuthEnabled() ? (
+          {isYandexOAuthEnabled() && (
             <YandexSignInButton
               size="lg"
               label="Продолжить с Яндекс ID"
               teacherApplication
               errorClassName="text-rose-400"
             />
-          ) : (
+          )}
+
+          {isYandexOAuthEnabled() && isLoginAuthEnabled() && (
+            <div className="flex items-center gap-3 my-6">
+              <span className="h-px flex-1 bg-white/10" />
+              <span className="text-xs text-slate-500 uppercase tracking-wide">или</span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+          )}
+
+          <LoginPasswordForm tone="dark" teacherApplication />
+
+          {!isYandexOAuthEnabled() && !isLoginAuthEnabled() && (
             <p className="text-sm text-amber-400 text-center">
-              Вход через Яндекс ID временно недоступен.
+              Вход временно недоступен.
             </p>
           )}
 

@@ -9,7 +9,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import type { Group, GroupMember, ScheduleEvent, UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileEmail } from '../../lib/profileUtils';
+import { profileAccountLabel } from '../../lib/profileUtils';
 import { appHref } from '../../lib/appPaths';
 import { loadGroupTeachers, loadGroupStaffProfiles } from '../../lib/groupUtils';
 import {
@@ -245,7 +245,7 @@ export default function TeachersTab() {
                   <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="xs" />
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white truncate">{a.display_name}</div>
-                    <div className="text-[11px] text-slate-500 truncate">{profileEmail(a) ?? '—'}</div>
+                    <div className="text-[11px] text-slate-500 truncate">{profileAccountLabel(a) ?? '—'}</div>
                   </div>
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -338,7 +338,7 @@ function TeacherCard({
             isYou={isYou}
             isSuperadmin={profile.role === 'superadmin'}
           />
-          <div className="h-3.5 text-[11px] text-slate-500 truncate leading-none">{profileEmail(profile) ?? '—'}</div>
+          <div className="h-3.5 text-[11px] text-slate-500 truncate leading-none">{profileAccountLabel(profile) ?? '—'}</div>
         </div>
         {canExclude && (
           <button

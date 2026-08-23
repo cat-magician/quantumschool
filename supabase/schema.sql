@@ -2508,12 +2508,12 @@ REVOKE ALL ON FUNCTION public.superadmin_delete_user_account(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.superadmin_delete_user_account(uuid) TO authenticated;
 
 -- ══════════════════════════════════════════════════════════════
--- Вход только через Яндекс ID: пользователь опознаётся по email
+-- Способы входа: Яндекс ID и логин с паролем
 -- ══════════════════════════════════════════════════════════════
 
--- В самом конце: к этому моменту гарды и триггеры уже не ссылаются на login.
-ALTER TABLE public.user_profiles
-  DROP COLUMN IF EXISTS login;
+-- Колонку login старой (почтовой) схемы здесь раньше дропали. Теперь она
+-- заводится заново — см. секцию «Вход по логину и паролю» в конце файла;
+-- дропать её тут нельзя, иначе каждый прогон schema.sql сносил бы логины.
 
 -- ══════════════════════════════════════════════════════════════
 -- Security hardening: права на функции (переприменяется при каждом деплое)
@@ -2701,3 +2701,179 @@ CREATE POLICY "Enrolled students read community config" ON public.community_conf
 DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
 REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Вход по логину и паролю (второй способ рядом с Яндекс ID)
+-- ══════════════════════════════════════════════════════════════
+--
+-- Supabase Auth опознаёт пользователя только по email или телефону, поэтому
+-- логину сопоставляется технический адрес <login>@id.quantumschool.ru.
+-- Пользователь его не видит и не вводит, письма туда не уходят — домен
+-- намеренно не почтовый.
+--
+-- Настоящая почта, если её оставили при регистрации, живёт отдельно в
+-- user_profiles.recovery_email и в аутентификации не участвует. Класть
+-- непроверенный адрес в auth.users.email нельзя: чужой почтой можно было бы
+-- занять аккаунт, к которому её настоящий владелец потом привяжет Яндекс ID.
+--
+-- Домен обязан совпадать с LOGIN_EMAIL_DOMAIN в src/lib/loginAuthConfig.ts.
+
+CREATE OR REPLACE FUNCTION private.login_email_domain()
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$ SELECT 'id.quantumschool.ru'::text $$;
+
+-- Логин из технического адреса; у аккаунтов Яндекс ID — NULL.
+CREATE OR REPLACE FUNCTION private.login_from_email(p_email text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN lower(COALESCE(p_email, '')) LIKE ('%@' || private.login_email_domain())
+      THEN NULLIF(split_part(lower(p_email), '@', 1), '')
+    ELSE NULL
+  END;
+$$;
+
+REVOKE ALL ON FUNCTION private.login_email_domain() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.login_from_email(text) FROM PUBLIC, anon, authenticated;
+
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS login text,
+  ADD COLUMN IF NOT EXISTS recovery_email text;
+
+-- Дубли невозможны и так (auth.users.email уникален), индекс — страховка.
+CREATE UNIQUE INDEX IF NOT EXISTS user_profiles_login_key
+  ON public.user_profiles (lower(login))
+  WHERE login IS NOT NULL;
+
+-- Роль больше не читается из raw_user_meta_data: при регистрации по логину её
+-- задаёт клиент, а значит любой мог бы попросить себе 'admin'. Демо-сиды
+-- (demo/apply.sql, scripts/seed-test-users.mjs) и так проставляют роль
+-- отдельным UPDATE профиля, на триггер они не опираются.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_role text;
+  v_login text;
+  v_display_name text;
+BEGIN
+  IF private.is_allowlisted_superadmin_email(COALESCE(new.email, '')) THEN
+    v_role := 'superadmin';
+  ELSE
+    v_role := 'student';
+  END IF;
+
+  v_login := private.login_from_email(new.email);
+  v_display_name := COALESCE(
+    NULLIF(public.extract_oauth_display_name(new.raw_user_meta_data), ''),
+    v_login,
+    ''
+  );
+
+  INSERT INTO public.user_profiles (id, display_name, role, email, login, recovery_email)
+  VALUES (
+    new.id,
+    v_display_name,
+    v_role,
+    new.email,
+    v_login,
+    CASE
+      WHEN v_login IS NULL THEN NULL
+      ELSE lower(NULLIF(trim(new.raw_user_meta_data->>'recovery_email'), ''))
+    END
+  );
+  RETURN new;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated, public;
+
+-- Логин привязан к auth.users.email, править его из приложения нельзя никому:
+-- разъехавшись с почтой, он оставит человека без входа.
+CREATE OR REPLACE FUNCTION public.guard_user_profile_login()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.login IS NOT DISTINCT FROM OLD.login THEN
+    RETURN NEW;
+  END IF;
+
+  -- SQL Editor, демо-сиды, триггеры auth (без JWT)
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- MESSAGE в USING нельзя сочетать с форматной строкой, поэтому поле в тексте.
+  RAISE EXCEPTION 'profile_update_forbidden: login' USING ERRCODE = '42501';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_user_profile_login ON public.user_profiles;
+CREATE TRIGGER guard_user_profile_login
+  BEFORE UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.guard_user_profile_login();
+
+REVOKE ALL ON FUNCTION public.guard_user_profile_login() FROM PUBLIC, anon, authenticated;
+
+-- Восстановление пароля: писем в системе нет, поэтому пароль заново выдаёт
+-- суперадмин. recovery_email нужен, чтобы понять, с кем он разговаривает.
+CREATE OR REPLACE FUNCTION public.superadmin_set_login_password(
+  target_user_id uuid,
+  new_password text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public, extensions
+AS $$
+DECLARE
+  v_login text;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  IF length(COALESCE(new_password, '')) < 8 THEN
+    RAISE EXCEPTION 'password_too_short';
+  END IF;
+
+  SELECT COALESCE(p.login, private.login_from_email(u.email))
+  INTO v_login
+  FROM auth.users u
+  LEFT JOIN public.user_profiles p ON p.id = u.id
+  WHERE u.id = target_user_id;
+
+  IF v_login IS NULL THEN
+    RAISE EXCEPTION 'not_a_login_account';
+  END IF;
+
+  UPDATE auth.users
+  SET
+    encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
+    updated_at = now()
+  WHERE id = target_user_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_set_login_password(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_set_login_password(uuid, text) TO authenticated;
+
+-- Заполнить login у аккаунтов, заведённых до появления колонки.
+UPDATE public.user_profiles p
+SET login = private.login_from_email(u.email)
+FROM auth.users u
+WHERE u.id = p.id
+  AND p.login IS NULL
+  AND private.login_from_email(u.email) IS NOT NULL;

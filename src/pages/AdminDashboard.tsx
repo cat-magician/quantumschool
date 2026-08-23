@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
-import { profileDisplayName, profileEmail } from '../lib/profileUtils';
+import { profileAccountLabel, profileDisplayName } from '../lib/profileUtils';
 import {
   adminDashboardStateToSearchParams,
   dashboardSearchParamsEqual,
@@ -79,7 +79,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [contentListResetKey, setContentListResetKey] = useState(0);
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
-  const accountSubtitle = profileEmail(profile, user?.email);
+  const accountSubtitle = profileAccountLabel(profile, user?.email);
 
   const gradingLabel = useMemo(
     () =>
