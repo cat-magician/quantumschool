@@ -8,7 +8,7 @@ import { markStudentCorridorUnlocked, markStudentLoginCorridor } from '../lib/lo
 
 /** Заглушка для кандидата, который зашёл через коридор преподавателя. */
 export default function TeacherApplicationGate() {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, signOut, signingOut, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [checking, setChecking] = useState(false);
 
@@ -72,10 +72,11 @@ export default function TeacherApplicationGate() {
           <button
             type="button"
             onClick={signOut}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
+            disabled={signingOut}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <LogOut className="w-4 h-4" />
-            Выйти
+            {signingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+            {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
           <DashboardSiteHomeLink className="justify-center" />
           <p className="text-[11px] text-slate-600 leading-relaxed">

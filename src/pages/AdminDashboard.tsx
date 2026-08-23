@@ -15,7 +15,7 @@ import { publicAsset } from '../lib/appPaths';
 import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import {
-  LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck,
+  Loader2, LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck,
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
 import SelectionStage1ConfigTab from './admin/SelectionStage1ConfigTab';
@@ -68,7 +68,7 @@ const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
 };
 
 export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean }) {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, signOut, signingOut, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<AdminTab>('home');
@@ -339,11 +339,13 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             <DashboardSiteHomeLink />
           </div>
           <button
+            type="button"
             onClick={signOut}
-            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm"
+            disabled={signingOut}
+            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <LogOut className="w-4 h-4" />
-            Выйти
+            {signingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+            {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
         </div>
       </aside>
@@ -436,9 +438,16 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             </div>
           </button>
           <DashboardSiteHomeLink />
-          <button type="button" onClick={signOut} className={mobileMenuBtn(false)}>
-            <LogOut className="w-5 h-5 shrink-0" />
-            Выйти
+          <button
+            type="button"
+            onClick={signOut}
+            disabled={signingOut}
+            className={`${mobileMenuBtn(false)} disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {signingOut
+              ? <Loader2 className="w-5 h-5 shrink-0 animate-spin" />
+              : <LogOut className="w-5 h-5 shrink-0" />}
+            {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
         </div>
       </DashboardMobileNav>

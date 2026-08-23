@@ -34,6 +34,19 @@ import { markJustDemotedFromTeacher } from './studentCabinetSnapshot';
 /** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
 const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
 
+/** Столько ждём каждую попытку выхода, прежде чем перейти к запасной. */
+const SIGN_OUT_TIMEOUT_MS = 5000;
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('timeout')), ms);
+    Promise.resolve(promise).then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 interface AuthContextValue {
   user: User | null;
   session: Session | null;
@@ -56,6 +69,8 @@ interface AuthContextValue {
     teacherApplication?: boolean;
   }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  /** Выход в процессе: кнопки блокируются, чтобы не жать повторно. */
+  signingOut: boolean;
   refreshProfile: () => Promise<void>;
   recordPrivacyConsent: () => Promise<{ error: string | null }>;
   oauthError: string | null;
@@ -81,7 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
+  const signingOutRef = useRef(false);
 
   useEffect(() => {
     profileRef.current = profile;
@@ -433,11 +450,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: null };
   }, [user, profile]);
 
+  /**
+   * Выход не должен зависеть от сети и от того, жива ли сессия на сервере.
+   * Глобальный signOut отзывает refresh-токены на всех устройствах, но он
+   * ходит в /logout: если запрос упал, завис или сессия уже протухла,
+   * supabase-js оставляет локальную сессию — и кнопка «Выйти» молча ничего
+   * не делает. Поэтому: тайм-аут, затем локальное гашение (оно только стирает
+   * хранилище, без сети), а в самом конце всё равно чистим состояние.
+   */
   const signOut = async () => {
+    // Ref, а не состояние: два клика подряд успевают пройти до перерисовки.
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
+    setSigningOut(true);
+
     clearLoginCorridor();
-    await supabase.auth.signOut();
+
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signOut(),
+        SIGN_OUT_TIMEOUT_MS,
+      );
+      if (error) throw error;
+    } catch (globalError) {
+      console.error('Глобальный выход не удался, гасим сессию локально:', globalError);
+      try {
+        await withTimeout(
+          supabase.auth.signOut({ scope: 'local' }),
+          SIGN_OUT_TIMEOUT_MS,
+        );
+      } catch (localError) {
+        console.error('Локальный выход тоже не удался:', localError);
+      }
+    }
+
+    // Не ждём SIGNED_OUT: если событие не придёт, человек останется в кабинете.
+    setSession(null);
+    setUser(null);
     setProfile(null);
     setProfileLoading(false);
+    signingOutRef.current = false;
+    setSigningOut(false);
   };
 
   const clearOAuthError = useCallback(() => setOauthError(null), []);
@@ -445,7 +498,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, profile, loading, signInWithYandex, signInWithLogin, signUpWithLogin,
-      signOut, refreshProfile, recordPrivacyConsent, oauthError, clearOAuthError,
+      signOut, signingOut, refreshProfile, recordPrivacyConsent, oauthError, clearOAuthError,
     }}
     >
       {children}

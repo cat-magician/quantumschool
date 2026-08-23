@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  LogOut, Calendar, BarChart3, Home,
+  Loader2, LogOut, Calendar, BarChart3, Home,
   ClipboardList, FileText, FlaskConical, Lock,
   CheckCircle, BookOpen, Presentation, GraduationCap,
 } from 'lucide-react';
@@ -86,7 +86,7 @@ const LEARNING_HEADER: Record<LearningSubTab, string> = {
 };
 
 export default function StudentDashboard() {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, signOut, signingOut, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isEnrolled = profile?.is_enrolled ?? false;
@@ -513,11 +513,13 @@ export default function StudentDashboard() {
             <DashboardSiteHomeLink />
           </div>
           <button
+            type="button"
             onClick={signOut}
-            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm"
+            disabled={signingOut}
+            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <LogOut className="w-4 h-4" />
-            Выйти
+            {signingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+            {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
         </div>
       </aside>
@@ -667,9 +669,16 @@ export default function StudentDashboard() {
             </div>
           </button>
           <DashboardSiteHomeLink />
-          <button type="button" onClick={signOut} className={mobileMenuBtn(false)}>
-            <LogOut className="w-5 h-5 shrink-0" />
-            Выйти
+          <button
+            type="button"
+            onClick={signOut}
+            disabled={signingOut}
+            className={`${mobileMenuBtn(false)} disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {signingOut
+              ? <Loader2 className="w-5 h-5 shrink-0 animate-spin" />
+              : <LogOut className="w-5 h-5 shrink-0" />}
+            {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
         </div>
       </DashboardMobileNav>

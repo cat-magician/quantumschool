@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { AlertCircle, LogOut, RefreshCw } from 'lucide-react';
+import { AlertCircle, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { hasOAuthCallbackInUrl, hasOAuthCodeInUrl } from '../lib/oauthCallbackUtils';
 import StudentDashboard from './StudentDashboard';
@@ -11,7 +11,9 @@ import { profileNeedsPrivacyConsent } from '../lib/profileUtils';
 import { shouldShowTeacherApplicationGate } from '../lib/loginCorridor';
 
 export default function Dashboard() {
-  const { user, profile, loading, oauthError, clearOAuthError, signOut, refreshProfile } = useAuth();
+  const {
+    user, profile, loading, oauthError, clearOAuthError, signOut, signingOut, refreshProfile,
+  } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -79,11 +81,13 @@ export default function Dashboard() {
               Повторить
             </button>
             <button
+              type="button"
               onClick={signOut}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
+              disabled={signingOut}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <LogOut className="w-4 h-4" />
-              Выйти
+              {signingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+              {signingOut ? 'Выходим…' : 'Выйти'}
             </button>
             <Link to="/" className="text-sm text-slate-500 hover:text-slate-300">На главную</Link>
           </div>
