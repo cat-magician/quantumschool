@@ -31,7 +31,7 @@ export default function StudentProgressTab({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     Promise.all([
       supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true).order('created_at'),
       supabase.from('homework_page_submissions').select('*').eq('user_id', user.id),
@@ -52,7 +52,7 @@ export default function StudentProgressTab({
       }
       setLoading(false);
     });
-  }, [user]);
+  }, [user?.id]);
 
   const homeworkPages = useMemo(
     () => buildHomeworkPageProgress(publishedPages, submissions, user?.id ?? ''),
@@ -60,8 +60,8 @@ export default function StudentProgressTab({
   );
 
   const earnedKeys = useMemo(
-    () => (user ? collectEarnedKeys(achievements, user.id) : []),
-    [achievements, user],
+    () => (user?.id ? collectEarnedKeys(achievements, user.id) : []),
+    [achievements, user?.id],
   );
 
   const stats = useMemo(() => {

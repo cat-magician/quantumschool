@@ -21,7 +21,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
   const [filter, setFilter] = useState<HomeworkListFilter>('all');
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     setLoading(true);
     setLoadError(null);
     Promise.all([
@@ -39,7 +39,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
       }
       setLoading(false);
     });
-  }, [user]);
+  }, [user?.id]);
 
   const sortedPages = useMemo(
     () => sortHomeworkPagesForStudent(pages, sort),

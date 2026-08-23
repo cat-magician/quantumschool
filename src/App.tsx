@@ -929,11 +929,29 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     const available = container.clientWidth - navReserved;
     if (available <= 0) return;
 
-    setLayout({
-      ...computeCarouselLayout(available),
-      constrainViewport: isDesktop,
+    // Тот же layout — оставляем прежний объект, иначе каждый вызов рождает
+    // новый setState -> рендер -> эффект -> вызов: бесконечный цикл перерисовок.
+    setLayout((prev) => {
+      const next = {
+        ...computeCarouselLayout(available),
+        constrainViewport: isDesktop,
+      };
+      if (
+        prev
+        && prev.viewportWidth === next.viewportWidth
+        && prev.cardWidth === next.cardWidth
+        && prev.visibleCount === next.visibleCount
+        && prev.constrainViewport === next.constrainViewport
+      ) {
+        return prev;
+      }
+      return next;
     });
   }, []);
+
+  // Зависимость по количеству карточек, не по массиву: filter() каждый рендер
+  // отдаёт новый массив, и эффект перезапускался бы на каждую перерисовку.
+  const visibleCount = visibleInstructors.length;
 
   useEffect(() => {
     measureViewport();
@@ -947,7 +965,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
       ro.disconnect();
       window.removeEventListener('resize', measureViewport);
     };
-  }, [visibleInstructors, loading, measureViewport]);
+  }, [visibleCount, loading, measureViewport]);
 
   const getMaxScroll = (scrollEl: HTMLElement) =>
     Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);

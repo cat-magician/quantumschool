@@ -287,7 +287,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         markStudentCorridorUnlocked(authUser.id);
       }
 
-      setProfile(nextProfile);
+      // Данные не изменились — оставляем прежний объект: profile сидит в
+      // зависимостях эффектов по всему кабинету, и новая ссылка каждые
+      // 45–60 секунд заставляла их перезагружать данные с миганием.
+      setProfile((prev) => (
+        prev && nextProfile && JSON.stringify(prev) === JSON.stringify(nextProfile)
+          ? prev
+          : nextProfile
+      ));
     } finally {
       if (!background) setProfileLoading(false);
     }
@@ -301,9 +308,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     let oauthTimer: number | undefined;
 
+    // Те же данные — прежние ссылки. Новый объект user перезапускает
+    // эффекты загрузки по всему кабинету (setLoading → мигание), а
+    // TOKEN_REFRESHED приходит и по таймеру, и при возврате на вкладку.
     const applySession = (nextSession: Session | null) => {
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
+      setSession((prev) => (
+        prev && nextSession && prev.access_token === nextSession.access_token
+          ? prev
+          : nextSession
+      ));
+      setUser((prev) => {
+        const nextUser = nextSession?.user ?? null;
+        if (!prev || !nextUser) return nextUser;
+        if (prev.id === nextUser.id && prev.updated_at === nextUser.updated_at) return prev;
+        return nextUser;
+      });
       return nextSession?.user ?? null;
     };
 
@@ -314,8 +333,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Загрузку профиля нельзя запускать внутри onAuthStateChange: коллбэк
     // держит внутренний лок supabase-js.
-    const scheduleProfileFetch = (authUser: User) => {
+    const scheduleProfileFetch = (authUser: User, event: string) => {
       const hasProfile = profileRef.current?.id === authUser.id;
+      // Плановое продление токена профиль не меняет — не перечитываем.
+      if (hasProfile && event === 'TOKEN_REFRESHED') return;
       if (!hasProfile) setProfileLoading(true);
       window.setTimeout(() => {
         if (!mounted) return;
@@ -369,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (authUser) {
         setProfile((prev) => (prev?.id === authUser.id ? prev : null));
-        scheduleProfileFetch(authUser);
+        scheduleProfileFetch(authUser, event);
         if (redirectAfterOAuthIfNeeded()) return;
         finishInit();
         return;

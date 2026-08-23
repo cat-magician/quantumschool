@@ -165,12 +165,12 @@ export default function StudentDashboard() {
   };
 
   useEffect(() => {
-    if (!user || !isEnrolled) {
+    if (!user?.id || !isEnrolled) {
       setGroupContext(null);
       return;
     }
     loadStudentGroupContext(supabase, user.id).then(setGroupContext);
-  }, [user, isEnrolled]);
+  }, [user?.id, isEnrolled]);
 
   useEffect(() => {
     let parsed = parseStudentDashboardSearchParams(searchParams);
