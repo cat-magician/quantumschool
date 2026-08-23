@@ -19,29 +19,55 @@ export function hasOAuthCodeInUrl(): boolean {
   return readOAuthParams().has('code');
 }
 
+const OAUTH_SUPPORT_EMAIL = 'quantumschool@rqc.ru';
+
+/**
+ * Экран ошибки видят школьники, поэтому текст человеческий, а инструкция
+ * по настройке — в консоль: администратору она нужна, участнику только пугает.
+ */
 export function translateOAuthError(description: string): string {
   const decoded = decodeURIComponent(description.replace(/\+/g, ' '));
+  const lower = decoded.toLowerCase();
 
   if (decoded.includes('missing provider id')) {
-    return 'Supabase не нашёл идентификатор пользователя в ответе Яндекса. '
-      + 'У провайдера custom:yandex в UserInfo URL должна стоять функция yandex-userinfo, '
-      + 'а не https://login.yandex.ru/info.';
+    console.error(
+      'Yandex OAuth: Supabase не нашёл идентификатор пользователя в ответе провайдера. '
+      + 'У custom:yandex в UserInfo URL должна стоять Edge Function yandex-userinfo, '
+      + `а не https://login.yandex.ru/info. Ответ: ${decoded}`,
+    );
+    return 'Вход через Яндекс ID сейчас не работает — сервис настроен неверно. '
+      + `Мы уже видим проблему; если она не исчезнет, напишите на ${OAUTH_SUPPORT_EMAIL}`;
   }
 
   if (decoded.includes('Error getting user email from external provider')) {
-    return 'Supabase не получил email от Яндекса. Проверьте Scopes: login:info login:email, '
-      + 'право login:email в приложении Яндекса и что UserInfo URL указывает на yandex-userinfo.';
+    console.error(
+      'Yandex OAuth: не пришёл email. Проверьте Scopes (login:info login:email), '
+      + 'право login:email в приложении Яндекса и UserInfo URL → yandex-userinfo. '
+      + `Ответ: ${decoded}`,
+    );
+    return 'Яндекс не передал почту, без неё вход невозможен. Разрешите доступ к почте '
+      + `при входе или напишите на ${OAUTH_SUPPORT_EMAIL}`;
   }
 
-  const lower = decoded.toLowerCase();
   if (
     lower.includes('redirect')
     && (lower.includes('not allowed') || lower.includes('mismatch') || lower.includes('invalid'))
   ) {
-    return `Адрес возврата не разрешён в Supabase. Добавьте в Authentication → URL Configuration → Redirect URLs: ${oauthDashboardRedirectPath()}`;
+    console.error(
+      'Yandex OAuth: адрес возврата не в allowlist. Добавьте в Supabase → Authentication → '
+      + `URL Configuration → Redirect URLs: ${oauthDashboardRedirectPath()}. Ответ: ${decoded}`,
+    );
+    return 'Вход через Яндекс ID сейчас не работает — сервис настроен неверно. '
+      + `Мы уже видим проблему; если она не исчезнет, напишите на ${OAUTH_SUPPORT_EMAIL}`;
   }
 
-  return decoded || 'Не удалось войти через Яндекс ID';
+  // Отказ на экране Яндекса — единственная ошибка «по вине» пользователя.
+  if (lower.includes('access_denied') || lower.includes('user denied') || lower.includes('отмен')) {
+    return 'Вход отменён на странице Яндекса. Попробуйте ещё раз и подтвердите доступ.';
+  }
+
+  if (decoded) console.error('Yandex OAuth error:', decoded);
+  return `Не удалось войти через Яндекс ID. Попробуйте ещё раз через пару минут или напишите на ${OAUTH_SUPPORT_EMAIL}`;
 }
 
 /** Прочитать и убрать из URL ошибку OAuth (после неудачного редиректа). */
