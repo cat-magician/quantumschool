@@ -2877,3 +2877,31 @@ FROM auth.users u
 WHERE u.id = p.id
   AND p.login IS NULL
   AND private.login_from_email(u.email) IS NOT NULL;
+
+-- ══════════════════════════════════════════════════════════════
+-- Преподаватели ведут отбор наравне с суперадминами
+-- ══════════════════════════════════════════════════════════════
+--
+-- Раньше преподаватель читал только сотрудников, учеников своих групп и уже
+-- зачисленных. В группы попадают одни зачисленные, поэтому вкладка
+-- «Отборочные этапы» показывала ему кого угодно, кроме собственно участников
+-- отбора. Теперь staff видит все профили и оценивает всех участников.
+--
+-- Побочный эффект осознанный: анкетные поля участников (город, школа, класс,
+-- почта) становятся видны каждому преподавателю, а не только суперадминам.
+
+DROP POLICY IF EXISTS "Staff can read all profiles" ON public.user_profiles;
+CREATE POLICY "Staff can read all profiles" ON public.user_profiles
+  FOR SELECT TO authenticated
+  USING (private.is_staff());
+
+-- Охват записи и чтения теперь совпадает — раньше политика записи была шире
+-- и держалась только на том, что Postgres при UPDATE ... WHERE применяет ещё
+-- и SELECT-политику. Роль по-прежнему не поменять: WITH CHECK оставляет
+-- строку ученической, а повышение до преподавателя — отдельная политика
+-- «Superadmin update roles».
+DROP POLICY IF EXISTS "Staff can update student profiles" ON public.user_profiles;
+CREATE POLICY "Staff can update student profiles" ON public.user_profiles
+  FOR UPDATE TO authenticated
+  USING (private.is_staff() AND role = 'student')
+  WITH CHECK (private.is_staff() AND role = 'student');

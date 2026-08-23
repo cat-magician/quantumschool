@@ -45,7 +45,14 @@ export default function AdminDashboardHome({
   const ungradedCount = useAdminUngradedCount(isSuperAdmin);
   const greeting = displayName.trim() || 'добро пожаловать';
 
+  // Отбор ведут все преподаватели; настройка самих этапов — только суперадмин.
   const actions: AdminHomeAction[] = [
+    {
+      label: 'Результаты отбора',
+      description: 'Оценки, зачисление и отклонение',
+      tab: 'results',
+      selectionSub: 'results',
+    },
     {
       label: ungradedCount ? `Проверить домашки · ${ungradedCount}` : 'Проверить домашки',
       description: 'Сданные работы без оценки',
@@ -65,20 +72,12 @@ export default function AdminDashboardHome({
   ];
 
   if (isSuperAdmin) {
-    actions.unshift(
-      {
-        label: 'Результаты отбора',
-        description: 'Оценки, зачисление и отклонение',
-        tab: 'results',
-        selectionSub: 'results',
-      },
-      {
-        label: 'Настройка этапов',
-        description: 'Формы и контест для отбора',
-        tab: 'results',
-        selectionSub: 'stage1',
-      },
-    );
+    actions.splice(1, 0, {
+      label: 'Настройка этапов',
+      description: 'Формы и контест для отбора',
+      tab: 'results',
+      selectionSub: 'stage1',
+    });
     actions.push({
       label: 'Преподаватели',
       description: 'Заявки и назначение в группы',
@@ -93,7 +92,7 @@ export default function AdminDashboardHome({
         <p className="text-slate-400 text-sm">
           {isSuperAdmin
             ? 'Быстрый доступ к отбору, ученикам и проверке работ'
-            : 'Материалы, расписание и проверка домашних заданий'}
+            : 'Отбор, материалы, расписание и проверка домашних заданий'}
         </p>
       </div>
 
