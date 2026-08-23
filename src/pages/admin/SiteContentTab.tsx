@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import {
+  ArrowDown, ArrowUp, CalendarClock, CheckCircle, ChevronDown, ChevronUp,
+  FlaskConical, GripVertical, Loader2, Plus, Save, Trash2,
+} from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
-import { DEFAULT_LANDING_CONFIG, fetchLandingConfig, formatHeroBadgeText, saveLandingConfig } from '../../lib/landingConfig';
+import {
+  DEFAULT_LANDING_CONFIG,
+  KEY_DATES_LIMITS,
+  fetchLandingConfig,
+  formatHeroBadgeText,
+  normalizeKeyDates,
+  saveKeyDates,
+  saveLandingConfig,
+} from '../../lib/landingConfig';
 import {
   DEFAULT_COMMUNITY_CONFIG,
   fetchCommunityConfig,
@@ -18,7 +29,7 @@ import {
   isInstructorPublishable,
 } from '../../lib/siteContentLimits';
 import { supabase } from '../../lib/supabase';
-import type { Instructor } from '../../lib/types';
+import type { Instructor, KeyDate } from '../../lib/types';
 import LessonCoverImage from '../../components/LessonCoverImage';
 import InstructorCardPreview, { INSTRUCTOR_CARD_WIDTH } from '../../components/InstructorCardPreview';
 import ImageSourceInput from '../../components/ImageSourceInput';
@@ -81,6 +92,11 @@ export default function SiteContentTab() {
   const [badgeText, setBadgeText] = useState(DEFAULT_LANDING_CONFIG.hero_badge_text);
   const [telegramUrl, setTelegramUrl] = useState(DEFAULT_COMMUNITY_CONFIG.telegram_invite_url);
   const [telegramMessage, setTelegramMessage] = useState(DEFAULT_COMMUNITY_CONFIG.telegram_invite_message);
+  const [keyDatesTitle, setKeyDatesTitle] = useState(DEFAULT_LANDING_CONFIG.key_dates_title);
+  const [keyDatesNote, setKeyDatesNote] = useState(DEFAULT_LANDING_CONFIG.key_dates_note);
+  const [keyDateItems, setKeyDateItems] = useState<KeyDate[]>([]);
+  const [keyDatesPublished, setKeyDatesPublished] = useState(false);
+  const [savingKeyDates, setSavingKeyDates] = useState(false);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [drafts, setDrafts] = useState<Record<string, InstructorDraft>>({});
   const [newDraft, setNewDraft] = useState<InstructorDraft | null>(null);
@@ -125,6 +141,10 @@ export default function SiteContentTab() {
     ]);
 
     setBadgeText(landingConfig.hero_badge_text);
+    setKeyDatesTitle(landingConfig.key_dates_title);
+    setKeyDatesNote(landingConfig.key_dates_note);
+    setKeyDateItems(landingConfig.key_dates);
+    setKeyDatesPublished(landingConfig.key_dates_published);
     setTelegramUrl(communityConfig.telegram_invite_url);
     setTelegramMessage(communityConfig.telegram_invite_message);
     if (!instructorsOk) {
@@ -170,6 +190,60 @@ export default function SiteContentTab() {
 
     flash('Плашка опубликована на главной');
     setBadgeText(trimmed);
+    await load();
+  };
+
+  const patchKeyDate = (index: number, patch: Partial<KeyDate>) => {
+    setKeyDateItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  };
+
+  const addKeyDate = () => {
+    setKeyDateItems((prev) => (
+      prev.length >= KEY_DATES_LIMITS.items ? prev : [...prev, { date: '', label: '' }]
+    ));
+  };
+
+  const removeKeyDate = (index: number) => {
+    setKeyDateItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const moveKeyDate = (index: number, delta: -1 | 1) => {
+    setKeyDateItems((prev) => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  /** published приходит явно: «Сохранить» оставляет текущее состояние блока. */
+  const persistKeyDates = async (published: boolean) => {
+    if (!user) return;
+    const items = normalizeKeyDates(keyDateItems);
+
+    if (published && items.length === 0) {
+      setError('Добавьте хотя бы одну дату — публиковать пустой блок нечего');
+      return;
+    }
+
+    setSavingKeyDates(true);
+    setError('');
+    const { error: saveError } = await saveKeyDates(
+      { title: keyDatesTitle, note: keyDatesNote, items, published },
+      user.id,
+    );
+    setSavingKeyDates(false);
+
+    if (saveError) {
+      setError('Не удалось сохранить даты. Примените миграцию landing_config в schema.sql.');
+      return;
+    }
+
+    if (published) flash('Блок с датами опубликован на главной');
+    else if (keyDatesPublished) flash('Блок снят с публикации — на главной его больше нет');
+    else flash('Черновик сохранён, на главной блока пока нет');
+
     await load();
   };
 
@@ -458,6 +532,182 @@ export default function SiteContentTab() {
           {savingBadge ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Сохранить и опубликовать плашку
         </button>
+      </section>
+
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3 mb-1">
+            <h3 className="text-lg font-semibold text-white">Ключевые даты на главной</h3>
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium ${
+              keyDatesPublished
+                ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25'
+                : 'text-slate-400 bg-white/5 border-white/10'
+            }`}>
+              {keyDatesPublished ? <CheckCircle className="w-3.5 h-3.5" /> : <FlaskConical className="w-3.5 h-3.5" />}
+              {keyDatesPublished ? 'Опубликовано' : 'Черновик'}
+            </span>
+          </div>
+          <p className="text-slate-400 text-sm">
+            Блок со сроками приёма — сразу под hero. «Сохранить» правит черновик и на сайт
+            ничего не выносит, «Опубликовать» показывает блок посетителям.
+          </p>
+        </div>
+
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-slate-300">Заголовок блока</span>
+          <input
+            value={keyDatesTitle}
+            onChange={(e) => setKeyDatesTitle(e.target.value.slice(0, KEY_DATES_LIMITS.title))}
+            placeholder={DEFAULT_LANDING_CONFIG.key_dates_title}
+            className="w-full rounded-xl bg-slate-950/80 border border-white/10 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+          />
+        </label>
+
+        <div className="space-y-2">
+          <span className="text-sm font-medium text-slate-300">
+            Даты <span className="text-slate-500 font-normal">— порядок карточек сверху вниз</span>
+          </span>
+
+          {keyDateItems.length === 0 && (
+            <p className="text-sm text-slate-500 rounded-xl border border-dashed border-white/10 px-4 py-6 text-center">
+              Пока ни одной даты. Добавьте первую — до этого блок публиковать нечего.
+            </p>
+          )}
+
+          {keyDateItems.map((item, index) => (
+            <div
+              key={index}
+              className="flex flex-col sm:flex-row gap-2 rounded-xl border border-white/10 bg-slate-950/60 p-3"
+            >
+              <input
+                value={item.date}
+                onChange={(e) => patchKeyDate(index, { date: e.target.value.slice(0, KEY_DATES_LIMITS.date) })}
+                placeholder="до 20 сентября"
+                aria-label={`Срок, строка ${index + 1}`}
+                className="sm:w-52 rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+              />
+              <input
+                value={item.label}
+                onChange={(e) => patchKeyDate(index, { label: e.target.value.slice(0, KEY_DATES_LIMITS.label) })}
+                placeholder="Мотивационное письмо и анкета"
+                aria-label={`Что происходит, строка ${index + 1}`}
+                className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+              />
+              <div className="flex gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => moveKeyDate(index, -1)}
+                  disabled={index === 0}
+                  aria-label={`Поднять строку ${index + 1}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white disabled:opacity-30 transition-colors"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveKeyDate(index, 1)}
+                  disabled={index === keyDateItems.length - 1}
+                  aria-label={`Опустить строку ${index + 1}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white disabled:opacity-30 transition-colors"
+                >
+                  <ArrowDown className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeKeyDate(index)}
+                  aria-label={`Удалить строку ${index + 1}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-rose-300 hover:border-rose-500/30 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addKeyDate}
+            disabled={keyDateItems.length >= KEY_DATES_LIMITS.items}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            Добавить дату
+          </button>
+        </div>
+
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-slate-300">
+            Примечание под блоком <span className="text-slate-500 font-normal">— необязательно</span>
+          </span>
+          <textarea
+            value={keyDatesNote}
+            onChange={(e) => setKeyDatesNote(e.target.value.slice(0, KEY_DATES_LIMITS.note))}
+            rows={2}
+            placeholder="Например: даты могут уточняться, следите за объявлениями"
+            className="w-full rounded-xl bg-slate-950/80 border border-white/10 px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 resize-y min-h-[3.5rem]"
+          />
+        </label>
+
+        {normalizeKeyDates(keyDateItems).length > 0 && (
+          <div className="rounded-xl bg-slate-950/60 border border-white/10 p-4">
+            <p className="text-xs uppercase tracking-wider text-slate-500 mb-3">Предпросмотр</p>
+            <div className="flex items-center gap-2 text-blue-300 text-xs mb-3">
+              <CalendarClock className="w-3.5 h-3.5" />
+              <span>Сроки приёма</span>
+            </div>
+            <p className="text-white font-bold mb-3">
+              {keyDatesTitle.trim() || DEFAULT_LANDING_CONFIG.key_dates_title}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {normalizeKeyDates(keyDateItems).map((item, index) => (
+                <div
+                  key={index}
+                  className="relative overflow-hidden rounded-lg border border-white/10 bg-white/5 p-3 pl-4"
+                >
+                  <span
+                    aria-hidden
+                    className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-blue-500 to-violet-600"
+                  />
+                  {item.date && <div className="text-sm font-semibold text-white">{item.date}</div>}
+                  {item.label && <div className="text-xs text-slate-400 mt-0.5">{item.label}</div>}
+                </div>
+              ))}
+            </div>
+            {keyDatesNote.trim() && (
+              <p className="text-xs text-slate-500 mt-3">{keyDatesNote.trim()}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => { void persistKeyDates(keyDatesPublished); }}
+            disabled={savingKeyDates}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
+          >
+            {savingKeyDates ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Сохранить
+          </button>
+          <button
+            type="button"
+            onClick={() => { void persistKeyDates(true); }}
+            disabled={savingKeyDates}
+            className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {keyDatesPublished ? 'Опубликовать изменения' : 'Опубликовать'}
+          </button>
+          {keyDatesPublished && (
+            <button
+              type="button"
+              onClick={() => { void persistKeyDates(false); }}
+              disabled={savingKeyDates}
+              className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
+            >
+              Снять с публикации
+            </button>
+          )}
+        </div>
       </section>
 
       <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">

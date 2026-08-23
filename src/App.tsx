@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { useAuth } from './lib/AuthContext';
-import { Instructor } from './lib/types';
-import { DEFAULT_LANDING_CONFIG, fetchLandingConfig } from './lib/landingConfig';
+import { Instructor, LandingConfig } from './lib/types';
+import { DEFAULT_LANDING_CONFIG, fetchLandingConfig, isKeyDatesVisible } from './lib/landingConfig';
 import AuthModal from './components/AuthModal';
 import LoginPasswordForm from './components/LoginPasswordForm';
 import { isLoginAuthEnabled } from './lib/loginAuthConfig';
@@ -30,6 +30,7 @@ import {
   CheckCircle,
   LogIn,
   Calendar,
+  CalendarClock,
   UserPlus,
   Handshake,
 } from 'lucide-react';
@@ -50,7 +51,7 @@ function RouteFallback() {
 
 function App() {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
-  const [heroBadgeText, setHeroBadgeText] = useState(DEFAULT_LANDING_CONFIG.hero_badge_text);
+  const [landing, setLanding] = useState<LandingConfig>(DEFAULT_LANDING_CONFIG);
   const [loading, setLoading] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -66,7 +67,7 @@ function App() {
       ]);
 
       if (instructorsRes.data) setInstructors(instructorsRes.data);
-      setHeroBadgeText(landingConfig.hero_badge_text);
+      setLanding(landingConfig);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -87,8 +88,9 @@ function App() {
           <div className="min-h-screen bg-slate-50">
 
             <Header isMenuOpen={isMenuOpen} setIsMenuOpen={setIsMenuOpen} onLoginClick={() => setShowAuth(true)} />
-            <Hero onLoginClick={() => setShowAuth(true)} heroBadgeText={heroBadgeText} />
+            <Hero onLoginClick={() => setShowAuth(true)} heroBadgeText={landing.hero_badge_text} />
 
+            <KeyDates config={landing} />
             <Partners />
             <Timeline />
             <About />
@@ -433,6 +435,56 @@ const PARTNER_LOGOS = [
     imgClass: 'max-h-full max-w-full object-contain',
   },
 ];
+
+/**
+ * Ключевые даты приёма. Редактируется в админке (Контент сайта) и живёт под
+ * рубильником: пока блок не опубликован, на странице его нет.
+ */
+function KeyDates({ config }: { config: LandingConfig }) {
+  if (!isKeyDatesVisible(config)) return null;
+
+  const note = config.key_dates_note.trim();
+
+  return (
+    <section id="dates" className="py-16 sm:py-20 bg-white border-b border-slate-100">
+      <div className="max-w-5xl mx-auto px-6 sm:px-10">
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-100 rounded-full text-blue-700 text-sm font-medium mb-4">
+            <CalendarClock className="w-4 h-4" />
+            <span>Сроки приёма</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900">
+            {config.key_dates_title}
+          </h2>
+        </div>
+
+        <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {config.key_dates.map((item, i) => (
+            <li
+              key={`${item.date}-${i}`}
+              className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80 p-6 pl-7"
+            >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-blue-500 to-violet-600"
+              />
+              {item.date && (
+                <div className="text-lg font-bold text-slate-900 leading-snug">{item.date}</div>
+              )}
+              {item.label && (
+                <div className="text-sm text-slate-600 leading-relaxed mt-1.5">{item.label}</div>
+              )}
+            </li>
+          ))}
+        </ol>
+
+        {note && (
+          <p className="mt-6 text-center text-sm text-slate-500 leading-relaxed">{note}</p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function Partners() {
   return (

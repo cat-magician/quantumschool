@@ -2905,3 +2905,51 @@ CREATE POLICY "Staff can update student profiles" ON public.user_profiles
   FOR UPDATE TO authenticated
   USING (private.is_staff() AND role = 'student')
   WITH CHECK (private.is_staff() AND role = 'student');
+
+-- ══════════════════════════════════════════════════════════════
+-- Блок «Ключевые даты» на главной
+-- ══════════════════════════════════════════════════════════════
+--
+-- Живёт в landing_config рядом с плашкой hero: та же единственная строка,
+-- публичное чтение, правит суперадмин.
+--
+-- key_dates — jsonb-массив вида
+--   [{"date": "до 20 сентября", "label": "Мотивационное письмо и анкета"}]
+-- порядок элементов = порядок карточек на странице.
+--
+-- key_dates_published — рубильник. Пока выключен, блока на сайте нет, сколько
+-- бы дат ни лежало в черновике. Сама строка landing_config читается публично
+-- (там же текст плашки), так что черновик датами не секрет от того, кто полезет
+-- в API напрямую, — рубильник про то, что видят посетители страницы.
+
+ALTER TABLE public.landing_config
+  ADD COLUMN IF NOT EXISTS key_dates_published boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS key_dates_title text NOT NULL DEFAULT 'Ключевые даты',
+  ADD COLUMN IF NOT EXISTS key_dates_note text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS key_dates jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.landing_config'::regclass
+      AND conname = 'landing_config_key_dates_shape'
+  ) THEN
+    ALTER TABLE public.landing_config
+      ADD CONSTRAINT landing_config_key_dates_shape
+      CHECK (
+        jsonb_typeof(key_dates) = 'array'
+        AND jsonb_array_length(key_dates) <= 12
+      );
+  END IF;
+END $$;
+
+-- Заготовка черновика: заполняем, только пока список пуст, чтобы прогон
+-- schema.sql не затирал отредактированные даты. Блок не опубликован.
+UPDATE public.landing_config
+SET key_dates = jsonb_build_array(
+  jsonb_build_object('date', 'до 20 сентября', 'label', 'Мотивационное письмо и анкета'),
+  jsonb_build_object('date', '7–20 сентября', 'label', 'Отборочный контест'),
+  jsonb_build_object('date', 'начало октября', 'label', 'Старт курса')
+)
+WHERE id = 1 AND key_dates = '[]'::jsonb;

@@ -212,9 +212,19 @@ export interface SelectionStageConfig {
   updated_by: string | null;
 }
 
+/** Строка блока «Ключевые даты»: слева срок, справа что к нему приурочено. */
+export interface KeyDate {
+  date: string;
+  label: string;
+}
+
 export interface LandingConfig {
   id: number;
   hero_badge_text: string;
+  key_dates_published: boolean;
+  key_dates_title: string;
+  key_dates_note: string;
+  key_dates: KeyDate[];
   updated_at: string | null;
   updated_by: string | null;
 }
