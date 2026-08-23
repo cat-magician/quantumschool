@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { isYandexOAuthEnabled } from '../lib/yandexAuthConfig';
@@ -68,24 +68,59 @@ export default function YandexSignInButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Возврат «назад» с Яндекса достаёт страницу из bfcache — снимаем ожидание,
+  // иначе оверлей останется висеть поверх живой страницы. Хук до раннего
+  // return: порядок хуков не должен зависеть от флага.
+  useEffect(() => {
+    const reset = () => setLoading(false);
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
+
   if (!isYandexOAuthEnabled()) return null;
 
   const handleClick = async () => {
     setError('');
-
     setLoading(true);
+
     const result = await signInWithYandex({ teacherApplication });
-    setLoading(false);
 
     if (result.error) {
       setError(result.error);
+      setLoading(false);
+      return;
     }
+
+    // Успех: signInWithOAuth только запускает переход, браузер уходит с
+    // страницы заметно позже. Ожидание не снимаем — иначе оверлей и спиннер
+    // гаснут через миллисекунды, и всё оставшееся время кнопка выглядит
+    // мёртвой, хотя переход идёт.
   };
 
   const s = SIZES[size];
 
   return (
     <div className={className}>
+      {/*
+        Пока браузер ждёт редирект Supabase на Яндекс, наша страница остаётся
+        на экране. Если Auth отвечает медленно, ждать можно десятки секунд —
+        лучше сказать об этом, чем оставить человека с замершей кнопкой.
+      */}
+      {loading && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-6"
+        >
+          <div className="max-w-sm w-full text-center">
+            <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-4" />
+            <p className="text-white font-semibold mb-1.5">Открываем Яндекс ID</p>
+            <p className="text-slate-400 text-sm leading-relaxed">
+              Страница Яндекса может открыться не сразу — не нажимайте кнопку повторно.
+            </p>
+          </div>
+        </div>
+      )}
       <button
         type="button"
         onClick={handleClick}

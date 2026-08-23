@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import type { Provider, User, Session } from '@supabase/supabase-js';
+import type { PostgrestError, Provider, User, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { UserProfile } from './types';
 import {
@@ -31,8 +31,38 @@ import { PRIVACY_POLICY_VERSION } from './privacy';
 import { markTeacherPromoted } from './teacherPromotionNotice';
 import { markJustDemotedFromTeacher } from './studentCabinetSnapshot';
 
-/** Сколько ждём сессию после возврата от Яндекса, прежде чем показать ошибку. */
-const OAUTH_CALLBACK_TIMEOUT_MS = 15000;
+/**
+ * Сколько ждём сессию после возврата от Яндекса. Обмен кода на сессию идёт
+ * через Auth-сервис Supabase, и когда тот тормозит, пятнадцати секунд не
+ * хватает: человек видел «вход не завершился» там, где вход бы дошёл.
+ */
+const OAUTH_CALLBACK_TIMEOUT_MS = 45000;
+
+/** Профиль тянем с повторами: разовый сбой связи не должен ронять кабинет. */
+const PROFILE_FETCH_RETRIES = 2;
+const PROFILE_RETRY_BASE_DELAY_MS = 1200;
+
+const delay = (ms: number) => new Promise((resolve) => { window.setTimeout(resolve, ms); });
+
+/**
+ * unauthorized — запрос дошёл до базы без принятого токена (PostgREST выполнил
+ * его как anon, отсюда 42501 на RPC и пустая выборка профиля). Повторы тут не
+ * помогут, нужна новая сессия.
+ * unavailable — связи нет или сервис не отвечает; это лечится повтором.
+ */
+export type ProfileLoadError = {
+  kind: 'unauthorized' | 'unavailable';
+  detail: string;
+};
+
+function describeProfileLoadError(error: PostgrestError): ProfileLoadError {
+  const unauthorized = error.code === '42501'
+    || error.code === 'PGRST301'
+    || error.code === 'PGRST302'
+    || /jwt|unauthorized|permission denied/i.test(error.message);
+
+  return { kind: unauthorized ? 'unauthorized' : 'unavailable', detail: error.message };
+}
 
 /** Столько ждём каждую попытку выхода, прежде чем перейти к запасной. */
 const SIGN_OUT_TIMEOUT_MS = 5000;
@@ -75,6 +105,8 @@ interface AuthContextValue {
   recordPrivacyConsent: () => Promise<{ error: string | null }>;
   oauthError: string | null;
   clearOAuthError: () => void;
+  /** Почему профиль не загрузился; null — загрузился или его просто нет. */
+  profileError: ProfileLoadError | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -96,6 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<ProfileLoadError | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
   const signingOutRef = useRef(false);
@@ -181,23 +214,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return (data as UserProfile | null) ?? existingProfile;
   }, []);
 
+  const loadProfileRow = useCallback(async (
+    userId: string,
+  ): Promise<{ row: UserProfile | null; error: PostgrestError | null }> => {
+    let lastError: PostgrestError | null = null;
+
+    for (let attempt = 0; attempt <= PROFILE_FETCH_RETRIES; attempt += 1) {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!error) return { row: (data as UserProfile | null) ?? null, error: null };
+
+      lastError = error;
+      // Токен не приняли — от повторов права не появятся.
+      if (describeProfileLoadError(error).kind === 'unauthorized') break;
+      if (attempt < PROFILE_FETCH_RETRIES) await delay(PROFILE_RETRY_BASE_DELAY_MS * (attempt + 1));
+    }
+
+    return { row: null, error: lastError };
+  }, []);
+
   const fetchProfile = useCallback(async (
     authUser: User,
     { background = false }: { background?: boolean } = {},
   ) => {
     if (!background) setProfileLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .maybeSingle();
+      const { row, error } = await loadProfileRow(authUser.id);
 
       if (error) {
-        console.error('Profile fetch error:', error.message);
+        const described = describeProfileLoadError(error);
+        console.error('Profile fetch error:', error.code, error.message);
+        setProfileError(described);
+        // Уже показанный кабинет не гасим: фоновое обновление могло просто не дойти.
+        if (profileRef.current?.id !== authUser.id) setProfile(null);
+        return;
       }
 
-      let nextProfile = (data as UserProfile | null) ?? null;
+      setProfileError(null);
+      let nextProfile = row;
 
       nextProfile = await syncOAuthProfile(authUser, nextProfile);
       nextProfile = await applyTeacherApplicationIfPending(authUser, nextProfile);
@@ -233,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (!background) setProfileLoading(false);
     }
-  }, [syncOAuthProfile, applyTeacherApplicationIfPending, clearStaleTeacherRejection]);
+  }, [loadProfileRow, syncOAuthProfile, applyTeacherApplicationIfPending, clearStaleTeacherRejection]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user, { background: true });
@@ -296,7 +354,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       oauthTimer = window.setTimeout(() => {
         if (!mounted) return;
         consumeOAuthReturnPending();
-        setOauthError('Вход через Яндекс не завершился. Попробуйте ещё раз.');
+        setOauthError(
+          'Вход через Яндекс не завершился: сервис авторизации отвечает слишком долго. '
+          + 'Попробуйте ещё раз через пару минут.',
+        );
         setInitializing(false);
       }, OAUTH_CALLBACK_TIMEOUT_MS);
     }
@@ -488,6 +549,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
     setUser(null);
     setProfile(null);
+    setProfileError(null);
     setProfileLoading(false);
     signingOutRef.current = false;
     setSigningOut(false);
@@ -499,6 +561,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user, session, profile, loading, signInWithYandex, signInWithLogin, signUpWithLogin,
       signOut, signingOut, refreshProfile, recordPrivacyConsent, oauthError, clearOAuthError,
+      profileError,
     }}
     >
       {children}
