@@ -954,13 +954,11 @@ function SelectionTab({
               ) : (
                 <div className="space-y-3">
                   {stage1Phase === 'graded' ? (
-                    <>
-                      <div className="flex items-end gap-2">
-                        <span className="text-3xl font-bold text-white tabular-nums">{profile.stage1_score}</span>
-                        <span className="text-slate-500 text-sm pb-1">из 10</span>
-                      </div>
-                      <p className="text-sm text-blue-300/90">Эссе проверено преподавателем.</p>
-                    </>
+                    <SubmitAcceptedBanner
+                      tone="blue"
+                      title="Эссе проверено"
+                      detail="Работу оценил преподаватель. Решение о зачислении — в разделе «Результаты»."
+                    />
                   ) : (
                     <SubmitAcceptedBanner
                       title="Эссе принято"
@@ -1016,13 +1014,11 @@ function SelectionTab({
               {stage2Done ? (
                 <div className="space-y-3">
                   {stage2Phase === 'graded' ? (
-                    <>
-                      <div className="flex items-end gap-2">
-                        <span className="text-3xl font-bold text-white tabular-nums">{profile.stage2_score}</span>
-                        <span className="text-slate-500 text-sm pb-1">из 10</span>
-                      </div>
-                      <p className="text-sm text-blue-300/90">Контест проверен преподавателем.</p>
-                    </>
+                    <SubmitAcceptedBanner
+                      tone="blue"
+                      title="Контест проверен"
+                      detail="Работу оценил преподаватель. Решение о зачислении — в разделе «Результаты»."
+                    />
                   ) : (
                     <SubmitAcceptedBanner
                       title="Контест принят"
@@ -1062,24 +1058,29 @@ function SelectionTab({
 
 function SelectionResults({ profile }: { profile: UserProfile }) {
   const verdict = selectionVerdict(profile.is_enrolled, profile.selection_rejected ?? false);
+  // Баллы участнику не показываем — только факт проверки. Само число нужно
+  // лишь чтобы понять, проверена работа или ещё нет.
+  const stage1Graded = profile.stage1_score !== null;
+  const stage2Graded = profile.stage2_score !== null;
+  const anyGraded = stage1Graded || stage2Graded;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white mb-2">Результаты</h2>
-        <p className="text-slate-400 text-sm">Оценки и решение по зачислению на обучение</p>
+        <p className="text-slate-400 text-sm">Статус проверки работ и решение по зачислению</p>
         <SectionHint text={SECTION_HINT.student.selectionResults} className="mt-2" />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
         <StudentResultCard
           title="Этап 1: Эссе"
-          score={profile.stage1_score}
+          graded={stage1Graded}
           submitted={profile.stage1_status === 'submitted' || !!profile.stage1_submitted_at}
         />
         <StudentResultCard
           title="Этап 2: Задачи"
-          score={profile.stage2_score}
+          graded={stage2Graded}
           submitted={profile.stage2_status === 'submitted' || !!profile.stage2_submitted_at}
         />
       </div>
@@ -1097,7 +1098,7 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
                 Разделы «Обучение», «Расписание» и «Прогресс» теперь доступны.
               </p>
               <p className="text-xs text-slate-500 max-w-md mx-auto mt-3 leading-relaxed">
-                Оценки за отбор — в карточках выше. Материалы этапов больше не редактируются.
+                Материалы этапов больше не редактируются.
               </p>
             </div>
           </div>
@@ -1126,18 +1127,12 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
         </div>
       )}
 
-      {verdict === 'waiting' && (profile.stage1_score !== null || profile.stage2_score !== null) && (
+      {verdict === 'waiting' && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-6 py-6 text-center">
           <p className="text-sm text-amber-200/90 leading-relaxed">
-            Оценки выставлены. Решение о зачислении появится здесь, когда преподаватель его примет.
-          </p>
-        </div>
-      )}
-
-      {verdict === 'waiting' && profile.stage1_score === null && profile.stage2_score === null && (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-6 py-6 text-center">
-          <p className="text-sm text-amber-200/90 leading-relaxed">
-            Результаты проверяются. Оценки и решение о зачислении появятся здесь после проверки ваших работ.
+            {anyGraded
+              ? 'Работы проверены. Решение о зачислении появится здесь, когда преподаватель его примет.'
+              : 'Работы проверяются. Решение о зачислении появится здесь после проверки.'}
           </p>
         </div>
       )}
@@ -1146,22 +1141,22 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
 }
 
 function StudentResultCard({
-  title, score, submitted,
+  title, graded, submitted,
 }: {
   title: string;
-  score: number | null;
+  graded: boolean;
   submitted: boolean;
 }) {
   return (
     <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6">
       <h3 className="font-semibold text-white mb-4">{title}</h3>
-      {score !== null ? (
-        <div className="flex items-end gap-2">
-          <span className="text-4xl font-bold text-white tabular-nums">{score}</span>
-          <span className="text-slate-500 text-sm pb-1.5">из 10</span>
-        </div>
+      {graded ? (
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-blue-300">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          Работа проверена
+        </p>
       ) : submitted ? (
-        <p className="text-sm text-amber-300/90">Работа отправлена — ожидайте оценку</p>
+        <p className="text-sm text-amber-300/90">Работа отправлена — ожидайте проверки</p>
       ) : (
         <p className="text-sm text-slate-500">Ещё не отправлено</p>
       )}

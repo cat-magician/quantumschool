@@ -62,7 +62,7 @@ function appendSelectionStageNotifications(
     items.push({
       id: 'stage1-grade',
       title: 'Эссе проверено',
-      body: `Оценка этапа 1: ${profile.stage1_score} из 10`,
+      body: 'Преподаватель проверил ваше эссе',
       createdAt: profile.updated_at,
       action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
     });
@@ -80,7 +80,7 @@ function appendSelectionStageNotifications(
     items.push({
       id: 'stage2-grade',
       title: 'Контест проверен',
-      body: `Оценка этапа 2: ${profile.stage2_score} из 10`,
+      body: 'Преподаватель проверил ваши решения',
       createdAt: profile.updated_at,
       action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
     });

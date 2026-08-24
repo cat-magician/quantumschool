@@ -71,7 +71,7 @@ export function buildSelectionChecklist(profile: UserProfile): SelectionChecklis
       status: stepStatus('essay', essayComplete),
       detail: essayComplete
         ? profile.stage1_score !== null
-          ? `Оценка: ${profile.stage1_score}`
+          ? 'Проверено'
           : 'На проверке'
         : 'Форма → кнопка «Я отправил эссе»',
     },
@@ -81,7 +81,7 @@ export function buildSelectionChecklist(profile: UserProfile): SelectionChecklis
       status: stepStatus('contest', contestComplete),
       detail: contestComplete
         ? profile.stage2_score !== null
-          ? `Оценка: ${profile.stage2_score}`
+          ? 'Проверено'
           : 'На проверке'
         : 'Контест → кнопка «Я завершил контест»',
     },

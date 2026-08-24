@@ -64,20 +64,39 @@ export function ExternalFormHint() {
   );
 }
 
+const BANNER_TONES = {
+  // Работа принята и ждёт проверки
+  emerald: {
+    box: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100/90',
+    title: 'text-emerald-200',
+    detail: 'text-emerald-100/80',
+  },
+  // Работа уже проверена
+  blue: {
+    box: 'border-blue-500/30 bg-blue-500/10 text-blue-100/90',
+    title: 'text-blue-200',
+    detail: 'text-blue-100/80',
+  },
+} as const;
+
 export function SubmitAcceptedBanner({
   title,
   detail,
+  tone = 'emerald',
 }: {
   title: string;
   detail?: string;
+  tone?: keyof typeof BANNER_TONES;
 }) {
+  const t = BANNER_TONES[tone];
+
   return (
-    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100/90 space-y-1">
-      <p className="font-semibold text-emerald-200 flex items-center gap-2">
+    <div className={`rounded-xl border px-4 py-3 text-sm space-y-1 ${t.box}`}>
+      <p className={`font-semibold flex items-center gap-2 ${t.title}`}>
         <CheckCircle className="w-4 h-4 shrink-0" />
         {title}
       </p>
-      {detail && <p className="text-emerald-100/80 leading-relaxed pl-6">{detail}</p>}
+      {detail && <p className={`leading-relaxed pl-6 ${t.detail}`}>{detail}</p>}
     </div>
   );
 }
