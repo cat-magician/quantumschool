@@ -158,7 +158,7 @@ export default function NotificationsPanel({
         )}
       </div>
 
-      <div className="max-h-80 overflow-y-auto scrollbar-site">
+      <div className="max-h-[min(20rem,calc(100dvh-13rem))] overflow-y-auto scrollbar-site">
         {loading ? (
           <div className="flex justify-center py-10">
             <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />

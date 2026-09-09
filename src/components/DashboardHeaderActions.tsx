@@ -36,9 +36,9 @@ export default function DashboardHeaderActions({
   }, [bellOpen, refreshUnread]);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-2">
       <DashboardSiteHomeLink compact />
-      <div className="relative">
+      <div>
         <button
           type="button"
           onClick={() => setBellOpen((v) => !v)}
