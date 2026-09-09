@@ -1,22 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckCircle, GraduationCap, Loader2, MapPin, School, Search, UserPlus, UserX,
+  CheckCircle, Download, GraduationCap, Loader2, Mail, MapPin, School, UserPlus, UserX,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import { supabase } from '../../lib/supabase';
 import type { UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileAccountLabel, profileDisplayName, profileLogin } from '../../lib/profileUtils';
+import { profileAccountLabel, profileContactEmail, profileDisplayName, profileLogin } from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import SuperadminDeleteAccount from '../../components/SuperadminDeleteAccount';
 import SuperadminResetPassword from '../../components/SuperadminResetPassword';
 import { adminStageBadgeClass, adminStageLabel } from '../../lib/selectionDisplayUtils';
 import { removeUserFromAllGroups } from '../../lib/groupUtils';
+import SelectionFilterBar from '../../components/SelectionFilterBar';
+import { downloadSelectionCsv } from '../../lib/selectionExport';
+import {
+  EMPTY_SELECTION_FILTERS,
+  distinctFieldValues,
+  matchesSelectionFilters,
+  sortSelectionRows,
+  type SelectionFilters,
+} from '../../lib/selectionFilters';
 
 type StudentRow = UserProfile & { email: string | null };
-
-type Filter = 'all' | 'enrolled' | 'not_enrolled';
 
 /** Участник и этапы — фикс. ширина; последняя колонка растягивается, кнопки справа. */
 const RESULTS_ROW_GRID =
@@ -37,8 +44,7 @@ function normalizeStatus(
 export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filters, setFilters] = useState<SelectionFilters>(EMPTY_SELECTION_FILTERS);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveErrorId, setSaveErrorId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Partial<StudentRow>>>({});
@@ -157,19 +163,18 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
     if (infoStudentId === id) setInfoStudentId(null);
   };
 
-  const filtered = students.filter((s) => {
-    const d = getDraft(s);
-    const q = search.toLowerCase();
-    const matchesSearch =
-      !q ||
-      d.display_name.toLowerCase().includes(q) ||
-      (profileAccountLabel(d) ?? '').toLowerCase().includes(q);
-    const matchesFilter =
-      filter === 'all' ||
-      (filter === 'enrolled' && d.is_enrolled) ||
-      (filter === 'not_enrolled' && !d.is_enrolled);
-    return matchesSearch && matchesFilter;
-  });
+  const grades = useMemo(() => distinctFieldValues(students, 'grade'), [students]);
+  const cities = useMemo(() => distinctFieldValues(students, 'city'), [students]);
+
+  // Фильтруем по сохранённым данным, а не по черновику: иначе строка исчезала бы
+  // из списка во время набора балла, до того как его успели сохранить.
+  const filtered = useMemo(
+    () => sortSelectionRows(
+      students.filter((s) => matchesSelectionFilters(s, filters)),
+      filters.sort,
+    ),
+    [students, filters],
+  );
 
   if (loading) {
     return (
@@ -181,45 +186,34 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
 
   return (
     <div className="space-y-6 w-full max-w-6xl">
-      <div>
-        <h2 className="text-xl font-bold text-white mb-1">Отборочные этапы</h2>
-        <p className="text-slate-400 text-sm">
-          {students.length} участников · выставляйте оценки и принимайте решение о зачислении
-        </p>
-        <SectionHint text={SECTION_HINT.admin.results} className="mt-1.5" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-white mb-1">Отборочные этапы</h2>
+          <p className="text-slate-400 text-sm">
+            {students.length} участников · выставляйте оценки и принимайте решение о зачислении
+          </p>
+          <SectionHint text={SECTION_HINT.admin.results} className="mt-1.5" />
+        </div>
+        <button
+          type="button"
+          onClick={() => downloadSelectionCsv(filtered)}
+          disabled={filtered.length === 0}
+          title="Выгружается то, что сейчас в списке — с учётом поиска и фильтров"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+        >
+          <Download className="w-4 h-4" />
+          Скачать CSV ({filtered.length})
+        </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по имени или почте..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900/60 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {([
-            { id: 'all', label: 'Все' },
-            { id: 'enrolled', label: 'Зачислены' },
-            { id: 'not_enrolled', label: 'Не зачислены' },
-          ] as { id: Filter; label: string }[]).map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFilter(f.id)}
-              className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                filter === f.id
-                  ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-                  : 'text-slate-400 bg-white/5 border border-transparent hover:text-white'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SelectionFilterBar
+        filters={filters}
+        onChange={setFilters}
+        grades={grades}
+        cities={cities}
+        shownCount={filtered.length}
+        totalCount={students.length}
+      />
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-500">Ученики не найдены</div>
@@ -358,6 +352,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                   >
                     <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">О участнике</p>
                     <div className="space-y-2.5 text-sm">
+                      <InfoRow icon={Mail} label="Почта для связи" value={profileContactEmail(d)} />
                       <InfoRow icon={MapPin} label="Город" value={d.city} />
                       <InfoRow icon={School} label="Школа" value={d.school} />
                       <InfoRow icon={GraduationCap} label="Класс" value={d.grade} />

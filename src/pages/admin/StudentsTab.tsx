@@ -20,6 +20,17 @@ import {
   type StudentRow,
 } from '../../lib/groupUtils';
 import { SearchableActionList, SearchableCheckboxList, type PickerRow } from '../../components/SearchablePicker';
+import ListSearchBar, { type ListChipOption } from '../../components/ListSearchBar';
+import { textMatches } from '../../lib/listFilters';
+
+type EnrolledScope = 'all' | 'in_group' | 'no_group';
+
+const ENROLLED_SCOPE_CHIPS: ListChipOption<EnrolledScope>[] = [
+  { value: 'all', label: 'Все' },
+  { value: 'in_group', label: 'В группе' },
+  { value: 'no_group', label: 'Без группы' },
+];
+
 type ActiveView = 'enrolled' | string;
 
 export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
@@ -39,6 +50,9 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [creating, setCreating] = useState(false);
   const [infoStudentId, setInfoStudentId] = useState<string | null>(null);
   const [assignStudent, setAssignStudent] = useState<StudentRow | null>(null);
+  const [enrolledQuery, setEnrolledQuery] = useState('');
+  const [enrolledScope, setEnrolledScope] = useState<EnrolledScope>('all');
+  const [memberQuery, setMemberQuery] = useState('');
 
   const load = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return;
@@ -104,6 +118,21 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     }
     return map;
   }, [groups]);
+
+  const visibleEnrolled = useMemo(() => enrolledStudents.filter((s) => {
+    if (!textMatches(enrolledQuery, [s.display_name, profileAccountLabel(s), s.login])) return false;
+    if (enrolledScope === 'all') return true;
+    const inGroup = groupNameByStudentId.has(s.id);
+    return enrolledScope === 'in_group' ? inGroup : !inGroup;
+  }), [enrolledStudents, enrolledQuery, enrolledScope, groupNameByStudentId]);
+
+  const visibleMembers = useMemo(
+    () => (activeGroup?.members ?? []).filter((m) => textMatches(
+      memberQuery,
+      [m.profile?.display_name, profileAccountLabel(m.profile ?? null), m.profile?.login],
+    )),
+    [activeGroup, memberQuery],
+  );
 
   const availableForGroup = useMemo(() => {
     if (!activeGroup) return [];
@@ -400,8 +429,24 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                 ? 'Все зачисленные ученики. Кнопка справа — добавить или переместить в вашу группу.'
                 : 'Все зачисленные ученики курса.'
           }
-          students={enrolledStudents}
-          emptyText="Нет зачисленных учеников. Зачислите учеников во вкладке «Отборочные этапы»."
+          students={visibleEnrolled}
+          emptyText={
+            enrolledStudents.length === 0
+              ? 'Нет зачисленных учеников. Зачислите учеников во вкладке «Отборочные этапы».'
+              : 'Никого не найдено по запросу'
+          }
+          toolbar={(
+            <ListSearchBar
+              value={enrolledQuery}
+              onChange={setEnrolledQuery}
+              placeholder="Поиск по имени, почте или нику…"
+              shownCount={visibleEnrolled.length}
+              totalCount={enrolledStudents.length}
+              chips={ENROLLED_SCOPE_CHIPS}
+              chipValue={enrolledScope}
+              onChipChange={setEnrolledScope}
+            />
+          )}
           infoStudentId={infoStudentId}
           onToggleInfo={(id) => setInfoStudentId((prev) => (prev === id ? null : id))}
           groupLabelFor={(id) => groupNameByStudentId.get(id) ?? null}
@@ -478,15 +523,25 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
             )}
           </div>
 
-          {activeGroup.members.length === 0 ? (
+          <ListSearchBar
+            value={memberQuery}
+            onChange={setMemberQuery}
+            placeholder="Поиск по имени или почте…"
+            shownCount={visibleMembers.length}
+            totalCount={activeGroup.members.length}
+          />
+
+          {visibleMembers.length === 0 ? (
             <StudentCardGrid>
               <div className="col-span-full flex items-center justify-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
-                Группа пуста. Добавьте учеников из списка зачисленных.
+                {activeGroup.members.length === 0
+                  ? 'Группа пуста. Добавьте учеников из списка зачисленных.'
+                  : 'Никого не найдено по запросу'}
               </div>
             </StudentCardGrid>
           ) : (
             <StudentCardGrid>
-              {activeGroup.members.map((m) => (
+              {visibleMembers.map((m) => (
                 <StudentCard
                   key={m.id}
                   student={m.profile}
@@ -705,7 +760,8 @@ function StudentCardGrid({ children }: { children: React.ReactNode }) {
 }
 
 function StudentList({
-  title, description, students, emptyText, infoStudentId, onToggleInfo, groupLabelFor, onAssignToGroup,
+  title, description, students, emptyText, infoStudentId, onToggleInfo, groupLabelFor,
+  onAssignToGroup, toolbar,
 }: {
   title: string;
   description: string;
@@ -715,6 +771,7 @@ function StudentList({
   onToggleInfo: (id: string) => void;
   groupLabelFor?: (id: string) => string | null;
   onAssignToGroup?: (student: StudentRow) => void;
+  toolbar?: React.ReactNode;
 }) {
   return (
     <div className="space-y-4">
@@ -722,6 +779,7 @@ function StudentList({
         <h3 className="font-semibold text-white">{title}</h3>
         <p className="text-xs text-slate-500 mt-0.5">{description}</p>
       </div>
+      {toolbar}
       {students.length === 0 ? (
         <div className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
           {emptyText}

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ListSearchBar from '../../components/ListSearchBar';
+import { textMatches } from '../../lib/listFilters';
 import {
   ArrowDown, ArrowLeft, ArrowUp, Eye, Loader2, Plus, Trash2,
 } from 'lucide-react';
@@ -91,6 +93,12 @@ export default function HomeworkPagesTab() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [listActionId, setListActionId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+
+  const visiblePages = useMemo(
+    () => pages.filter((p) => textMatches(query, [p.title])),
+    [pages, query],
+  );
 
   const loadList = async () => {
     setLoading(true);
@@ -588,7 +596,21 @@ export default function HomeworkPagesTab() {
         </p>
       ) : (
         <div className="space-y-3">
-          {pages.map((page) => (
+          {pages.length > 5 && (
+            <ListSearchBar
+              value={query}
+              onChange={setQuery}
+              placeholder="Поиск по названию…"
+              shownCount={visiblePages.length}
+              totalCount={pages.length}
+            />
+          )}
+          {visiblePages.length === 0 && (
+            <p className="text-center py-12 text-slate-500 border border-white/5 rounded-2xl">
+              Ничего не найдено по запросу
+            </p>
+          )}
+          {visiblePages.map((page) => (
             <HomeworkPageCard
               key={page.id}
               page={page}

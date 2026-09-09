@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Eye,
   Loader2,
+  Search,
 } from 'lucide-react';
 import type { Group, HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../lib/types';
 import {
@@ -23,6 +24,7 @@ import UserAvatar from './UserAvatar';
 import HomeworkPageStudentPreview from './HomeworkPageStudentPreview';
 import SectionHint from './SectionHint';
 import { SECTION_HINT } from '../lib/dashboardHelpCopy';
+import { textMatches } from '../lib/listFilters';
 
 type GradingFilter = 'all' | 'ungraded' | 'graded';
 
@@ -152,6 +154,7 @@ export default function HomeworkGradingWorkspace({
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
+  const [studentQuery, setStudentQuery] = useState('');
 
   const pageRows = useMemo(
     () => pages.map((p) => pageMetaMap[p.id] ?? p),
@@ -187,8 +190,12 @@ export default function HomeworkGradingWorkspace({
       : gradingFilter === 'ungraded'
         ? forPage.filter((s) => !submissionHasGrade(s))
         : forPage.filter((s) => submissionHasGrade(s));
-    return sortQueueItems(filtered, studentGroups, groups);
-  }, [submissions, selectedPageId, gradingFilter, studentGroups, groups]);
+    const byQuery = filtered.filter((s) => textMatches(
+      studentQuery,
+      [s.student?.display_name, profileAccountLabel(s.student ?? null)],
+    ));
+    return sortQueueItems(byQuery, studentGroups, groups);
+  }, [submissions, selectedPageId, gradingFilter, studentQuery, studentGroups, groups]);
 
   useEffect(() => {
     if (queueForPage.length === 0) {
@@ -199,7 +206,7 @@ export default function HomeworkGradingWorkspace({
       if (current && queueForPage.some((s) => s.id === current)) return current;
       return queueForPage[0]!.id;
     });
-  }, [queueForPage, selectedPageId, gradingFilter]);
+  }, [queueForPage, selectedPageId, gradingFilter, studentQuery]);
 
   const selectedSubmission = useMemo(
     () => queueForPage.find((s) => s.id === selectedSubmissionId) ?? null,
@@ -389,32 +396,47 @@ export default function HomeworkGradingWorkspace({
       </div>
 
       {selectedAssignment && (
-        <div className="flex flex-wrap items-center gap-2">
-          {([
-            ['ungraded', `Ждут · ${selectedAssignment.ungraded}`],
-            ['graded', `Проверены · ${selectedAssignment.graded}`],
-            ['all', `Все · ${selectedAssignment.submitted}`],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onGradingFilterChange(id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                gradingFilter === id
-                  ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
-                  : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {([
+              ['ungraded', `Ждут · ${selectedAssignment.ungraded}`],
+              ['graded', `Проверены · ${selectedAssignment.graded}`],
+              ['all', `Все · ${selectedAssignment.submitted}`],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onGradingFilterChange(id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  gradingFilter === id
+                    ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
+                    : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            <input
+              type="search"
+              value={studentQuery}
+              onChange={(e) => setStudentQuery(e.target.value)}
+              placeholder="Поиск по ученику…"
+              aria-label="Поиск по ученику"
+              className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950/80 border border-white/10 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+            />
+          </div>
         </div>
       )}
 
       {queueForPage.length === 0 ? (
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center text-slate-400 text-sm">
-          {gradingFilter === 'ungraded'
-            ? 'По этому заданию все работы уже проверены'
+          {studentQuery.trim()
+            ? 'Никого не найдено по запросу'
+            : gradingFilter === 'ungraded'
+              ? 'По этому заданию все работы уже проверены'
             : gradingFilter === 'graded'
               ? 'Пока нет проверенных работ по этому заданию'
               : 'По этому заданию пока нет сдач'}

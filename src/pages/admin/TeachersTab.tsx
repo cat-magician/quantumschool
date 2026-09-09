@@ -16,6 +16,8 @@ import {
   formatEventDateTime,
   isEventUpcoming,
 } from '../../lib/scheduleUtils';
+import ListSearchBar from '../../components/ListSearchBar';
+import { textMatches } from '../../lib/listFilters';
 
 type TeacherRow = UserProfile & { email: string | null };
 
@@ -36,6 +38,7 @@ export default function TeachersTab() {
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
+  const [teacherQuery, setTeacherQuery] = useState('');
 
   const load = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (silent) setRefreshing(true);
@@ -195,6 +198,14 @@ export default function TeachersTab() {
     [teachers],
   );
 
+  const visibleTeachers = useMemo(
+    () => sortedTeachers.filter((t) => textMatches(
+      teacherQuery,
+      [t.profile.display_name, profileAccountLabel(t.profile), t.profile.login],
+    )),
+    [sortedTeachers, teacherQuery],
+  );
+
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -285,13 +296,23 @@ export default function TeachersTab() {
           Штат преподавания ({sortedTeachers.length})
         </h3>
 
-        {sortedTeachers.length === 0 ? (
+        <ListSearchBar
+          value={teacherQuery}
+          onChange={setTeacherQuery}
+          placeholder="Поиск по имени или почте…"
+          shownCount={visibleTeachers.length}
+          totalCount={sortedTeachers.length}
+        />
+
+        {visibleTeachers.length === 0 ? (
           <div className="text-center py-12 text-slate-500 bg-slate-900/40 rounded-2xl border border-white/5">
-            Нет преподавателей и суперадминов в системе
+            {sortedTeachers.length === 0
+              ? 'Нет преподавателей и суперадминов в системе'
+              : 'Никого не найдено по запросу'}
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {sortedTeachers.map((t) => (
+            {visibleTeachers.map((t) => (
               <TeacherCard
                 key={t.profile.id}
                 data={t}
