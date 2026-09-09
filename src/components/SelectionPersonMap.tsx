@@ -90,26 +90,26 @@ export default function SelectionPersonMap({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /**
-   * Колесо мыши листает таблицу вбок: полосы прокрутки нет, а тянуться к ней
-   * под сотню строк было неудобно.
+   * Колесо мыши над таблицей листает её только вбок — вверх-вниз страница
+   * прокручивается курсором сбоку от таблицы.
    *
-   * На краю событие не перехватываем — иначе колесо «залипает» на таблице и
-   * страницу дальше не пролистать. Горизонтальный жест трекпада тоже отдаём
-   * браузеру: он и так делает ровно то, что нужно.
+   * На краях событие тоже перехватываем: иначе, докрутив таблицу до конца,
+   * человек неожиданно уезжает вниз по странице. Пока горизонтальной прокрутки
+   * нет вовсе (таблица влезла), колесо не трогаем — незачем.
+   *
+   * Только мышь: touch колесо не шлёт, поэтому на телефоне вертикальный свайп
+   * листает страницу как обычно, а горизонтальный — таблицу.
    */
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return undefined;
 
     const onWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
-
       const maxScroll = el.scrollWidth - el.clientWidth;
       if (maxScroll <= 0) return;
 
-      const atStart = event.deltaY < 0 && el.scrollLeft <= 0;
-      const atEnd = event.deltaY > 0 && el.scrollLeft >= maxScroll - 1;
-      if (atStart || atEnd) return;
+      // Горизонтальный жест трекпада браузер обрабатывает сам и правильно.
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
 
       event.preventDefault();
       el.scrollLeft = Math.min(maxScroll, Math.max(0, el.scrollLeft + event.deltaY));
@@ -211,7 +211,7 @@ export default function SelectionPersonMap({
           tabIndex={0}
           role="region"
           aria-label="Карта участников, таблица прокручивается вбок"
-          className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl border border-white/5 bg-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+          className="overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl border border-white/5 bg-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
         >
           <table className="w-full min-w-[68rem] border-collapse text-sm">
             <thead>
