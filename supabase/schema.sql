@@ -3017,7 +3017,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = auth, public
-AS $
+AS $$
   SELECT lower(NULLIF(trim(COALESCE(
            i.identity_data->>'preferred_username',
            i.identity_data->>'login'
@@ -3027,7 +3027,7 @@ AS $
      AND i.provider <> 'email'
    ORDER BY i.last_sign_in_at DESC NULLS LAST
    LIMIT 1;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.user_yandex_login(uuid) FROM PUBLIC, anon, authenticated;
 
