@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Search } from 'lucide-react';
 import { FORM_KIND_LABELS, type FormKind } from '../lib/identityMatching';
 import { profileEmail, profileLogin } from '../lib/profileUtils';
@@ -65,7 +65,9 @@ function FormCell({ cell }: { cell: PersonFormCell }) {
       <div className={`text-[11px] font-medium ${style.text}`}>{style.label}</div>
       {stamp && <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">{stamp}</div>}
       {reasons && (
-        <div className="text-[10px] text-slate-500 mt-0.5 leading-tight" title={reasons}>
+        // Причин бывает много; полный список — в подсказке, иначе одна ячейка
+        // растягивает всю строку и таблица становится нечитаемой.
+        <div className="text-[10px] text-slate-500 mt-0.5 leading-tight line-clamp-2" title={reasons}>
           {reasons}
         </div>
       )}
@@ -85,6 +87,38 @@ export default function SelectionPersonMap({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<PersonMapFilter>('all');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Колесо мыши листает таблицу вбок: полосы прокрутки нет, а тянуться к ней
+   * под сотню строк было неудобно.
+   *
+   * На краю событие не перехватываем — иначе колесо «залипает» на таблице и
+   * страницу дальше не пролистать. Горизонтальный жест трекпада тоже отдаём
+   * браузеру: он и так делает ровно то, что нужно.
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (maxScroll <= 0) return;
+
+      const atStart = event.deltaY < 0 && el.scrollLeft <= 0;
+      const atEnd = event.deltaY > 0 && el.scrollLeft >= maxScroll - 1;
+      if (atStart || atEnd) return;
+
+      event.preventDefault();
+      el.scrollLeft = Math.min(maxScroll, Math.max(0, el.scrollLeft + event.deltaY));
+    };
+
+    // passive: false обязателен — иначе preventDefault игнорируется.
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   const visible = useMemo(() => rows.filter((row) => {
     if (!matchesPersonMapFilter(row, filter)) return false;
@@ -159,6 +193,7 @@ export default function SelectionPersonMap({
           <span className="w-2.5 h-2.5 rounded-sm bg-orange-500/30 border border-orange-500/30" />
           ответ не найден
         </span>
+        <span className="text-slate-600">Колесо мыши над таблицей листает её вбок</span>
       </div>
 
       {visible.length === 0 ? (
@@ -166,19 +201,32 @@ export default function SelectionPersonMap({
           Никого не найдено
         </p>
       ) : (
-        <div className="overflow-x-auto scrollbar-site rounded-2xl border border-white/5">
+        /* Полосы прокрутки нет намеренно: таблица листается колесом мыши.
+           Высоту не ограничиваем — вертикаль остаётся обычной прокруткой
+           страницы, иначе колесо пришлось бы делить между двумя осями.
+           Колонка с именем закреплена, чтобы при прокрутке вбок было видно,
+           чья это строка. */
+        <div
+          ref={scrollRef}
+          tabIndex={0}
+          role="region"
+          aria-label="Карта участников, таблица прокручивается вбок"
+          className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl border border-white/5 bg-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+        >
           <table className="w-full min-w-[68rem] border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-950/60 text-[11px] uppercase tracking-wider text-slate-500">
-                <th className="text-left font-semibold px-3 py-2.5">Участник</th>
+              <tr className="text-[11px] uppercase tracking-wider text-slate-500">
+                <th className="sticky left-0 z-20 bg-slate-950 text-left font-semibold px-3 py-2.5 border-r border-white/10">
+                  Участник
+                </th>
                 <th className="text-left font-semibold px-3 py-2.5">Ник / логин</th>
                 <th className="text-left font-semibold px-3 py-2.5">Логин Яндекса</th>
                 <th className="text-left font-semibold px-3 py-2.5">Почта аккаунта</th>
-                <th className="text-left font-semibold px-3 py-2.5 bg-blue-500/10 text-blue-300">
+                <th className="text-left font-semibold px-3 py-2.5 text-blue-300">
                   Почта для связи
                 </th>
                 {FORM_KINDS.map((kind: FormKind) => (
-                  <th key={kind} className="text-left font-semibold px-3 py-2.5 bg-white/[0.03]">
+                  <th key={kind} className="text-left font-semibold px-3 py-2.5">
                     {FORM_KIND_LABELS[kind]}
                   </th>
                 ))}
@@ -191,7 +239,7 @@ export default function SelectionPersonMap({
                 const complete = row.linkedCount === FORM_KINDS.length;
                 return (
                   <tr key={row.profile.id} className="border-t border-white/5 align-top">
-                    <td className="px-3 py-2.5">
+                    <td className="sticky left-0 z-10 bg-slate-950 px-3 py-2.5 border-r border-white/10">
                       <div className="font-medium text-white leading-snug">
                         {row.profile.display_name?.trim() || 'Участник'}
                       </div>
