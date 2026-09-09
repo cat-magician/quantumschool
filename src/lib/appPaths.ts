@@ -28,6 +28,12 @@ export function dashboardPathname(): string {
   return appHref(DASHBOARD_ROUTE);
 }
 
+export const PROFILE_ROUTE = '/profile';
+
+export function profilePathname(): string {
+  return appHref(PROFILE_ROUTE);
+}
+
 export function oauthDashboardRedirectPath(): string {
   return `${window.location.origin}${dashboardPathname()}`;
 }

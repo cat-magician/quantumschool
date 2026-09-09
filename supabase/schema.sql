@@ -3001,6 +3001,36 @@ $$;
 
 REVOKE ALL ON FUNCTION public.extract_oauth_login(jsonb) FROM PUBLIC, anon, authenticated;
 
+-- Логин Яндекса у пользователя — из его identity, а не из raw_user_meta_data.
+--
+-- С появлением привязки аккаунтов метаданные перестали быть надёжным
+-- источником: у человека, который завёл вход по паролю и потом привязал
+-- Яндекс ID, там лежит и наш собственный login. Identity провайдера email
+-- в выборку не попадает, поэтому наш login сюда не просочится, а якорь для
+-- монитора Контеста находится независимо от того, чем человек вошёл сейчас.
+--
+-- Один источник на синхронизацию и на защитный триггер: разъедутся — вход
+-- у привязанных аккаунтов начнёт падать на проверке.
+CREATE OR REPLACE FUNCTION public.user_yandex_login(p_user uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = auth, public
+AS $
+  SELECT lower(NULLIF(trim(COALESCE(
+           i.identity_data->>'preferred_username',
+           i.identity_data->>'login'
+         )), ''))
+    FROM auth.identities i
+   WHERE i.user_id = p_user
+     AND i.provider <> 'email'
+   ORDER BY i.last_sign_in_at DESC NULLS LAST
+   LIMIT 1;
+$;
+
+REVOKE ALL ON FUNCTION public.user_yandex_login(uuid) FROM PUBLIC, anon, authenticated;
+
 -- Первый вход: у аккаунтов Яндекс ID сразу запоминаем логин. У входа по
 -- логину и паролю в метаданных лежит свой login, к Яндексу он не относится —
 -- поэтому колонку заполняем только когда технического адреса нет.
@@ -3080,11 +3110,15 @@ BEGIN
   END IF;
 
   v_display_name := public.extract_oauth_display_name(v_user.raw_user_meta_data);
-  v_yandex_login := CASE
-    WHEN private.login_from_email(v_user.email) IS NULL
-      THEN public.extract_oauth_login(v_user.raw_user_meta_data)
-    ELSE NULL
-  END;
+  -- Логин Яндекса берём из самой identity, а не из метаданных пользователя.
+  -- Раньше здесь стояла проверка «нет технического адреса — значит Яндекс»:
+  -- она защищала от того, что при входе по паролю в метаданных лежит наш
+  -- собственный login. Но с появлением привязки аккаунтов у человека может
+  -- быть и технический адрес, и Яндекс ID сразу, и та проверка навсегда
+  -- оставляла бы ему yandex_login пустым — а по нему участник связывается
+  -- с монитором Контеста. Identity провайдера email в выборку не попадает,
+  -- поэтому наш login сюда не просочится.
+  v_yandex_login := public.user_yandex_login(auth.uid());
 
   SELECT * INTO v_profile FROM public.user_profiles WHERE id = auth.uid();
   IF NOT FOUND THEN
@@ -3129,14 +3163,12 @@ $$;
 REVOKE ALL ON FUNCTION public.sync_oauth_user_profile(boolean, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.sync_oauth_user_profile(boolean, text) TO authenticated;
 
--- Заполнить логин у аккаунтов Яндекс ID, заведённых до появления колонки.
+-- Заполнить логин у всех, у кого есть identity Яндекса: и у тех, кто завёлся
+-- до появления колонки, и у тех, кто пришёл по паролю и привязал Яндекс ID.
 UPDATE public.user_profiles p
-SET yandex_login = public.extract_oauth_login(u.raw_user_meta_data)
-FROM auth.users u
-WHERE u.id = p.id
-  AND p.yandex_login IS NULL
-  AND private.login_from_email(u.email) IS NULL
-  AND public.extract_oauth_login(u.raw_user_meta_data) IS NOT NULL;
+SET yandex_login = public.user_yandex_login(p.id)
+WHERE p.yandex_login IS NULL
+  AND public.user_yandex_login(p.id) IS NOT NULL;
 
 -- Оба новых поля — якоря личности, сам участник их не трогает: yandex_login
 -- держит связь с монитором контеста, contact_email решает, куда писать о
@@ -3175,10 +3207,7 @@ BEGIN
       RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'email';
     END IF;
     IF NEW.yandex_login IS DISTINCT FROM OLD.yandex_login
-      AND NEW.yandex_login IS DISTINCT FROM (
-        SELECT public.extract_oauth_login(u.raw_user_meta_data)
-        FROM auth.users u WHERE u.id = OLD.id
-      ) THEN
+      AND NEW.yandex_login IS DISTINCT FROM public.user_yandex_login(OLD.id) THEN
       RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'yandex_login';
     END IF;
     IF NEW.contact_email IS DISTINCT FROM OLD.contact_email THEN

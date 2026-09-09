@@ -30,6 +30,7 @@ import AvatarUploadModal from '../components/AvatarUploadModal';
 import { adminStageLabel } from '../lib/selectionDisplayUtils';
 import type { Group } from '../lib/types';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
+import LinkedAccountsSection from '../components/LinkedAccountsSection';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -263,6 +264,8 @@ export default function ProfilePage() {
             <InfoRow label="Согласие на обработку данных" value={formatProfileDate(profile.privacy_consent_at)} />
           )}
         </section>
+
+        <LinkedAccountsSection />
 
         {showApplicationFields && (
           <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-3">

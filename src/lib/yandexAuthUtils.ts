@@ -31,4 +31,9 @@ export function yandexLogin(user: User): string | null {
   return null;
 }
 
-export { DASHBOARD_ROUTE as DASHBOARD_PATH, dashboardPathname, oauthDashboardRedirectPath } from './appPaths';
+export {
+  DASHBOARD_ROUTE as DASHBOARD_PATH,
+  dashboardPathname,
+  profilePathname,
+  oauthDashboardRedirectPath,
+} from './appPaths';

@@ -21,7 +21,9 @@ import {
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
-import { dashboardPathname, oauthDashboardRedirectPath, yandexDisplayName, yandexLogin } from './yandexAuthUtils';
+import {
+  dashboardPathname, profilePathname, oauthDashboardRedirectPath, yandexDisplayName, yandexLogin,
+} from './yandexAuthUtils';
 import {
   SUPPORT_EMAIL,
   loginToAuthEmail,
@@ -356,9 +358,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return true;
     };
 
+    // Возврат после привязки Яндекс ID к уже существующему аккаунту: человек
+    // нажал кнопку в профиле, туда же его и возвращаем. Только успешный код —
+    // ошибки по-прежнему уезжают на /dashboard, где живёт экран с текстом.
+    const isAccountLinkReturn = window.location.pathname === profilePathname()
+      && hasOAuthCodeInUrl();
+
     // Supabase при ошибке или если redirectTo не в allowlist шлёт на Site URL (/),
     // а экран ошибки и обмен code→session настроены на /dashboard.
-    if (hasOAuthCallbackInUrl() && window.location.pathname !== dashboardPathname()) {
+    if (hasOAuthCallbackInUrl() && !isAccountLinkReturn
+      && window.location.pathname !== dashboardPathname()) {
       window.location.replace(
         `${dashboardPathname()}${window.location.search}${window.location.hash}`,
       );
