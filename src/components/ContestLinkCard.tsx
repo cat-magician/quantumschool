@@ -58,7 +58,7 @@ function ContestArtwork() {
 export default function ContestLinkCard({
   url,
   title = 'Контест открыт',
-  description = 'Задачи решаются на площадке Яндекс.Контеста. Встроить её в сайт нельзя — контест закрытый, поэтому он откроется в новой вкладке.',
+  description = 'Задачи решаются на площадке Яндекс.Контеста — она откроется в новой вкладке.',
   buttonLabel = 'Перейти в Контест',
   minHeight = 420,
 }: {

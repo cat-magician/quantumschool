@@ -156,6 +156,19 @@ export function normalizeContestUrl(input: string): string | null {
   }
 }
 
+/** Ссылка ведёт на конкретный контест, а не на главную Яндекс.Контеста. */
+export function isContestLink(url: string): boolean {
+  const normalized = normalizeContestUrl(url);
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    if (!parsed.hostname.includes('contest.yandex')) return false;
+    return parsed.pathname.replace(/\/+$/, '').length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Пустая строка — очистить ссылку; непустая — нормализовать или false при ошибке. */
 export function parseOptionalContestUrl(input: string): string | false {
   const trimmed = input.trim();

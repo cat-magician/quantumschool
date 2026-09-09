@@ -22,12 +22,14 @@ import {
   formatHomeworkScoreValue,
   parseHomeworkMaxScore,
 } from '../../lib/homeworkUtils';
-import { parseYandexFormId, normalizeContestUrl, YANDEX_FORM_INPUT_PLACEHOLDER } from '../../lib/selectionConfig';
+import {
+  parseYandexFormId, isContestLink, normalizeContestUrl, YANDEX_FORM_INPUT_PLACEHOLDER,
+} from '../../lib/selectionConfig';
 import { homeworkPageLoadError, homeworkPageSaveError } from '../../lib/homeworkPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import MarkdownEditor from '../../components/MarkdownEditor';
 import YandexFormEmbed from '../../components/YandexFormEmbed';
-import YandexContestEmbed, { isContestEmbeddable } from '../../components/YandexContestEmbed';
+import ContestLinkCard from '../../components/ContestLinkCard';
 import HomeworkPageCard from '../../components/HomeworkPageCard';
 import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
@@ -729,9 +731,9 @@ function BlockEditor({
           />
           {(() => {
             const url = block.content.url ?? '';
-            const embeddable = url.trim() && isContestEmbeddable(normalizeContestUrl(url) ?? '');
-            return embeddable ? (
-              <YandexContestEmbed url={url} />
+            const hasContest = isContestLink(url);
+            return hasContest ? (
+              <ContestLinkCard url={url} title="Задачи в Яндекс.Контесте" />
             ) : (
               <BlockPlaceholder variant="contest" />
             );

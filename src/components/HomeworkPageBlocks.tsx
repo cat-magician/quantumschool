@@ -1,10 +1,10 @@
 import type { HomeworkPageBlock } from '../lib/types';
 import { HOMEWORK_BLOCK_LABELS } from '../lib/homeworkPageUtils';
-import { parseYandexFormId, normalizeContestUrl } from '../lib/selectionConfig';
+import { parseYandexFormId, isContestLink } from '../lib/selectionConfig';
 import BlockPlaceholder from './BlockPlaceholder';
 import HomeworkMarkdown from './HomeworkMarkdown';
 import VideoEmbed from './VideoEmbed';
-import YandexContestEmbed, { isContestEmbeddable } from './YandexContestEmbed';
+import ContestLinkCard from './ContestLinkCard';
 import YandexFormEmbed from './YandexFormEmbed';
 
 export default function HomeworkPageBlocks({ blocks }: { blocks: HomeworkPageBlock[] }) {
@@ -92,14 +92,14 @@ function renderBlock(block: HomeworkPageBlock) {
 
   if (block.block_type === 'contest') {
     const url = content.url?.trim() ?? '';
-    const embeddable = url && isContestEmbeddable(normalizeContestUrl(url) ?? '');
+    const hasContest = !!url && isContestLink(url);
     return (
       <section key={block.id} className="space-y-3">
         <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
           {HOMEWORK_BLOCK_LABELS.contest}
         </h4>
-        {embeddable ? (
-          <YandexContestEmbed url={url} />
+        {hasContest ? (
+          <ContestLinkCard url={url} title="Задачи в Яндекс.Контесте" />
         ) : (
           <BlockPlaceholder variant="contest" />
         )}
