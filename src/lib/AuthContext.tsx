@@ -26,6 +26,7 @@ import {
 } from './yandexAuthUtils';
 import {
   SUPPORT_EMAIL,
+  identifierToAuthEmail,
   loginToAuthEmail,
   translateLoginAuthError,
 } from './loginAuthConfig';
@@ -451,8 +452,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }) => {
     markLoginIntent(teacherApplication);
 
+    // login здесь — либо придуманный логин, либо настоящая почта: у аккаунтов
+    // Яндекс ID своего логина нет, и второй способ входа у них почтовый.
     const { error } = await supabase.auth.signInWithPassword({
-      email: loginToAuthEmail(login),
+      email: identifierToAuthEmail(login),
       password,
     });
 

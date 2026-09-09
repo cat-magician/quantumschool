@@ -83,6 +83,20 @@ export async function startYandexLink(): Promise<{ error: string | null }> {
   return { error: error ? describeLinkError(error.message) : null };
 }
 
+/**
+ * Задать пароль аккаунту, который завели через Яндекс ID.
+ *
+ * Логин такому аккаунту не придумать: Supabase опознаёт человека по одному
+ * адресу, и он уже занят яндексовым. Поэтому второй способ входа у них —
+ * та же почта плюс пароль.
+ */
+export async function setAccountPassword(
+  password: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.updateUser({ password });
+  return { error: error ? describeLinkError(error.message) : null };
+}
+
 export async function unlinkIdentity(
   identity: UserIdentity,
 ): Promise<{ error: string | null }> {
@@ -113,6 +127,22 @@ export function describeLinkError(message: string): string {
   if (lower.includes('single identity') || lower.includes('last identity')
     || lower.includes('only identity')) {
     return 'Это единственный способ войти — его нельзя отвязать, иначе вы потеряете доступ.';
+  }
+
+  if (lower.includes('weak password') || lower.includes('pwned')) {
+    return 'Пароль слишком простой — добавьте символов.';
+  }
+
+  if (lower.includes('should be at least')) {
+    return 'Пароль слишком короткий.';
+  }
+
+  if (lower.includes('should be different') || lower.includes('same as the old')) {
+    return 'Это ваш текущий пароль — придумайте новый.';
+  }
+
+  if (lower.includes('reauthentication') || lower.includes('recent login')) {
+    return 'Для смены пароля нужно заново войти в аккаунт.';
   }
 
   if (lower.includes('session') || lower.includes('jwt') || lower.includes('not authenticated')) {

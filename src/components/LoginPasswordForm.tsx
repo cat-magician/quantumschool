@@ -106,7 +106,7 @@ export default function LoginPasswordForm({
       const emailError = validateRecoveryEmail(recoveryEmail);
       if (emailError) errors.recoveryEmail = emailError;
     } else {
-      if (!login.trim()) errors.login = 'Введите логин';
+      if (!login.trim()) errors.login = 'Введите логин или почту';
       if (!password) errors.password = 'Введите пароль';
     }
 
@@ -194,7 +194,7 @@ export default function LoginPasswordForm({
 
         <div>
           <label htmlFor={`${fieldId}-login`} className={`block text-sm font-medium mb-1.5 ${s.label}`}>
-            Логин
+            {isSignUp ? 'Логин' : 'Логин или почта'}
           </label>
           <input
             id={`${fieldId}-login`}
@@ -203,17 +203,19 @@ export default function LoginPasswordForm({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            maxLength={LOGIN_MAX_LENGTH}
+            maxLength={isSignUp ? LOGIN_MAX_LENGTH : 254}
             value={login}
             onChange={(e) => setLogin(normalizeLogin(e.target.value))}
-            placeholder="ivan2010"
+            placeholder={isSignUp ? 'ivan2010' : 'ivan2010 или ivan@yandex.ru'}
             className={inputClass('login')}
             {...errorProps('login')}
           />
           {renderError('login')}
-          {isSignUp && !fieldErrors.login && (
+          {!fieldErrors.login && (
             <p className={`mt-1.5 text-xs ${s.hint}`}>
-              Латинские буквы и цифры. Это не почта — придумайте что угодно.
+              {isSignUp
+                ? 'Латинские буквы и цифры. Это не почта — придумайте что угодно.'
+                : 'Логин, если регистрировались по нему, или почта — если задали пароль аккаунту Яндекс ID.'}
             </p>
           )}
         </div>

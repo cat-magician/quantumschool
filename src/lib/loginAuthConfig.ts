@@ -46,6 +46,24 @@ export function loginFromAuthEmail(email: string | null | undefined): string | n
   return value.slice(0, -(LOGIN_EMAIL_DOMAIN.length + 1)) || null;
 }
 
+/**
+ * Что человек ввёл в поле входа: почту или логин.
+ *
+ * У аккаунта, заведённого через Яндекс ID, в Supabase лежит настоящий адрес,
+ * а не технический `<логин>@id.quantumschool.ru`. Придумать такому аккаунту
+ * ещё и логин нельзя — Supabase опознаёт человека по одному адресу, и он уже
+ * занят. Поэтому второй способ входа для них — почта с паролем.
+ */
+export function isEmailIdentifier(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/** Логин или почта — в адрес, которым логинимся в Supabase. */
+export function identifierToAuthEmail(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  return isEmailIdentifier(trimmed) ? trimmed : loginToAuthEmail(trimmed);
+}
+
 /** Текст ошибки или null, если логин подходит. */
 export function validateLogin(value: string): string | null {
   const login = normalizeLogin(value);
