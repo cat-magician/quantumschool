@@ -232,9 +232,84 @@ check('одно общее слово в ФИО совпадением не сч
 check('близкое время даёт сигнал по нужному этапу', () => {
   const p = profile({ stage1_submitted_at: '2026-08-20T11:32:00Z' });
   const entry = mkEntry({ submittedAt: new Date('2026-08-20T11:30:00Z').getTime() });
-  assert.ok(lib.scoreCandidate(entry, p, 'essay').signals.includes('time_close'));
+  assert.ok(lib.scoreCandidate(entry, p, 'essay').signals.includes('time_exact'));
   // Для анкеты смотрится другая метка — её нет, значит и сигнала нет.
   assert.ok(!lib.scoreCandidate(entry, p, 'questionnaire').signals.some((s) => s.startsWith('time')));
+
+  // Четыре минуты — уже не «точно», но всё ещё близко.
+  const looser = mkEntry({ submittedAt: new Date('2026-08-20T11:28:00Z').getTime() });
+  assert.ok(lib.scoreCandidate(looser, p, 'essay').signals.includes('time_close'));
+});
+
+// ── Время как самостоятельное решение ─────────────────────────
+// Половина эссе пришла без имени и без почты: в колонку ФИО попала ссылка.
+// Единственная зацепка — отметка «я отправил» на сайте.
+
+check('безымянное эссе с одиноким точным временем расходится само', () => {
+  const owner = profile({
+    id: 'cccc3333-3333-3333-3333-333333333333',
+    display_name: 'Сидорова Анна',
+    email: 'sidorova@yandex.ru',
+    stage1_submitted_at: '2026-08-20T11:31:00Z',
+  });
+  const faraway = profile({
+    id: 'dddd4444-4444-4444-4444-444444444444',
+    display_name: 'Кузнецов Пётр',
+    email: 'kuznetsov@yandex.ru',
+    stage1_submitted_at: '2026-08-20T18:00:00Z',
+  });
+
+  const entries = [mkEntry({ rowNumber: 1, submittedAt: new Date('2026-08-20T11:30:00Z').getTime() })];
+  const rows = lib.matchFormEntries(entries, [owner, faraway], 'essay');
+
+  assert.equal(rows[0].best.profileId, owner.id);
+  assert.equal(rows[0].confidence, 'confident', 'одинокое совпадение по времени решает само');
+});
+
+check('два аккаунта рядом по времени — решает человек', () => {
+  const first = profile({
+    id: 'cccc3333-3333-3333-3333-333333333333',
+    display_name: 'Сидорова Анна',
+    email: 'sidorova@yandex.ru',
+    stage1_submitted_at: '2026-08-20T11:31:00Z',
+  });
+  const second = profile({
+    id: 'dddd4444-4444-4444-4444-444444444444',
+    display_name: 'Кузнецов Пётр',
+    email: 'kuznetsov@yandex.ru',
+    stage1_submitted_at: '2026-08-20T11:33:00Z',
+  });
+
+  const entries = [mkEntry({ rowNumber: 1, submittedAt: new Date('2026-08-20T11:30:00Z').getTime() })];
+  const rows = lib.matchFormEntries(entries, [first, second], 'essay');
+
+  assert.equal(rows[0].confidence, 'likely', 'в дедлайн рядом могут отправить двое — не угадываем');
+});
+
+check('время ±10 мин подсказывает, но не решает', () => {
+  const owner = profile({
+    id: 'cccc3333-3333-3333-3333-333333333333',
+    display_name: 'Сидорова Анна',
+    email: 'sidorova@yandex.ru',
+    stage1_submitted_at: '2026-08-20T11:40:00Z',
+  });
+
+  const entries = [mkEntry({ rowNumber: 1, submittedAt: new Date('2026-08-20T11:30:00Z').getTime() })];
+  const rows = lib.matchFormEntries(entries, [owner], 'essay');
+
+  assert.equal(rows[0].confidence, 'likely', '±10 минут — подсказка, а не доказательство');
+  assert.equal(rows[0].best.profileId, owner.id, 'подсказку всё же показываем');
+});
+
+check('совсем далёкое время кандидата не создаёт', () => {
+  const owner = profile({
+    id: 'cccc3333-3333-3333-3333-333333333333',
+    stage1_submitted_at: '2026-08-20T15:30:00Z',
+  });
+  const entries = [mkEntry({ rowNumber: 1, submittedAt: new Date('2026-08-20T11:30:00Z').getTime() })];
+  const rows = lib.matchFormEntries(entries, [owner], 'essay');
+  assert.equal(rows[0].confidence, 'unmatched');
+  assert.equal(rows[0].best, null);
 });
 
 // ── Раскладка по корзинам ─────────────────────────────────────

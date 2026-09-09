@@ -203,6 +203,7 @@ export type MatchSignal =
   | 'login_local'
   | 'name_exact'
   | 'name_partial'
+  | 'time_exact'
   | 'time_close'
   | 'time_near'
   | 'time_loose'
@@ -217,6 +218,7 @@ export const SIGNAL_LABELS: Record<MatchSignal, string> = {
   login_local: 'логин похож на почту',
   name_exact: 'ФИО совпало',
   name_partial: 'ФИО частично',
+  time_exact: 'время ±2 мин',
   time_close: 'время ±5 мин',
   time_near: 'время ±30 мин',
   time_loose: 'время ±3 ч',
@@ -232,6 +234,7 @@ const SIGNAL_WEIGHTS: Record<MatchSignal, number> = {
   login_local: 30,
   name_exact: 50,
   name_partial: 25,
+  time_exact: 55,
   time_close: 40,
   time_near: 25,
   time_loose: 10,
@@ -267,6 +270,7 @@ function timeSignal(entryAt: number | null, profileAt: string | null | undefined
   if (Number.isNaN(stamp)) return null;
 
   const diff = Math.abs(stamp - entryAt);
+  if (diff <= 2 * MINUTE) return 'time_exact';
   if (diff <= 5 * MINUTE) return 'time_close';
   if (diff <= 30 * MINUTE) return 'time_near';
   if (diff <= 180 * MINUTE) return 'time_loose';
@@ -336,8 +340,19 @@ export type MatchRow = {
   confidence: MatchConfidence;
 };
 
-const LIKELY_THRESHOLD = 30;
+// 25 — ровно вес «время ±30 мин» и «ФИО частично». Ниже этого подсказка
+// бессмысленна, а на этом уровне она уже полезна: у половины эссе нет ни
+// имени, ни почты, и показать ближайший по времени аккаунт лучше, чем
+// не показать ничего. Решение всё равно за человеком — авто-подтверждение
+// живёт на отдельном, куда более строгом правиле.
+const LIKELY_THRESHOLD = 25;
 const CONFIDENT_THRESHOLD = 75;
+
+const TIME_SIGNALS: MatchSignal[] = ['time_exact', 'time_close', 'time_near', 'time_loose'];
+
+function hasTimeSignal(candidate: Candidate | null): boolean {
+  return !!candidate && TIME_SIGNALS.some((s) => candidate.signals.includes(s));
+}
 
 function classify(best: Candidate | null, runnerUp: Candidate | null): MatchConfidence {
   if (!best || best.score < LIKELY_THRESHOLD) return 'unmatched';
@@ -349,8 +364,18 @@ function classify(best: Candidate | null, runnerUp: Candidate | null): MatchConf
     || best.signals.includes('login')
   ) return 'confident';
 
-  // Иначе нужен и высокий балл, и заметный отрыв от второго кандидата.
   const gap = best.score - (runnerUp?.score ?? 0);
+
+  // Ради этого метки времени и собирались: у эссе часто нет ни имени, ни почты,
+  // и единственная зацепка — отметка «я отправил» на сайте. Если в двух минутах
+  // от ответа стоит ровно один аккаунт, а рядом с ним больше никого по времени
+  // нет, это ответ, а не повод для ручного разбора. Как только по времени
+  // подходит второй — решать снова человеку.
+  if (best.signals.includes('time_exact') && !hasTimeSignal(runnerUp) && gap >= 25) {
+    return 'confident';
+  }
+
+  // Иначе нужен и высокий балл, и заметный отрыв от второго кандидата.
   if (best.score >= CONFIDENT_THRESHOLD && gap >= 25) return 'confident';
   return 'likely';
 }
