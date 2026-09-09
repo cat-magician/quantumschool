@@ -891,7 +891,10 @@ function SelectionTab({
               <ExternalFormHint />
             )}
             {questionnairePublished ? (
-              <YandexFormEmbed formId={config.questionnaire_form_id} />
+              <YandexFormEmbed
+                formId={config.questionnaire_form_id}
+                prefill={{ param: config.questionnaire_prefill_param, value: profile.id }}
+              />
             ) : (
               <StageComingSoon stage="questionnaire" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}
@@ -939,7 +942,10 @@ function SelectionTab({
               <ExternalFormHint />
             )}
             {essayPublished ? (
-              <YandexFormEmbed formId={config.essay_form_id} />
+              <YandexFormEmbed
+                formId={config.essay_form_id}
+                prefill={{ param: config.essay_prefill_param, value: profile.id }}
+              />
             ) : (
               <StageComingSoon stage="essay" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}

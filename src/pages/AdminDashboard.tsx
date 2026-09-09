@@ -15,11 +15,12 @@ import { publicAsset } from '../lib/appPaths';
 import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import {
-  Loader2, LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck,
+  Loader2, LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck, Link2,
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
 import SelectionStage1ConfigTab from './admin/SelectionStage1ConfigTab';
 import SelectionContestConfigTab from './admin/SelectionContestConfigTab';
+import SelectionMatchingTab from './admin/SelectionMatchingTab';
 import StudentsTab from './admin/StudentsTab';
 import TeachersTab from './admin/TeachersTab';
 import HomeworkTab from './admin/HomeworkTab';
@@ -49,7 +50,7 @@ type AdminTab =
   | 'grading'
   | 'statistics'
   | 'site';
-type SelectionAdminSubTab = 'stage1' | 'contest' | 'results';
+type SelectionAdminSubTab = 'stage1' | 'contest' | 'results' | 'matching';
 
 const SELECTION_ADMIN_SUB_NAV: {
   id: SelectionAdminSubTab;
@@ -59,12 +60,14 @@ const SELECTION_ADMIN_SUB_NAV: {
   { id: 'stage1', label: 'Этап 1', icon: ClipboardList },
   { id: 'contest', label: 'Этап 2: Задачи', icon: FlaskConical },
   { id: 'results', label: 'Результаты', icon: CheckCircle },
+  { id: 'matching', label: 'Сопоставление', icon: Link2 },
 ];
 
 const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
   stage1: 'Этап 1',
   contest: 'Этап 2: Задачи',
   results: 'Результаты',
+  matching: 'Сопоставление форм',
 };
 
 export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean }) {
@@ -493,6 +496,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           )}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'stage1' && <SelectionStage1ConfigTab />}
           {tab === 'results' && isSuperAdmin && selectionSubTab === 'contest' && <SelectionContestConfigTab />}
+          {tab === 'results' && isSuperAdmin && selectionSubTab === 'matching' && <SelectionMatchingTab />}
           {tab === 'results' && (isSuperAdmin ? selectionSubTab === 'results' : true) && (
             <ResultsTab isSuperAdmin={isSuperAdmin} />
           )}

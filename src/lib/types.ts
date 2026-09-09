@@ -71,8 +71,12 @@ export interface UserProfile {
   email: string | null;
   /** Придуманный логин; у аккаунтов Яндекс ID — null. */
   login?: string | null;
+  /** Логин Яндекс ID; им же участник подписан в мониторе Контеста. */
+  yandex_login?: string | null;
   /** Необязательная настоящая почта, только для восстановления доступа. */
   recovery_email?: string | null;
+  /** Почта для связи из анкеты; заполняется сопоставлением, не участником. */
+  contact_email?: string | null;
   privacy_consent_at: string | null;
   privacy_policy_version: string | null;
   teacher_application?: boolean;
@@ -208,8 +212,30 @@ export interface SelectionStageConfig {
   questionnaire_published: boolean;
   contest_url: string;
   contest_published: boolean;
+  /** Параметр адреса, которым в форму подставляется код участника; '' — выключено. */
+  questionnaire_prefill_param: string;
+  essay_prefill_param: string;
   updated_at: string | null;
   updated_by: string | null;
+}
+
+export type SelectionFormKind = 'questionnaire' | 'essay' | 'contest';
+
+/** Подтверждённая связь ответа формы с аккаунтом. */
+export interface SelectionFormLink {
+  id: string;
+  user_id: string;
+  form_kind: SelectionFormKind;
+  contact_email: string | null;
+  form_name: string;
+  form_submitted_at: string | null;
+  source_file: string;
+  source_row: number | null;
+  match_score: number | null;
+  match_signals: string[];
+  confirmed_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** Строка блока «Ключевые даты»: слева срок, справа что к нему приурочено. */

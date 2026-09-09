@@ -2953,3 +2953,484 @@ SET key_dates = jsonb_build_array(
   jsonb_build_object('date', 'начало октября', 'label', 'Старт курса')
 )
 WHERE id = 1 AND key_dates = '[]'::jsonb;
+
+-- ══════════════════════════════════════════════════════════════
+-- Кто стоит за ответом формы: яндекс-логин и почта для связи
+-- ══════════════════════════════════════════════════════════════
+--
+-- Яндекс.Формы не сохраняли, с какого аккаунта их отправили: колонки «Логин»
+-- и «Эмейл» в выгрузках пусты — подстановка данных авторизованного
+-- пользователя в форме была выключена. Отсюда анкеты без аккаунта, аккаунты
+-- без анкеты, и настоящая почта для связи, которая живёт только внутри
+-- ответа формы.
+--
+-- yandex_login — логин Яндекс ID (вида `ivanov.ii`). Приходит при каждом
+--   входе как preferred_username (functions/yandex-userinfo), но до сих пор
+--   нигде не сохранялся. Этим же логином подписаны участники в мониторе
+--   Яндекс.Контеста, так что посылки связываются с аккаунтом точным
+--   совпадением, без угадывания. Не путать с user_profiles.login: тот про
+--   вход по логину и паролю и выводится из auth.users.email.
+--
+-- contact_email — почта, которую человек написал внутри анкеты. Отдельно от
+--   recovery_email: тот про восстановление доступа и его заполняет сам
+--   пользователь, а этот — итог сопоставления, его ставит админ.
+
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS yandex_login text,
+  ADD COLUMN IF NOT EXISTS contact_email text;
+
+-- Уникальным не делаем: у Яндекса бывают алиасы логина, и разъехавшиеся
+-- данные не должны ломать вход живому человеку.
+CREATE INDEX IF NOT EXISTS user_profiles_yandex_login_idx
+  ON public.user_profiles (lower(yandex_login))
+  WHERE yandex_login IS NOT NULL;
+
+-- Логин из метаданных входа. `preferred_username` подставляет наш прокси
+-- userinfo, `login` — то, что отдал сам Яндекс.
+CREATE OR REPLACE FUNCTION public.extract_oauth_login(p_metadata jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT lower(COALESCE(
+    NULLIF(trim(p_metadata->>'preferred_username'), ''),
+    NULLIF(trim(p_metadata->>'login'), '')
+  ));
+$$;
+
+REVOKE ALL ON FUNCTION public.extract_oauth_login(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- Первый вход: у аккаунтов Яндекс ID сразу запоминаем логин. У входа по
+-- логину и паролю в метаданных лежит свой login, к Яндексу он не относится —
+-- поэтому колонку заполняем только когда технического адреса нет.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_role text;
+  v_login text;
+  v_display_name text;
+BEGIN
+  IF private.is_allowlisted_superadmin_email(COALESCE(new.email, '')) THEN
+    v_role := 'superadmin';
+  ELSE
+    v_role := 'student';
+  END IF;
+
+  v_login := private.login_from_email(new.email);
+  v_display_name := COALESCE(
+    NULLIF(public.extract_oauth_display_name(new.raw_user_meta_data), ''),
+    v_login,
+    ''
+  );
+
+  INSERT INTO public.user_profiles (
+    id, display_name, role, email, login, recovery_email, yandex_login
+  )
+  VALUES (
+    new.id,
+    v_display_name,
+    v_role,
+    new.email,
+    v_login,
+    CASE
+      WHEN v_login IS NULL THEN NULL
+      ELSE lower(NULLIF(trim(new.raw_user_meta_data->>'recovery_email'), ''))
+    END,
+    CASE
+      WHEN v_login IS NULL THEN public.extract_oauth_login(new.raw_user_meta_data)
+      ELSE NULL
+    END
+  );
+  RETURN new;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated, public;
+
+-- Повторный вход: логин Яндекс ID подтягиваем тем, кто зарегистрировался до
+-- появления колонки. Сохранённое значение не затираем пустым — метаданные
+-- могут прийти без логина, а терять якорь для сопоставления нельзя.
+CREATE OR REPLACE FUNCTION public.sync_oauth_user_profile(
+  p_privacy_consent boolean DEFAULT false,
+  p_privacy_version text DEFAULT NULL
+)
+RETURNS public.user_profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = auth, public
+AS $$
+DECLARE
+  v_user auth.users%ROWTYPE;
+  v_profile public.user_profiles;
+  v_display_name text;
+  v_yandex_login text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_user FROM auth.users WHERE id = auth.uid();
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'user_not_found';
+  END IF;
+
+  v_display_name := public.extract_oauth_display_name(v_user.raw_user_meta_data);
+  v_yandex_login := CASE
+    WHEN private.login_from_email(v_user.email) IS NULL
+      THEN public.extract_oauth_login(v_user.raw_user_meta_data)
+    ELSE NULL
+  END;
+
+  SELECT * INTO v_profile FROM public.user_profiles WHERE id = auth.uid();
+  IF NOT FOUND THEN
+    INSERT INTO public.user_profiles (id, display_name, role, email, yandex_login)
+    VALUES (
+      auth.uid(),
+      v_display_name,
+      CASE
+        WHEN private.is_allowlisted_superadmin_email(COALESCE(v_user.email, '')) THEN 'superadmin'
+        ELSE 'student'
+      END,
+      v_user.email,
+      v_yandex_login
+    )
+    RETURNING * INTO v_profile;
+  ELSE
+    UPDATE public.user_profiles
+    SET
+      email = COALESCE(v_user.email, v_profile.email),
+      yandex_login = COALESCE(v_yandex_login, v_profile.yandex_login),
+      display_name = CASE
+        WHEN NULLIF(trim(v_profile.display_name), '') IS NOT NULL THEN v_profile.display_name
+        ELSE v_display_name
+      END,
+      privacy_consent_at = CASE
+        WHEN p_privacy_consent AND privacy_consent_at IS NULL THEN now()
+        ELSE privacy_consent_at
+      END,
+      privacy_policy_version = CASE
+        WHEN p_privacy_consent AND privacy_policy_version IS NULL THEN p_privacy_version
+        ELSE privacy_policy_version
+      END,
+      updated_at = now()
+    WHERE id = auth.uid()
+    RETURNING * INTO v_profile;
+  END IF;
+
+  RETURN v_profile;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sync_oauth_user_profile(boolean, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sync_oauth_user_profile(boolean, text) TO authenticated;
+
+-- Заполнить логин у аккаунтов Яндекс ID, заведённых до появления колонки.
+UPDATE public.user_profiles p
+SET yandex_login = public.extract_oauth_login(u.raw_user_meta_data)
+FROM auth.users u
+WHERE u.id = p.id
+  AND p.yandex_login IS NULL
+  AND private.login_from_email(u.email) IS NULL
+  AND public.extract_oauth_login(u.raw_user_meta_data) IS NOT NULL;
+
+-- Оба новых поля — якоря личности, сам участник их не трогает: yandex_login
+-- держит связь с монитором контеста, contact_email решает, куда писать о
+-- зачислении. Логин разрешено только подтянуть из метаданных входа — ровно
+-- то, что делает sync_oauth_user_profile.
+CREATE OR REPLACE FUNCTION public.guard_user_profile_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- SQL Editor, demo seeds, auth triggers (no JWT)
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF private.is_superadmin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF private.is_staff() AND auth.uid() IS DISTINCT FROM OLD.id THEN
+    RETURN NEW;
+  END IF;
+
+  IF auth.uid() = OLD.id THEN
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'role';
+    END IF;
+    IF NEW.is_enrolled IS DISTINCT FROM OLD.is_enrolled THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'is_enrolled';
+    END IF;
+    -- Почту разрешено только подтянуть из Яндекс ID (sync_oauth_user_profile), не подменить
+    IF NEW.email IS DISTINCT FROM OLD.email
+      AND NEW.email IS DISTINCT FROM (SELECT u.email FROM auth.users u WHERE u.id = OLD.id) THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'email';
+    END IF;
+    IF NEW.yandex_login IS DISTINCT FROM OLD.yandex_login
+      AND NEW.yandex_login IS DISTINCT FROM (
+        SELECT public.extract_oauth_login(u.raw_user_meta_data)
+        FROM auth.users u WHERE u.id = OLD.id
+      ) THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'yandex_login';
+    END IF;
+    IF NEW.contact_email IS DISTINCT FROM OLD.contact_email THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'contact_email';
+    END IF;
+    IF NEW.enrolled_course_id IS DISTINCT FROM OLD.enrolled_course_id THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'enrolled_course_id';
+    END IF;
+    IF NEW.stage1_score IS DISTINCT FROM OLD.stage1_score THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_score';
+    END IF;
+    IF NEW.stage2_score IS DISTINCT FROM OLD.stage2_score THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_score';
+    END IF;
+    IF NEW.selection_rejected IS DISTINCT FROM OLD.selection_rejected THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'selection_rejected';
+    END IF;
+
+    IF NEW.stage1_status IS DISTINCT FROM OLD.stage1_status THEN
+      IF NEW.stage1_status IN ('passed', 'failed')
+        OR NOT (
+          (OLD.stage1_status = 'pending' AND NEW.stage1_status = 'submitted')
+          OR (OLD.stage1_status = 'submitted' AND NEW.stage1_status = 'pending' AND OLD.stage1_score IS NULL)
+        ) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_status';
+      END IF;
+    END IF;
+
+    IF NEW.stage2_status IS DISTINCT FROM OLD.stage2_status THEN
+      IF NEW.stage2_status IN ('passed', 'failed')
+        OR NOT (
+          (OLD.stage2_status = 'pending' AND NEW.stage2_status = 'submitted')
+          OR (OLD.stage2_status = 'submitted' AND NEW.stage2_status = 'pending' AND OLD.stage2_score IS NULL)
+        ) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_status';
+      END IF;
+    END IF;
+
+    IF OLD.stage1_viewed_at IS NOT NULL
+      AND NEW.stage1_viewed_at IS DISTINCT FROM OLD.stage1_viewed_at THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage1_viewed_at';
+    END IF;
+
+    IF OLD.stage2_viewed_at IS NOT NULL
+      AND NEW.stage2_viewed_at IS DISTINCT FROM OLD.stage2_viewed_at THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'stage2_viewed_at';
+    END IF;
+
+    IF NEW.teacher_application IS DISTINCT FROM OLD.teacher_application THEN
+      IF NOT (OLD.teacher_application = false AND NEW.teacher_application = true) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'teacher_application';
+      END IF;
+    END IF;
+
+    IF NEW.teacher_application_rejected IS DISTINCT FROM OLD.teacher_application_rejected THEN
+      IF NOT (OLD.teacher_application_rejected = true AND NEW.teacher_application_rejected = false) THEN
+        RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'teacher_application_rejected';
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC, anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Подтверждённые связи «ответ формы ↔ аккаунт»
+-- ══════════════════════════════════════════════════════════════
+--
+-- Одна строка — один разобранный ответ формы, привязанный к аккаунту.
+-- Инструмент сопоставления в админке пишет сюда только то, что человек
+-- подтвердил или что сошлось по точному признаку (почта, логин); догадки
+-- остаются в интерфейсе и в базу не попадают.
+--
+-- source_file и source_row нужны, чтобы вернуться к исходной строке выгрузки
+-- и перепроверить решение: сами файлы мы не храним, они разбираются в
+-- браузере и никуда не отправляются.
+--
+-- Таблица под суперадмином целиком: здесь настоящие контактные почты,
+-- собранные вне сайта, и ими же подписаны решения о зачислении.
+
+CREATE TABLE IF NOT EXISTS public.selection_form_links (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  form_kind text NOT NULL CHECK (form_kind IN ('questionnaire', 'essay', 'contest')),
+  contact_email text,
+  form_name text NOT NULL DEFAULT '',
+  form_submitted_at timestamptz,
+  source_file text NOT NULL DEFAULT '',
+  source_row integer,
+  match_score integer,
+  match_signals text[] NOT NULL DEFAULT '{}',
+  confirmed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, form_kind)
+);
+
+CREATE INDEX IF NOT EXISTS selection_form_links_kind_idx
+  ON public.selection_form_links (form_kind);
+
+ALTER TABLE public.selection_form_links ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Superadmin manage form links" ON public.selection_form_links;
+CREATE POLICY "Superadmin manage form links" ON public.selection_form_links
+  FOR ALL TO authenticated
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
+
+-- Подтверждение разбора: сотня связей приезжает одним вызовом, иначе браузер
+-- шлёт сотню запросов и половина может лечь. Заодно почта из анкеты попадает
+-- в профиль — у входов по логину она единственный рабочий адрес.
+CREATE OR REPLACE FUNCTION public.superadmin_apply_form_links(p_links jsonb)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count integer := 0;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  IF jsonb_typeof(p_links) IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'links_not_an_array';
+  END IF;
+
+  -- Один аккаунт дважды в одной пачке — ON CONFLICT на это отвечает невнятно,
+  -- а интерфейс такие строки и так не отдаёт: значит, что-то разошлось.
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(p_links) AS item
+    GROUP BY item->>'user_id', item->>'form_kind'
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'duplicate_links';
+  END IF;
+
+  INSERT INTO public.selection_form_links (
+    user_id, form_kind, contact_email, form_name, form_submitted_at,
+    source_file, source_row, match_score, match_signals, confirmed_by, updated_at
+  )
+  SELECT
+    (item->>'user_id')::uuid,
+    item->>'form_kind',
+    lower(NULLIF(trim(item->>'contact_email'), '')),
+    COALESCE(NULLIF(trim(item->>'form_name'), ''), ''),
+    NULLIF(item->>'form_submitted_at', '')::timestamptz,
+    COALESCE(NULLIF(trim(item->>'source_file'), ''), ''),
+    NULLIF(item->>'source_row', '')::integer,
+    NULLIF(item->>'match_score', '')::integer,
+    COALESCE(
+      ARRAY(SELECT jsonb_array_elements_text(item->'match_signals')),
+      '{}'::text[]
+    ),
+    auth.uid(),
+    now()
+  FROM jsonb_array_elements(p_links) AS item
+  ON CONFLICT (user_id, form_kind) DO UPDATE SET
+    contact_email = EXCLUDED.contact_email,
+    form_name = EXCLUDED.form_name,
+    form_submitted_at = EXCLUDED.form_submitted_at,
+    source_file = EXCLUDED.source_file,
+    source_row = EXCLUDED.source_row,
+    match_score = EXCLUDED.match_score,
+    match_signals = EXCLUDED.match_signals,
+    confirmed_by = EXCLUDED.confirmed_by,
+    updated_at = now();
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+
+  -- Адрес берём из анкеты: в остальных формах поля почты просто нет, а если
+  -- когда-нибудь появится — анкета всё равно свежее и полнее.
+  WITH touched AS (
+    SELECT DISTINCT (item->>'user_id')::uuid AS user_id
+    FROM jsonb_array_elements(p_links) AS item
+  ),
+  best AS (
+    SELECT DISTINCT ON (l.user_id) l.user_id, l.contact_email
+    FROM public.selection_form_links l
+    JOIN touched t ON t.user_id = l.user_id
+    WHERE l.contact_email IS NOT NULL
+    ORDER BY l.user_id, (l.form_kind = 'questionnaire') DESC, l.updated_at DESC
+  )
+  UPDATE public.user_profiles p
+  SET contact_email = best.contact_email, updated_at = now()
+  FROM best
+  WHERE best.user_id = p.id
+    AND p.contact_email IS DISTINCT FROM best.contact_email;
+
+  RETURN v_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_apply_form_links(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_apply_form_links(jsonb) TO authenticated;
+
+-- Снять связь: заодно убираем почту из профиля, иначе в выгрузке останется
+-- адрес от разбора, который только что признали ошибочным.
+CREATE OR REPLACE FUNCTION public.superadmin_clear_form_link(
+  target_user_id uuid,
+  target_form_kind text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  DELETE FROM public.selection_form_links
+  WHERE user_id = target_user_id AND form_kind = target_form_kind;
+
+  UPDATE public.user_profiles p
+  SET
+    contact_email = (
+      SELECT l.contact_email
+      FROM public.selection_form_links l
+      WHERE l.user_id = p.id AND l.contact_email IS NOT NULL
+      ORDER BY (l.form_kind = 'questionnaire') DESC, l.updated_at DESC
+      LIMIT 1
+    ),
+    updated_at = now()
+  WHERE p.id = target_user_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_clear_form_link(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_link(uuid, text) TO authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Предзаполнение форм: чтобы археология больше не понадобилась
+-- ══════════════════════════════════════════════════════════════
+--
+-- Яндекс.Формы умеют принимать ответ на вопрос через параметр адреса
+-- (`?answer_short_text_123456=<значение>`). Заводим в форме короткий вопрос
+-- «код участника», сайт открывает iframe с подставленным id аккаунта — и
+-- каждый ответ сразу подписан, сопоставлять руками нечего.
+--
+-- Имя параметра у каждой формы своё: в него входит id вопроса. Пустая строка
+-- значит «не подставлять», это и есть состояние по умолчанию — на текущих
+-- формах такого вопроса нет.
+
+ALTER TABLE public.selection_stage_config
+  ADD COLUMN IF NOT EXISTS questionnaire_prefill_param text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS essay_prefill_param text NOT NULL DEFAULT '';

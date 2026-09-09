@@ -19,7 +19,7 @@ export type AdminDashboardState = {
     | 'grading'
     | 'statistics'
     | 'site';
-  selectionSubTab?: 'stage1' | 'contest' | 'results';
+  selectionSubTab?: 'stage1' | 'contest' | 'results' | 'matching';
 };
 
 export type DashboardReturnState =
@@ -47,7 +47,7 @@ const ADMIN_TABS = [
   'statistics',
   'site',
 ] as const;
-const ADMIN_SELECTION_SUBS = ['stage1', 'contest', 'results'] as const;
+const ADMIN_SELECTION_SUBS = ['stage1', 'contest', 'results', 'matching'] as const;
 const LEGACY_ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework', 'grading'] as const;
 
 function isStudentTab(value: string): value is StudentDashboardState['tab'] {
@@ -191,6 +191,9 @@ export function normalizeAdminDashboardState(
 
   if (normalized.tab === 'results') {
     normalized.selectionSubTab = normalizeAdminSelectionSub(normalized.selectionSubTab);
+    // Настройки этапов и сопоставление — только для суперадмина; преподаватель
+    // из «Отборочных этапов» видит один список участников.
+    if (!isSuperAdmin) normalized.selectionSubTab = 'results';
   }
 
   return normalized;

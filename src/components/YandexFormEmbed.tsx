@@ -2,19 +2,23 @@ import StageEmbedFrame from './StageEmbedFrame';
 import {
   yandexFormIframeName,
   yandexFormIframeSrc,
+  type YandexFormPrefill,
 } from '../lib/selectionConfig';
 
 type YandexFormEmbedProps = {
   formId: string;
   title?: string;
+  /** Ответ, подставленный за участника: код аккаунта в скрытом вопросе формы. */
+  prefill?: YandexFormPrefill | null;
 };
 
 /** Яндекс.Форма во встроенном iframe; embed.js в index.html подстраивает высоту. */
 export default function YandexFormEmbed({
   formId,
   title,
+  prefill = null,
 }: YandexFormEmbedProps) {
-  const src = yandexFormIframeSrc(formId);
+  const src = yandexFormIframeSrc(formId, prefill);
   const frameName = yandexFormIframeName(formId);
 
   if (!src) return null;

@@ -9,6 +9,8 @@ export const DEFAULT_SELECTION_CONFIG: SelectionStageConfig = {
   questionnaire_published: false,
   contest_url: '',
   contest_published: false,
+  questionnaire_prefill_param: '',
+  essay_prefill_param: '',
   updated_at: null,
   updated_by: null,
 };
@@ -90,13 +92,48 @@ export function yandexFormInputDisplayUrl(stored: string): string {
   return url ? url.replace(/\/$/, '') : '';
 }
 
-export function yandexFormIframeSrc(stored: string): string {
+/** Ответ, который сайт подставляет в форму за участника. */
+export type YandexFormPrefill = {
+  /** Имя параметра адреса вида answer_short_text_123456. */
+  param: string;
+  value: string;
+};
+
+export function yandexFormIframeSrc(
+  stored: string,
+  prefill?: YandexFormPrefill | null,
+): string {
   const ref = parseStoredYandexFormRef(stored);
   if (!ref) return '';
   const base = ref.variant === 'cloud'
     ? `https://forms.yandex.ru/cloud/${ref.id}/`
     : `https://forms.yandex.ru/u/${ref.id}`;
-  return `${base}?iframe=1`;
+  const src = `${base}?iframe=1`;
+
+  if (!prefill?.param.trim() || !prefill.value.trim()) return src;
+  return `${src}&${encodeURIComponent(prefill.param)}=${encodeURIComponent(prefill.value)}`;
+}
+
+const PREFILL_PARAM_RE = /^answer_[a-z0-9_]+$/i;
+
+export const YANDEX_PREFILL_INPUT_PLACEHOLDER =
+  'answer_short_text_123456 или ссылка с ?answer_…=';
+
+/**
+ * Имя параметра предзаполнения. Принимаем и сам параметр, и целую ссылку из
+ * «Поделиться → ссылка с предзаполненными ответами»: копировать из адресной
+ * строки проще, чем выковыривать id вопроса руками.
+ *
+ * Пустая строка — выключить; false — не разобрали.
+ */
+export function parseOptionalYandexPrefillParam(input: string): string | false {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  const fromUrl = trimmed.match(/[?&](answer_[a-z0-9_]+)=/i);
+  const candidate = fromUrl ? fromUrl[1] : trimmed;
+
+  return PREFILL_PARAM_RE.test(candidate) ? candidate.toLowerCase() : false;
 }
 
 export function yandexFormIframeName(stored: string): string {
@@ -141,7 +178,9 @@ export async function fetchSelectionConfig(): Promise<SelectionStageConfig> {
     .maybeSingle();
 
   if (error || !data) return DEFAULT_SELECTION_CONFIG;
-  return data as SelectionStageConfig;
+  // Сливаем с дефолтами: пока миграция не применена, новых колонок в строке
+  // нет, и без этого они прилетели бы как undefined в поля ввода.
+  return { ...DEFAULT_SELECTION_CONFIG, ...(data as Partial<SelectionStageConfig>) };
 }
 
 export function isEssayPublished(config: SelectionStageConfig): boolean {
@@ -159,7 +198,9 @@ export function isContestPublished(config: SelectionStageConfig): boolean {
 export async function saveSelectionConfig(
   patch: Partial<Pick<
     SelectionStageConfig,
-    'essay_form_id' | 'essay_published' | 'questionnaire_form_id' | 'questionnaire_published' | 'contest_url' | 'contest_published'
+    'essay_form_id' | 'essay_published' | 'questionnaire_form_id' | 'questionnaire_published'
+    | 'contest_url' | 'contest_published'
+    | 'questionnaire_prefill_param' | 'essay_prefill_param'
   >>,
   userId: string,
 ) {

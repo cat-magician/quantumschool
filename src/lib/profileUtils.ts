@@ -66,6 +66,20 @@ export function profileLogin(
   return loginFromAuthEmail(authEmail ?? profile?.email ?? null);
 }
 
+/**
+ * Куда писать участнику. Почта из анкеты идёт первой: у входа по логину
+ * технического адреса нет, и она единственная рабочая.
+ */
+export function profileContactEmail(
+  profile: Pick<UserProfile, 'email' | 'contact_email' | 'recovery_email'> | null | undefined,
+  authEmail?: string | null,
+): string | null {
+  return profile?.contact_email?.trim()
+    || profileEmail(profile, authEmail)
+    || profile?.recovery_email?.trim()
+    || null;
+}
+
 /** Чем подписан аккаунт в списках: почтой Яндекс ID или логином. */
 export function profileAccountLabel(
   profile: Pick<UserProfile, 'email' | 'login'> | null | undefined,

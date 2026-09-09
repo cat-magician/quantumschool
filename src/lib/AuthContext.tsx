@@ -21,7 +21,7 @@ import {
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
-import { dashboardPathname, oauthDashboardRedirectPath, yandexDisplayName } from './yandexAuthUtils';
+import { dashboardPathname, oauthDashboardRedirectPath, yandexDisplayName, yandexLogin } from './yandexAuthUtils';
 import {
   SUPPORT_EMAIL,
   loginToAuthEmail,
@@ -117,6 +117,9 @@ function profileNeedsOAuthSync(user: User, profile: UserProfile | null): boolean
   if (!profile) return true;
   const authEmail = user.email?.trim().toLowerCase() ?? '';
   if (authEmail && profile.email?.trim().toLowerCase() !== authEmail) return true;
+  // Логин Яндекс ID у старых аккаунтов не сохранён, а по нему участник
+  // связывается с монитором Контеста — дотягиваем при первом же входе.
+  if (!profile.yandex_login?.trim() && yandexLogin(user)) return true;
   if (profile.display_name?.trim()) return false;
   return Boolean(yandexDisplayName(user));
 }

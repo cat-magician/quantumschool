@@ -16,4 +16,19 @@ export function yandexDisplayName(user: User): string | null {
   return parts.length ? parts.join(' ') : null;
 }
 
+/**
+ * Логин Яндекс ID из метаданных входа. Порядок полей совпадает с
+ * extract_oauth_login в schema.sql: `preferred_username` подставляет наш
+ * прокси userinfo, `login` приходит от самого Яндекса.
+ */
+export function yandexLogin(user: User): string | null {
+  const meta = user.user_metadata ?? {};
+
+  for (const value of [meta.preferred_username, meta.login]) {
+    if (typeof value === 'string' && value.trim()) return value.trim().toLowerCase();
+  }
+
+  return null;
+}
+
 export { DASHBOARD_ROUTE as DASHBOARD_PATH, dashboardPathname, oauthDashboardRedirectPath } from './appPaths';

@@ -1,0 +1,388 @@
+/**
+ * Проверки логики сопоставления форм и связанных с ней утилит.
+ * Данные синтетические, файлы не нужны:
+ *   node scripts/test-matching.mjs
+ */
+
+import { build } from 'esbuild';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = path.resolve(import.meta.dirname, '..');
+const bundlePath = path.join(os.tmpdir(), `matching-test-${Date.now()}.mjs`);
+
+/**
+ * Клиент Supabase создаётся при импорте и требует переменных окружения Vite.
+ * Проверяемая логика в него не ходит, поэтому подменяем заглушкой: любое
+ * обращение упадёт с понятным текстом.
+ */
+const stubSupabase = {
+  name: 'stub-supabase',
+  setup(builder) {
+    builder.onResolve({ filter: /(^|\/)supabase$/ }, () => ({
+      path: 'stub-supabase',
+      namespace: 'stub',
+    }));
+    builder.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+      contents: `export const supabase = new Proxy({}, {
+        get() { throw new Error('В проверках нет доступа к базе'); },
+      });`,
+      loader: 'js',
+    }));
+  },
+};
+
+await build({
+  plugins: [stubSupabase],
+  stdin: {
+    contents: `
+      export * from '../src/lib/identityMatching';
+      export * from '../src/lib/tableImport';
+      export * from '../src/lib/selectionConfig';
+      export * from '../src/lib/selectionExport';
+      export * from '../src/lib/selectionFilters';
+      export * from '../src/lib/profileUtils';
+    `,
+    resolveDir: path.join(root, 'scripts'),
+    loader: 'ts',
+  },
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: bundlePath,
+  logLevel: 'warning',
+});
+
+const lib = await import(pathToFileURL(bundlePath).href);
+
+let checks = 0;
+function check(name, fn) {
+  fn();
+  checks++;
+  void name;
+}
+
+function table(headers, rows) {
+  return { headers, rows };
+}
+
+function profile(over = {}) {
+  return {
+    id: '11111111-1111-1111-1111-111111111111',
+    display_name: 'Иванов Иван',
+    avatar_url: '',
+    enrolled_course_id: null,
+    bio: '',
+    role: 'student',
+    is_enrolled: false,
+    stage1_status: 'pending',
+    stage2_status: 'pending',
+    stage1_score: null,
+    stage2_score: null,
+    email: 'ivanov@yandex.ru',
+    login: null,
+    yandex_login: null,
+    recovery_email: null,
+    contact_email: null,
+    privacy_consent_at: null,
+    privacy_policy_version: null,
+    city: null,
+    school: null,
+    grade: null,
+    created_at: '2026-08-01T00:00:00Z',
+    updated_at: '2026-08-01T00:00:00Z',
+    ...over,
+  };
+}
+
+// ── Нормализация имён ─────────────────────────────────────────
+check('ё и порядок слов не мешают', () => {
+  assert.equal(lib.normalizeName('Пётр Королёв'), lib.normalizeName('Королев Петр'));
+  assert.equal(lib.normalizeName('  Иванов   Иван  '), 'иван иванов');
+  assert.equal(lib.normalizeName('Иванов, И.И.'), 'и и иванов');
+});
+
+// ── Время ─────────────────────────────────────────────────────
+check('время формы читается и сдвигается', () => {
+  const at = lib.parseFormTimestamp('2026-08-20 11:30:41');
+  assert.equal(new Date(at).getHours(), 11);
+
+  const shifted = lib.parseFormTimestamp('2026-08-20 11:30:41', 2);
+  assert.equal(at - shifted, 2 * 3600_000);
+  assert.equal(lib.parseFormTimestamp(''), null);
+  assert.equal(lib.parseFormTimestamp('не время'), null);
+});
+
+// ── Разметка колонок ──────────────────────────────────────────
+check('«время начала заполнения» не путается с отправкой', () => {
+  const mapping = lib.autoDetectColumns([
+    'Время начала заполнения формы', 'Время создания',
+    'Время затраченное на заполнение формы', 'Ваше ФИО', 'Ваша почта', 'Логин',
+  ]);
+  assert.equal(mapping.submittedAt, 1);
+  assert.equal(mapping.name, 3);
+  assert.equal(mapping.email, 4);
+  assert.equal(mapping.login, 5);
+  assert.equal(mapping.code, null);
+});
+
+check('код участника находится по заголовку', () => {
+  const mapping = lib.autoDetectColumns(['Код участника', 'Ваше ФИО']);
+  assert.equal(mapping.code, 0);
+});
+
+check('«Имя» и «Фамилия» по отдельности за ФИО не принимаются', () => {
+  const mapping = lib.autoDetectColumns(['Имя', 'Фамилия', 'Ваше ФИО']);
+  assert.equal(mapping.name, 2);
+});
+
+// ── Строки формы ──────────────────────────────────────────────
+check('ссылка в поле ФИО именем не считается', () => {
+  const [entry] = lib.buildFormEntries(
+    table(['ФИО'], [['https://disk.yandex.ru/i/abc']]),
+    { ...lib.EMPTY_MAPPING, name: 0 },
+  );
+  assert.equal(entry.name, '');
+});
+
+check('опечатка в адресе видна отдельно', () => {
+  const entries = lib.buildFormEntries(
+    table(['Почта'], [['ok@mail.ru'], ['ошибка#mail.ru'], ['']]),
+    { ...lib.EMPTY_MAPPING, email: 0 },
+  );
+  assert.deepEqual(entries.map((e) => e.emailValid), [true, false, false]);
+});
+
+check('повторная отправка схлопывается в последнюю', () => {
+  const entries = lib.buildFormEntries(
+    table(['Почта', 'Время'], [
+      ['dup@mail.ru', '2026-08-20 10:00:00'],
+      ['dup@mail.ru', '2026-08-21 10:00:00'],
+      ['one@mail.ru', '2026-08-20 10:00:00'],
+    ]),
+    { ...lib.EMPTY_MAPPING, email: 0, submittedAt: 1 },
+  );
+  const active = entries.filter((e) => !e.supersededBy);
+  assert.equal(active.length, 2);
+  assert.equal(entries[0].supersededBy, 2);
+  assert.equal(entries[1].supersededBy, undefined);
+});
+
+check('дедупликация идёт по коду, когда он есть', () => {
+  const entries = lib.buildFormEntries(
+    table(['Код участника', 'ФИО'], [['abc', 'Иванов Иван'], ['abc', 'Иванов И.']]),
+    { ...lib.EMPTY_MAPPING, code: 0, name: 1 },
+  );
+  assert.equal(entries.filter((e) => !e.supersededBy).length, 1);
+});
+
+// ── Скоринг ───────────────────────────────────────────────────
+const mkEntry = (over = {}) => ({
+  rowNumber: 1, code: '', name: '', email: '', login: '',
+  submittedAt: null, city: '', school: '', grade: '', emailValid: false,
+  ...over,
+});
+
+check('код решает сам по себе', () => {
+  const p = profile({ display_name: 'Совсем другой человек' });
+  const c = lib.scoreCandidate(mkEntry({ code: p.id }), p, 'questionnaire');
+  assert.ok(c.signals.includes('code'));
+});
+
+check('почта совпала — точное совпадение', () => {
+  const p = profile();
+  const c = lib.scoreCandidate(mkEntry({ email: 'ivanov@yandex.ru' }), p, 'questionnaire');
+  assert.ok(c.signals.includes('email'));
+});
+
+check('логин монитора ловится и по yandex_login, и по полному адресу', () => {
+  const byLogin = lib.scoreCandidate(
+    mkEntry({ login: 'ivanov.ii' }),
+    profile({ yandex_login: 'ivanov.ii' }),
+    'contest',
+  );
+  assert.ok(byLogin.signals.includes('login'));
+
+  const byMail = lib.scoreCandidate(
+    mkEntry({ login: 'kunets@phystech.edu' }),
+    profile({ email: 'kunets@phystech.edu' }),
+    'contest',
+  );
+  assert.ok(byMail.signals.includes('login'));
+});
+
+check('совпадение с началом адреса — только догадка', () => {
+  const c = lib.scoreCandidate(mkEntry({ login: 'ivanov' }), profile(), 'contest');
+  assert.ok(c.signals.includes('login_local'));
+  assert.ok(!c.signals.includes('login'));
+});
+
+check('одно общее слово в ФИО совпадением не считается', () => {
+  const c = lib.scoreCandidate(
+    mkEntry({ name: 'Иван Петров' }),
+    profile({ display_name: 'Иван Сидоров' }),
+    'questionnaire',
+  );
+  assert.ok(!c.signals.some((s) => s.startsWith('name')));
+});
+
+check('близкое время даёт сигнал по нужному этапу', () => {
+  const p = profile({ stage1_submitted_at: '2026-08-20T11:32:00Z' });
+  const entry = mkEntry({ submittedAt: new Date('2026-08-20T11:30:00Z').getTime() });
+  assert.ok(lib.scoreCandidate(entry, p, 'essay').signals.includes('time_close'));
+  // Для анкеты смотрится другая метка — её нет, значит и сигнала нет.
+  assert.ok(!lib.scoreCandidate(entry, p, 'questionnaire').signals.some((s) => s.startsWith('time')));
+});
+
+// ── Раскладка по корзинам ─────────────────────────────────────
+const alice = profile({ id: 'aaaa1111-1111-1111-1111-111111111111', display_name: 'Иванов Иван', email: 'ivanov@yandex.ru' });
+const bob = profile({ id: 'bbbb2222-2222-2222-2222-222222222222', display_name: 'Петров Пётр', email: 'petrov@yandex.ru' });
+
+check('точная почта — готово, только ФИО — на подтверждение', () => {
+  const entries = [
+    mkEntry({ rowNumber: 1, email: 'ivanov@yandex.ru', emailValid: true }),
+    mkEntry({ rowNumber: 2, name: 'Петров Петр' }),
+  ];
+  const rows = lib.matchFormEntries(entries, [alice, bob], 'questionnaire');
+  const byRow = new Map(rows.map((r) => [r.entry.rowNumber, r]));
+
+  assert.equal(byRow.get(1).confidence, 'confident');
+  assert.equal(byRow.get(1).best.profileId, alice.id);
+  assert.equal(byRow.get(2).confidence, 'likely');
+  assert.equal(byRow.get(2).best.profileId, bob.id);
+
+  const summary = lib.summarizeMatches(entries, rows, [alice, bob], {});
+  assert.deepEqual(
+    { ready: summary.ready, needsReview: summary.needsReview, unmatched: summary.unmatched },
+    { ready: 1, needsReview: 1, unmatched: 0 },
+  );
+});
+
+check('один аккаунт не достаётся двум строкам автоматически', () => {
+  const entries = [
+    mkEntry({ rowNumber: 1, name: 'Иванов Иван' }),
+    mkEntry({ rowNumber: 2, name: 'Иванов Иван' }),
+  ];
+  const rows = lib.matchFormEntries(entries, [alice], 'questionnaire');
+  const assigned = rows.filter((r) => r.best).length;
+  assert.equal(assigned, 1);
+});
+
+check('подтверждение и отказ переводят строку в нужную корзину', () => {
+  const entries = [mkEntry({ rowNumber: 1, name: 'Петров Петр' })];
+  const rows = lib.matchFormEntries(entries, [alice, bob], 'questionnaire');
+
+  const confirmed = lib.resolveMatch(rows[0], { 1: bob.id });
+  assert.deepEqual(
+    { profileId: confirmed.profileId, manual: confirmed.manual, ready: confirmed.ready },
+    { profileId: bob.id, manual: true, ready: true },
+  );
+
+  const refused = lib.resolveMatch(rows[0], { 1: null });
+  assert.equal(refused.profileId, null);
+  assert.equal(refused.ready, false);
+});
+
+check('ручной выбор одного аккаунта на две строки виден как конфликт', () => {
+  const entries = [
+    mkEntry({ rowNumber: 1, name: 'Иванов Иван' }),
+    mkEntry({ rowNumber: 2, name: 'Петров Петр' }),
+  ];
+  const rows = lib.matchFormEntries(entries, [alice, bob], 'questionnaire');
+  const conflicts = lib.conflictingProfileIds(rows, { 1: alice.id, 2: alice.id });
+  assert.deepEqual([...conflicts], [alice.id]);
+  assert.equal(lib.conflictingProfileIds(rows, {}).size, 0);
+});
+
+// ── CSV ───────────────────────────────────────────────────────
+check('csv: точка с запятой, кавычки и BOM', () => {
+  const parsed = lib.parseCsv('\uFEFFa;b;c\r\n1;"две;части";"кавычка ""тут"""\r\n');
+  assert.deepEqual(parsed.headers, ['a', 'b', 'c']);
+  assert.deepEqual(parsed.rows, [['1', 'две;части', 'кавычка "тут"']]);
+});
+
+check('csv: перевод строки внутри кавычек', () => {
+  const parsed = lib.parseCsv('a,b\n1,"первая\nвторая"\n');
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0][1], 'первая\nвторая');
+});
+
+// ── Предзаполнение форм ───────────────────────────────────────
+check('параметр предзаполнения читается и из ссылки', () => {
+  assert.equal(lib.parseOptionalYandexPrefillParam('answer_short_text_12345'), 'answer_short_text_12345');
+  assert.equal(
+    lib.parseOptionalYandexPrefillParam('https://forms.yandex.ru/u/abc/?answer_short_text_777=xyz'),
+    'answer_short_text_777',
+  );
+  assert.equal(lib.parseOptionalYandexPrefillParam('  '), '');
+  assert.equal(lib.parseOptionalYandexPrefillParam('какая-то ерунда'), false);
+});
+
+check('код участника попадает в адрес iframe', () => {
+  const plain = lib.yandexFormIframeSrc('abcdefghij');
+  assert.equal(plain, 'https://forms.yandex.ru/u/abcdefghij?iframe=1');
+
+  const withCode = lib.yandexFormIframeSrc('abcdefghij', {
+    param: 'answer_short_text_1',
+    value: 'aaaa-bbbb',
+  });
+  assert.equal(withCode, 'https://forms.yandex.ru/u/abcdefghij?iframe=1&answer_short_text_1=aaaa-bbbb');
+
+  // Выключенная привязка адрес не меняет.
+  assert.equal(lib.yandexFormIframeSrc('abcdefghij', { param: '', value: 'x' }), plain);
+});
+
+// ── Почта для связи ───────────────────────────────────────────
+check('почта для связи важнее адреса аккаунта', () => {
+  assert.equal(
+    lib.profileContactEmail(profile({ contact_email: 'real@mail.ru' })),
+    'real@mail.ru',
+  );
+  assert.equal(lib.profileContactEmail(profile()), 'ivanov@yandex.ru');
+  assert.equal(
+    lib.profileContactEmail(profile({ email: 'vasya@id.quantumschool.ru', recovery_email: 'v@mail.ru' })),
+    'v@mail.ru',
+  );
+  assert.equal(lib.profileContactEmail(profile({ email: 'vasya@id.quantumschool.ru' })), null);
+});
+
+check('фильтр по известной почте', () => {
+  const known = profile({ contact_email: 'real@mail.ru' });
+  const unknown = profile({ email: 'vasya@id.quantumschool.ru' });
+  const yes = { ...lib.EMPTY_SELECTION_FILTERS, contact: 'yes' };
+  const no = { ...lib.EMPTY_SELECTION_FILTERS, contact: 'no' };
+
+  assert.equal(lib.matchesSelectionFilters(known, yes), true);
+  assert.equal(lib.matchesSelectionFilters(unknown, yes), false);
+  assert.equal(lib.matchesSelectionFilters(known, no), false);
+  assert.equal(lib.matchesSelectionFilters(unknown, no), true);
+  assert.equal(lib.activeSelectionFilterCount(yes), 1);
+});
+
+check('поиск находит по яндекс-логину и почте из анкеты', () => {
+  const p = profile({ yandex_login: 'ivanov.ii', contact_email: 'real@mail.ru' });
+  const search = (q) => lib.matchesSelectionFilters(p, { ...lib.EMPTY_SELECTION_FILTERS, search: q });
+  assert.equal(search('ivanov.ii'), true);
+  assert.equal(search('real@mail'), true);
+  assert.equal(search('никого'), false);
+});
+
+// ── Выгрузка ──────────────────────────────────────────────────
+check('csv-выгрузка: колонки на месте, точка с запятой экранируется', () => {
+  const csv = lib.buildSelectionCsv([
+    profile({ display_name: 'Иванов; Иван', contact_email: 'real@mail.ru', yandex_login: 'ivanov.ii', stage1_score: 0 }),
+  ]);
+  const [header, row] = csv.trim().split('\r\n');
+
+  assert.equal(header.split(';')[1], 'Почта для связи');
+  assert.ok(header.includes('Логин Яндекса'));
+  assert.ok(row.startsWith('"Иванов; Иван";real@mail.ru;'));
+  // Нулевой балл — это «0», а не пустая ячейка.
+  assert.ok(row.split(';').includes('0'));
+});
+
+fs.rmSync(bundlePath, { force: true });
+console.log(`ок: ${checks} проверок`);

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, ClipboardList, FileText, Loader2, Save } from 'lucide-react';
+import { CheckCircle, ClipboardList, FileText, Link2, Loader2, Save } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import {
   fetchSelectionConfig,
   parseOptionalYandexFormId,
+  parseOptionalYandexPrefillParam,
   saveSelectionConfig,
   yandexFormInputDisplayUrl,
   YANDEX_FORM_INPUT_PLACEHOLDER,
+  YANDEX_PREFILL_INPUT_PLACEHOLDER,
 } from '../../lib/selectionConfig';
 import YandexFormEmbed from '../../components/YandexFormEmbed';
 import StageComingSoon from '../../components/StageComingSoon';
@@ -14,6 +16,7 @@ import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 
 type Stage1Field = 'questionnaire' | 'essay';
+type SavingTarget = Stage1Field | 'prefill';
 
 export default function SelectionStage1ConfigTab() {
   const { user } = useAuth();
@@ -23,8 +26,12 @@ export default function SelectionStage1ConfigTab() {
   const [essayPublished, setEssayPublished] = useState(false);
   const [savedQuestionnaireId, setSavedQuestionnaireId] = useState('');
   const [savedEssayId, setSavedEssayId] = useState('');
+  const [questionnairePrefillInput, setQuestionnairePrefillInput] = useState('');
+  const [essayPrefillInput, setEssayPrefillInput] = useState('');
+  const [savedQuestionnairePrefill, setSavedQuestionnairePrefill] = useState('');
+  const [savedEssayPrefill, setSavedEssayPrefill] = useState('');
   const [loading, setLoading] = useState(true);
-  const [savingField, setSavingField] = useState<Stage1Field | null>(null);
+  const [savingField, setSavingField] = useState<SavingTarget | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -38,6 +45,10 @@ export default function SelectionStage1ConfigTab() {
       setSavedEssayId(cfg.essay_form_id);
       setEssayInput(yandexFormInputDisplayUrl(cfg.essay_form_id));
       setEssayPublished(cfg.essay_published);
+      setSavedQuestionnairePrefill(cfg.questionnaire_prefill_param);
+      setQuestionnairePrefillInput(cfg.questionnaire_prefill_param);
+      setSavedEssayPrefill(cfg.essay_prefill_param);
+      setEssayPrefillInput(cfg.essay_prefill_param);
       setLoading(false);
     })();
   }, []);
@@ -131,6 +142,44 @@ export default function SelectionStage1ConfigTab() {
       flash('Форма эссе опубликована — ученики видят её на этапе 1');
     }
 
+    setSavingField(null);
+  };
+
+  const handleSavePrefill = async () => {
+    if (!user) return;
+    setSavingField('prefill');
+    setError('');
+    setSuccess('');
+
+    const questionnaireParam = parseOptionalYandexPrefillParam(questionnairePrefillInput);
+    const essayParam = parseOptionalYandexPrefillParam(essayPrefillInput);
+
+    if (questionnaireParam === false || essayParam === false) {
+      setError('Не разобрали параметр. Ожидается answer_… или ссылка с предзаполненным ответом.');
+      setSavingField(null);
+      return;
+    }
+
+    const { error: saveError } = await saveSelectionConfig({
+      questionnaire_prefill_param: questionnaireParam,
+      essay_prefill_param: essayParam,
+    }, user.id);
+
+    if (saveError) {
+      setError('Не удалось сохранить привязку.');
+      setSavingField(null);
+      return;
+    }
+
+    setSavedQuestionnairePrefill(questionnaireParam);
+    setQuestionnairePrefillInput(questionnaireParam);
+    setSavedEssayPrefill(essayParam);
+    setEssayPrefillInput(essayParam);
+    flash(
+      questionnaireParam || essayParam
+        ? 'Привязка сохранена — проверьте в предпросмотре, что код подставился'
+        : 'Привязка выключена',
+    );
     setSavingField(null);
   };
 
@@ -298,11 +347,54 @@ export default function SelectionStage1ConfigTab() {
         </div>
       </section>
 
+      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-4 h-4 text-slate-400" />
+          <h3 className="font-semibold text-white">Привязка ответов к аккаунту</h3>
+        </div>
+        <p className="text-sm text-slate-400 leading-relaxed">
+          Заведите в форме короткий вопрос «код участника», откройте
+          «Поделиться → ссылка с предзаполненными ответами» и вставьте её сюда.
+          Сайт подставит в этот вопрос код аккаунта, и ответы больше не придётся
+          сопоставлять руками. Пустое поле — ничего не подставляем.
+        </p>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-300 mb-2 block">Анкета</span>
+          <input
+            value={questionnairePrefillInput}
+            onChange={(e) => setQuestionnairePrefillInput(e.target.value)}
+            placeholder={YANDEX_PREFILL_INPUT_PLACEHOLDER}
+            className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-300 mb-2 block">Эссе</span>
+          <input
+            value={essayPrefillInput}
+            onChange={(e) => setEssayPrefillInput(e.target.value)}
+            placeholder={YANDEX_PREFILL_INPUT_PLACEHOLDER}
+            className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => { void handleSavePrefill(); }}
+          disabled={savingField === 'prefill'}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium border border-white/10 transition-colors disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" />
+          {savingField === 'prefill' ? 'Сохранение...' : 'Сохранить привязку'}
+        </button>
+      </section>
+
       <div className="space-y-6">
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
           <h3 className="font-semibold text-white mb-5">Предпросмотр: анкета</h3>
           {questionnairePreview ? (
-            <YandexFormEmbed formId={savedQuestionnaireId} />
+            <YandexFormEmbed
+              formId={savedQuestionnaireId}
+              prefill={{ param: savedQuestionnairePrefill, value: user?.id ?? '' }}
+            />
           ) : (
             <StageComingSoon stage="questionnaire" studentPreview />
           )}
@@ -310,7 +402,10 @@ export default function SelectionStage1ConfigTab() {
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
           <h3 className="font-semibold text-white mb-5">Предпросмотр: эссе</h3>
           {essayPreview ? (
-            <YandexFormEmbed formId={savedEssayId} />
+            <YandexFormEmbed
+              formId={savedEssayId}
+              prefill={{ param: savedEssayPrefill, value: user?.id ?? '' }}
+            />
           ) : (
             <StageComingSoon stage="essay" studentPreview />
           )}
