@@ -3,6 +3,12 @@ import {
   AlertTriangle, Check, Link2Off, Loader2, Save, Search, UserX,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
+import SelectionPersonMap from '../../components/SelectionPersonMap';
+import {
+  buildOrphanAnswers,
+  buildPersonMap,
+  type PendingState,
+} from '../../lib/selectionPersonMap';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import UserAvatar from '../../components/UserAvatar';
 import FormImportPanel from '../../components/FormImportPanel';
@@ -118,6 +124,7 @@ export default function SelectionMatchingTab() {
 
   const [overrides, setOverrides] = useState<MatchOverrides>({});
   const [basket, setBasket] = useState<Basket>('review');
+  const [view, setView] = useState<'review' | 'map'>('review');
   const [pickerRow, setPickerRow] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -273,6 +280,36 @@ export default function SelectionMatchingTab() {
     })
   );
 
+  const pending: PendingState | null = useMemo(() => {
+    if (!rows.length) return null;
+
+    const matches = [];
+    const orphans = [];
+    for (const row of rows) {
+      const resolved = resolveMatch(row, overrides);
+      const candidate = candidateFor(row, resolved.profileId);
+      if (resolved.profileId) {
+        matches.push({
+          profileId: resolved.profileId,
+          entry: row.entry,
+          signals: candidate?.signals ?? [],
+          score: candidate?.score ?? null,
+        });
+      } else {
+        orphans.push(row.entry);
+      }
+    }
+
+    return { kind, sourceFile: fileName, matches, orphans };
+  }, [rows, overrides, kind, fileName]);
+
+  const personMap = useMemo(
+    () => buildPersonMap(profiles, links, pending),
+    [profiles, links, pending],
+  );
+
+  const orphanAnswers = useMemo(() => buildOrphanAnswers(pending), [pending]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -298,6 +335,32 @@ export default function SelectionMatchingTab() {
         )}
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {([
+          ['review', 'Разбор'],
+          ['map', 'Карта участников'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={view === id}
+            onClick={() => setView(id)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+              view === id
+                ? 'bg-violet-500/20 text-violet-200 border-violet-500/40'
+                : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'map' && (
+        <SelectionPersonMap rows={personMap} orphans={orphanAnswers} />
+      )}
+
+      {view === 'review' && (
       <FormImportPanel
         kind={kind}
         onKindChange={(next) => { setKind(next); setOverrides({}); setSavedCount(null); }}
@@ -312,14 +375,15 @@ export default function SelectionMatchingTab() {
         onFileSelected={(file) => { void handleFile(file); }}
         onReset={resetImport}
       />
+      )}
 
-      {table && rows.length === 0 && (
+      {view === 'review' && table && rows.length === 0 && (
         <p className="text-sm text-amber-400">
           Ни одну строку не удалось прочитать — проверьте разметку колонок.
         </p>
       )}
 
-      {rows.length > 0 && (
+      {view === 'review' && rows.length > 0 && (
         <>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <SummaryCard label="Сойдётся само" value={summary.ready} tone="good" />

@@ -45,6 +45,7 @@ await build({
       export * from '../src/lib/selectionExport';
       export * from '../src/lib/selectionFilters';
       export * from '../src/lib/profileUtils';
+      export * from '../src/lib/selectionPersonMap';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -460,4 +461,115 @@ check('csv-выгрузка: колонки на месте, точка с за�
 });
 
 fs.rmSync(bundlePath, { force: true });
+
+// ── Карта участника ───────────────────────────────────────────
+check('карта собирает человека из связей, отметок и текущего разбора', () => {
+
+  const profile = (over = {}) => ({
+    id: 'p1', display_name: 'Иванов Иван', avatar_url: '', enrolled_course_id: null, bio: '',
+    role: 'student', is_enrolled: false, selection_rejected: false,
+    stage1_status: 'pending', stage2_status: 'pending', stage1_score: null, stage2_score: null,
+    email: 'ivanov@yandex.ru', login: null, yandex_login: null,
+    recovery_email: null, contact_email: null,
+    privacy_consent_at: null, privacy_policy_version: null,
+    questionnaire_submitted_at: null, stage1_submitted_at: null, stage2_submitted_at: null,
+    city: null, school: null, grade: null,
+    created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
+    ...over,
+  });
+
+  const link = (over = {}) => ({
+    id: 'l1', user_id: 'p1', form_kind: 'questionnaire',
+    contact_email: 'real@mail.ru', form_name: 'Иванов Иван',
+    form_submitted_at: '2026-08-20T11:30:00Z',
+    source_file: 'anketa.xlsx', source_row: 7,
+    match_score: 100, match_signals: ['email'],
+    confirmed_by: null, created_at: '', updated_at: '',
+    ...over,
+  });
+
+  // Сохранённая связь.
+  {
+    const [row] = lib.buildPersonMap([profile({ contact_email: 'real@mail.ru' })], [link()], null);
+    assert.equal(row.cells.questionnaire.state, 'linked');
+    assert.equal(row.cells.questionnaire.sourceRow, 7);
+    assert.deepEqual(row.cells.questionnaire.signals, ['email']);
+    assert.equal(row.contactEmail, 'real@mail.ru');
+    assert.equal(row.contactSource, 'questionnaire', 'почта из анкеты важнее почты аккаунта');
+    assert.equal(row.linkedCount, 1);
+  }
+
+  // Отметил отправку на сайте, но ответ не сопоставлен — это не «нет».
+  {
+    const [row] = lib.buildPersonMap([profile({ stage1_submitted_at: '2026-08-21T10:00:00Z' })], [], null);
+    assert.equal(row.cells.essay.state, 'marked_only');
+    assert.equal(row.cells.questionnaire.state, 'missing');
+    assert.equal(row.linkedCount, 0, 'отметка без связи в готовность не идёт');
+  }
+
+  // Незаписанный разбор текущего файла попадает в карту как «не сохранено».
+  {
+    const pending = {
+      kind: 'essay',
+      sourceFile: 'essay.xlsx',
+      matches: [{
+        profileId: 'p1',
+        entry: { rowNumber: 3, name: '', email: '', submittedAt: Date.parse('2026-08-20T11:30:00Z') },
+        signals: ['time_exact'],
+        score: 55,
+      }],
+      orphans: [],
+    };
+    const [row] = lib.buildPersonMap([profile()], [], pending);
+    assert.equal(row.cells.essay.state, 'pending');
+    assert.equal(row.cells.essay.sourceRow, 3);
+    assert.equal(row.linkedCount, 1, 'неподтверждённое всё же считается заполненным');
+    assert.equal(row.cells.questionnaire.state, 'missing', 'чужая форма не трогается');
+  }
+
+  // Сохранённая связь важнее незаписанной по той же форме.
+  {
+    const pending = {
+      kind: 'questionnaire', sourceFile: 'new.xlsx',
+      matches: [{ profileId: 'p1', entry: { rowNumber: 99, submittedAt: null }, signals: [], score: 0 }],
+      orphans: [],
+    };
+    const [row] = lib.buildPersonMap([profile()], [link()], pending);
+    assert.equal(row.cells.questionnaire.state, 'linked');
+    assert.equal(row.cells.questionnaire.sourceRow, 7);
+  }
+
+  // Писать некуда.
+  {
+    const [row] = lib.buildPersonMap(
+      [profile({ email: 'nick@id.quantumschool.ru', login: 'nick' })], [], null,
+    );
+    assert.equal(row.contactEmail, null, 'технический адрес почтой не считается');
+    assert.equal(row.contactSource, 'none');
+    assert.ok(lib.matchesPersonMapFilter(row, 'no_contact'));
+    assert.ok(!lib.matchesPersonMapFilter(row, 'linked'));
+  }
+
+  // CSV: заголовок, экранирование, раздел сирот.
+  {
+    const rows = lib.buildPersonMap([profile({ display_name: 'Петров; Иван' })], [link()], null);
+    const orphans = [{
+      kind: 'essay',
+      entry: { rowNumber: 12, name: '', email: '', submittedAt: Date.parse('2026-08-20T11:30:00Z') },
+      sourceFile: 'essay.xlsx',
+    }];
+    const csv = lib.buildPersonMapCsv(rows, orphans);
+    const lines = csv.split('\r\n');
+
+    assert.equal(lines[0].split(';')[0], 'Участник');
+    assert.equal(lines[0].split(';').length, 6 + 3 * 4 + 1, 'колонок: базовые + 3 формы по 4 + готовность');
+    assert.ok(csv.includes('"Петров; Иван"'), 'точка с запятой экранируется');
+    assert.ok(csv.includes('Ответы без аккаунта'));
+    assert.ok(csv.includes('anketa.xlsx, строка 7'), 'видно, откуда взялась связь');
+    assert.ok(csv.includes('почта совпала'), 'причина словами, а не кодом');
+  }
+
+
+});
+
 console.log(`ок: ${checks} проверок`);
