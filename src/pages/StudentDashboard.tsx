@@ -23,6 +23,7 @@ import UserAvatar from '../components/UserAvatar';
 import { isContestPublished, isEssayPublished, isQuestionnairePublished } from '../lib/selectionConfig';
 import { useSelectionConfig } from '../hooks/useSelectionConfig';
 import StageComingSoon from '../components/StageComingSoon';
+import ContestLinkCard from '../components/ContestLinkCard';
 import { markQuestionnaireSubmitted, markQuestionnaireUnsubmitted, markStageSubmitted, markStageUnsubmitted, markStageViewed } from '../lib/selectionUtils';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../lib/types';
@@ -35,7 +36,6 @@ import StudentScheduleTab from './student/ScheduleTab';
 import StudentLearningTab, { type LearningSubTab } from './student/LearningTab';
 import StudentProgressTab from './student/ProgressTab';
 import YandexFormEmbed from '../components/YandexFormEmbed';
-import StageEmbedFrame from '../components/StageEmbedFrame';
 import StudentDashboardHome, { type StudentNextAction } from '../components/StudentDashboardHome';
 import TelegramCommunityCard from '../components/TelegramCommunityCard';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
@@ -1004,15 +1004,7 @@ function SelectionTab({
               <ExternalFormHint />
             )}
             {contestPublished ? (
-              <StageEmbedFrame flush minHeight={420}>
-                <iframe
-                  src={config.contest_url}
-                  title="Яндекс.Контест — этап 2"
-                  frameBorder={0}
-                  className="block w-full border-0 bg-white"
-                  allow="clipboard-write"
-                />
-              </StageEmbedFrame>
+              <ContestLinkCard url={config.contest_url} />
             ) : (
               <StageComingSoon stage="contest" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}

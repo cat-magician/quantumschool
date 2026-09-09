@@ -6,7 +6,7 @@ import {
   parseOptionalContestUrl,
   saveSelectionConfig,
 } from '../../lib/selectionConfig';
-import StageEmbedFrame from '../../components/StageEmbedFrame';
+import ContestLinkCard from '../../components/ContestLinkCard';
 import StageComingSoon from '../../components/StageComingSoon';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
@@ -203,15 +203,7 @@ export default function SelectionContestConfigTab() {
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
         <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
         {showStudentPreview ? (
-          <StageEmbedFrame flush minHeight={420}>
-            <iframe
-              src={savedUrl}
-              title="Яндекс.Контест — предпросмотр"
-              frameBorder={0}
-              className="block w-full border-0 bg-white"
-              allow="clipboard-write"
-            />
-          </StageEmbedFrame>
+          <ContestLinkCard url={savedUrl} />
         ) : (
           <StageComingSoon stage="contest" studentPreview />
         )}
