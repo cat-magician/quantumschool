@@ -212,6 +212,8 @@ export interface SelectionStageConfig {
   questionnaire_published: boolean;
   contest_url: string;
   contest_published: boolean;
+  /** Инструкция к контесту (Markdown) над кнопкой перехода; '' — без инструкции. */
+  contest_instructions: string;
   /** Параметр адреса, которым в форму подставляется код участника; '' — выключено. */
   questionnaire_prefill_param: string;
   essay_prefill_param: string;

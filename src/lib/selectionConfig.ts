@@ -9,6 +9,7 @@ export const DEFAULT_SELECTION_CONFIG: SelectionStageConfig = {
   questionnaire_published: false,
   contest_url: '',
   contest_published: false,
+  contest_instructions: '',
   questionnaire_prefill_param: '',
   essay_prefill_param: '',
   updated_at: null,
@@ -212,7 +213,7 @@ export async function saveSelectionConfig(
   patch: Partial<Pick<
     SelectionStageConfig,
     'essay_form_id' | 'essay_published' | 'questionnaire_form_id' | 'questionnaire_published'
-    | 'contest_url' | 'contest_published'
+    | 'contest_url' | 'contest_published' | 'contest_instructions'
     | 'questionnaire_prefill_param' | 'essay_prefill_param'
   >>,
   userId: string,

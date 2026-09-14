@@ -6,16 +6,24 @@ import {
   parseOptionalContestUrl,
   saveSelectionConfig,
 } from '../../lib/selectionConfig';
+import ContestInstructions from '../../components/ContestInstructions';
 import ContestLinkCard from '../../components/ContestLinkCard';
+import MarkdownEditor from '../../components/MarkdownEditor';
 import StageComingSoon from '../../components/StageComingSoon';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 
+const INSTRUCTIONS_PLACEHOLDER =
+  'На контест отводится **4 часа 20 минут**.\nРешать все задачи необязательно.\n\n'
+  + 'Как подготовить файл:\n- отсканируйте решения;\n- объедините их в один PDF-файл.';
+
 export default function SelectionContestConfigTab() {
   const { user } = useAuth();
   const [input, setInput] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [published, setPublished] = useState(false);
   const [savedUrl, setSavedUrl] = useState('');
+  const [savedInstructions, setSavedInstructions] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -24,6 +32,8 @@ export default function SelectionContestConfigTab() {
   const applyConfig = (cfg: Awaited<ReturnType<typeof fetchSelectionConfig>>) => {
     setSavedUrl(cfg.contest_url);
     setInput(cfg.contest_url);
+    setSavedInstructions(cfg.contest_instructions);
+    setInstructions(cfg.contest_instructions);
     setPublished(cfg.contest_published);
   };
 
@@ -40,6 +50,13 @@ export default function SelectionContestConfigTab() {
     window.setTimeout(() => setSuccess(''), 3500);
   };
 
+  const markSaved = (contestUrl: string, contestInstructions: string) => {
+    setSavedUrl(contestUrl);
+    setInput(contestUrl);
+    setSavedInstructions(contestInstructions);
+    setInstructions(contestInstructions);
+  };
+
   const handleSaveLink = async () => {
     if (!user) return;
     setSaving(true);
@@ -52,8 +69,12 @@ export default function SelectionContestConfigTab() {
       setSaving(false);
       return;
     }
+    const contestInstructions = instructions.trim();
 
-    const { error: saveError } = await saveSelectionConfig({ contest_url: contestUrl }, user.id);
+    const { error: saveError } = await saveSelectionConfig(
+      { contest_url: contestUrl, contest_instructions: contestInstructions },
+      user.id,
+    );
 
     if (saveError) {
       setError('Не удалось сохранить. Проверьте, что применена миграция selection_stage_config.');
@@ -61,16 +82,9 @@ export default function SelectionContestConfigTab() {
       return;
     }
 
-    setSavedUrl(contestUrl);
-    setInput(contestUrl);
-    if (contestUrl && !published) {
-      flash('Ссылка сохранена');
-    } else if (!contestUrl) {
-      setPublished(false);
-      flash('Ссылка удалена');
-    } else {
-      flash('Ссылка сохранена');
-    }
+    markSaved(contestUrl, contestInstructions);
+    if (!contestUrl) setPublished(false);
+    flash(!contestUrl && savedUrl ? 'Ссылка удалена' : 'Сохранено');
     setSaving(false);
   };
 
@@ -86,9 +100,14 @@ export default function SelectionContestConfigTab() {
       setSaving(false);
       return;
     }
+    const contestInstructions = instructions.trim();
 
     const { error: saveError } = await saveSelectionConfig(
-      { contest_url: contestUrl, contest_published: true },
+      {
+        contest_url: contestUrl,
+        contest_instructions: contestInstructions,
+        contest_published: true,
+      },
       user.id,
     );
 
@@ -98,8 +117,7 @@ export default function SelectionContestConfigTab() {
       return;
     }
 
-    setSavedUrl(contestUrl);
-    setInput(contestUrl);
+    markSaved(contestUrl, contestInstructions);
     setPublished(true);
     flash('Контест опубликован — ученики видят его на этапе 2');
     setSaving(false);
@@ -145,6 +163,23 @@ export default function SelectionContestConfigTab() {
       </div>
 
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+        <div>
+          <label htmlFor="contest-instructions" className="text-sm font-medium text-slate-300 block">
+            Инструкция к контесту
+          </label>
+          <p className="text-xs text-slate-500 mt-0.5 mb-2">
+            Участники увидят её над кнопкой «Перейти в Контест».
+          </p>
+          <MarkdownEditor
+            id="contest-instructions"
+            value={instructions}
+            onChange={setInstructions}
+            placeholder={INSTRUCTIONS_PLACEHOLDER}
+            rows={12}
+            lineBreaks
+          />
+        </div>
+
         <label className="block">
           <span className="text-sm font-medium text-slate-300 mb-2 block">Ссылка на контест</span>
           <input
@@ -203,7 +238,10 @@ export default function SelectionContestConfigTab() {
       <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8">
         <h3 className="font-semibold text-white mb-5">Предпросмотр для учеников</h3>
         {showStudentPreview ? (
-          <ContestLinkCard url={savedUrl} />
+          <>
+            <ContestInstructions source={savedInstructions} />
+            <ContestLinkCard url={savedUrl} />
+          </>
         ) : (
           <StageComingSoon stage="contest" studentPreview />
         )}

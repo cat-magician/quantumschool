@@ -12,6 +12,8 @@ export default function MarkdownEditor({
   rows = 10,
   preparePreview,
   allowImageUpload = true,
+  lineBreaks = false,
+  id,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -19,6 +21,9 @@ export default function MarkdownEditor({
   rows?: number;
   preparePreview?: (value: string) => string;
   allowImageUpload?: boolean;
+  /** Предпросмотр сохраняет одиночные переносы строк — см. MarkdownContent. */
+  lineBreaks?: boolean;
+  id?: string;
 }) {
   const { user } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -113,11 +118,12 @@ export default function MarkdownEditor({
       {mode === 'edit' ? (
         <textarea
           ref={textareaRef}
+          id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
           placeholder={placeholder ?? 'Markdown: **жирный**, $E=mc^2$, списки…'}
-          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm font-mono resize-y min-h-[8rem]"
+          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm font-mono placeholder-slate-500 resize-y min-h-[8rem]"
         />
       ) : (
         <div className="min-h-[8rem] px-3 py-3 rounded-xl bg-slate-950/80 border border-white/10">
@@ -125,7 +131,7 @@ export default function MarkdownEditor({
             preparePreview ? (
               <HomeworkMarkdown source={value} />
             ) : (
-              <MarkdownContent content={value} />
+              <MarkdownContent content={value} lineBreaks={lineBreaks} />
             )
           ) : (
             <p className="text-sm text-slate-600">Нет содержимого для предпросмотра</p>

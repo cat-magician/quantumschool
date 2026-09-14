@@ -3463,3 +3463,15 @@ GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_link(uuid, text) TO authe
 ALTER TABLE public.selection_stage_config
   ADD COLUMN IF NOT EXISTS questionnaire_prefill_param text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS essay_prefill_param text NOT NULL DEFAULT '';
+
+-- ══════════════════════════════════════════════════════════════
+-- Инструкция к контесту этапа 2
+-- ══════════════════════════════════════════════════════════════
+--
+-- Участники не до конца понимали, как проходит контест: сколько на него
+-- времени, куда и в каком виде загружать письменные решения. Текст
+-- (Markdown) показывается над кнопкой перехода в контест — вместе со
+-- ссылкой, то есть только после публикации. Пустая строка — блока нет.
+
+ALTER TABLE public.selection_stage_config
+  ADD COLUMN IF NOT EXISTS contest_instructions text NOT NULL DEFAULT '';

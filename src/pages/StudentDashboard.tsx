@@ -23,6 +23,7 @@ import UserAvatar from '../components/UserAvatar';
 import { isContestPublished, isEssayPublished, isQuestionnairePublished } from '../lib/selectionConfig';
 import { useSelectionConfig } from '../hooks/useSelectionConfig';
 import StageComingSoon from '../components/StageComingSoon';
+import ContestInstructions from '../components/ContestInstructions';
 import ContestLinkCard from '../components/ContestLinkCard';
 import { markQuestionnaireSubmitted, markQuestionnaireUnsubmitted, markStageSubmitted, markStageUnsubmitted, markStageViewed } from '../lib/selectionUtils';
 import { supabase } from '../lib/supabase';
@@ -1004,7 +1005,10 @@ function SelectionTab({
               <ExternalFormHint />
             )}
             {contestPublished ? (
-              <ContestLinkCard url={config.contest_url} />
+              <>
+                <ContestInstructions source={config.contest_instructions} />
+                <ContestLinkCard url={config.contest_url} />
+              </>
             ) : (
               <StageComingSoon stage="contest" onGoHome={onGoHome} onGoResults={onGoResults} />
             )}
