@@ -38,17 +38,24 @@ function describeLinkError(message: string): string {
   }
   return message;
 }
-export async function fetchSelectionFormLinks(): Promise<SelectionFormLink[]> {
+/**
+ * Об ошибке сообщаем отдельно от пустого ответа: карта обновляется сама, и
+ * сорвавшийся запрос не должен выглядеть как «связей больше нет».
+ */
+export async function fetchSelectionFormLinks(): Promise<{
+  links: SelectionFormLink[];
+  error: string | null;
+}> {
   const { data, error } = await supabase
     .from('selection_form_links')
     .select('*');
 
   if (error) {
     console.error('Form links fetch error:', error.message);
-    return [];
+    return { links: [], error: describeLinkError(error.message) };
   }
 
-  return (data ?? []) as SelectionFormLink[];
+  return { links: (data ?? []) as SelectionFormLink[], error: null };
 }
 
 export async function applySelectionFormLinks(

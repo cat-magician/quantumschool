@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, Check, Link2Off, Loader2, Save, Search, UserX,
 } from 'lucide-react';
@@ -7,7 +7,11 @@ import SelectionPersonMap from '../../components/SelectionPersonMap';
 import {
   buildOrphanAnswers,
   buildPersonMap,
+  diffSiteData,
+  siteDataDiffTotal,
   type PendingState,
+  type SiteDataDiff,
+  type SiteSnapshot,
 } from '../../lib/selectionPersonMap';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import UserAvatar from '../../components/UserAvatar';
@@ -43,6 +47,12 @@ import {
 } from '../../lib/selectionFormLinks';
 
 type Basket = 'review' | 'ready' | 'unmatched';
+
+/**
+ * Карта должна показывать то, что есть в базе сейчас, а не на момент открытия
+ * вкладки: люди регистрируются и отмечают этапы, пока идёт разбор.
+ */
+const MAP_AUTO_REFRESH_MS = 60_000;
 
 const BASKET_LABELS: Record<Basket, string> = {
   review: 'Требуют решения',
@@ -113,6 +123,9 @@ export default function SelectionMatchingTab() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [links, setLinks] = useState<SelectionFormLink[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [freshDiff, setFreshDiff] = useState<SiteDataDiff | null>(null);
 
   const [kind, setKind] = useState<FormKind>('questionnaire');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -124,24 +137,75 @@ export default function SelectionMatchingTab() {
 
   const [overrides, setOverrides] = useState<MatchOverrides>({});
   const [basket, setBasket] = useState<Basket>('review');
-  const [view, setView] = useState<'review' | 'map'>('review');
+  // Карта открывается первой: сначала смотрим, что уже известно, потом
+  // докладываем в неё файл формы.
+  const [view, setView] = useState<'map' | 'review'>('map');
   const [pickerRow, setPickerRow] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    const [{ data }, loadedLinks] = await Promise.all([
+  const snapshotRef = useRef<SiteSnapshot>({ profiles: [], links: [] });
+  const savingRef = useRef(false);
+
+  const load = async ({ silent = false, announce = false } = {}) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+
+    const [{ data }, loaded] = await Promise.all([
       supabase.from('user_profiles').select('*').eq('role', 'student').order('display_name'),
       fetchSelectionFormLinks(),
     ]);
-    if (data) setProfiles(data as UserProfile[]);
-    setLinks(loadedLinks);
-    setLoading(false);
+
+    // Сорвавшийся запрос не должен опустошать карту — тогда остаётся прежнее.
+    const nextProfiles = (data as UserProfile[] | null) ?? snapshotRef.current.profiles;
+    const nextLinks = loaded.error ? snapshotRef.current.links : loaded.links;
+    const next: SiteSnapshot = { profiles: nextProfiles, links: nextLinks };
+
+    if (announce) {
+      const diff = diffSiteData(snapshotRef.current, next);
+      if (siteDataDiffTotal(diff) > 0) setFreshDiff(diff);
+    } else {
+      setFreshDiff(null);
+    }
+
+    snapshotRef.current = next;
+    setProfiles(nextProfiles);
+    setLinks(nextLinks);
+    setUpdatedAt(Date.now());
+
+    if (silent) setRefreshing(false);
+    else setLoading(false);
   };
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => { void load(); }, []);
+
+  /**
+   * Пока сотрудник разбирает файл, в базе появляются новые люди и новые
+   * отметки — карта показывает их без перезагрузки страницы. Сам разбор при
+   * этом не трогаем: он живёт в состоянии формы, а не в этих данных.
+   */
+  useEffect(() => {
+    const refresh = () => {
+      // Во время записи связей не лезем: ответ сохранения и так перезагрузит.
+      if (savingRef.current) return;
+      void loadRef.current({ silent: true, announce: true });
+    };
+
+    const timer = window.setInterval(refresh, MAP_AUTO_REFRESH_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const resetImport = () => {
     setFileName(null);
@@ -240,21 +304,26 @@ export default function SelectionMatchingTab() {
 
   const save = async () => {
     setSaving(true);
+    savingRef.current = true;
     setSaveError(null);
     const { saved, error } = await applySelectionFormLinks(drafts);
     if (error) setSaveError(error);
     else {
       setSavedCount(saved);
-      await load();
+      // Тихо: разобранный файл и корзины остаются на экране.
+      await load({ silent: true });
     }
+    savingRef.current = false;
     setSaving(false);
   };
 
   const unlink = async (userId: string) => {
     setSaving(true);
+    savingRef.current = true;
     const { error } = await clearSelectionFormLink(userId, kind);
     if (error) setSaveError(error);
-    else await load();
+    else await load({ silent: true });
+    savingRef.current = false;
     setSaving(false);
   };
 
@@ -325,10 +394,11 @@ export default function SelectionMatchingTab() {
       <div>
         <h2 className="text-xl font-bold text-white mb-1">Сопоставление форм</h2>
         <p className="text-slate-400 text-sm">
-          Формы не сохраняли автора ответа — восстанавливаем по почте, ФИО и времени отправки
+          Карта участников собирается из данных сайта сама, файл формы ложится на неё сверху:
+          автора ответа формы не сохраняли — восстанавливаем по почте, ФИО и времени отправки
         </p>
         <SectionHint text={SECTION_HINT.admin.selectionMatching} className="mt-1.5" />
-        {linkForKind.size > 0 && (
+        {view === 'review' && linkForKind.size > 0 && (
           <p className="text-xs text-slate-500 mt-2">
             Уже связано с аккаунтами: {linkForKind.size} · {FORM_KIND_LABELS[kind].toLowerCase()}
           </p>
@@ -337,8 +407,8 @@ export default function SelectionMatchingTab() {
 
       <div className="flex flex-wrap gap-2">
         {([
-          ['review', 'Разбор'],
           ['map', 'Карта участников'],
+          ['review', 'Разбор файла'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -357,7 +427,14 @@ export default function SelectionMatchingTab() {
       </div>
 
       {view === 'map' && (
-        <SelectionPersonMap rows={personMap} orphans={orphanAnswers} />
+        <SelectionPersonMap
+          rows={personMap}
+          orphans={orphanAnswers}
+          updatedAt={updatedAt}
+          refreshing={refreshing}
+          onRefresh={() => { void loadRef.current({ silent: true, announce: true }); }}
+          diff={freshDiff}
+        />
       )}
 
       {view === 'review' && (

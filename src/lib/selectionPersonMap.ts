@@ -1,5 +1,7 @@
 import type { SelectionFormLink, UserProfile } from './types';
 import { profileContactEmail, profileEmail, profileLogin } from './profileUtils';
+import { selectionVerdict, type SelectionVerdict } from './selectionDisplayUtils';
+import { stageSubmitted } from './selectionFilters';
 import {
   FORM_KIND_LABELS,
   SIGNAL_LABELS,
@@ -10,9 +12,14 @@ import {
 } from './identityMatching';
 
 /**
- * Полная карта участника: что известно из аккаунта и что нашлось по каждой
- * форме. Разбор идёт по одной форме за раз, а смотреть на человека нужно
- * целиком — иначе не видно, кого ещё дожимать и кому некуда писать.
+ * Полная карта участника: что известно из аккаунта, что сайт отследил сам и
+ * что нашлось по каждой форме. Разбор идёт по одной форме за раз, а смотреть
+ * на человека нужно целиком — иначе не видно, кого ещё дожимать и кому некуда
+ * писать.
+ *
+ * Карта строится только из свежих данных базы: всё, что сайт знает сам
+ * (регистрация, отметки этапов, оценки, решение), попадает в неё сразу, без
+ * повторного разбора файлов. Разобранные формы ложатся сверху отдельным слоем.
  */
 
 export const FORM_KINDS: FormKind[] = ['questionnaire', 'essay', 'contest'];
@@ -27,11 +34,23 @@ export type CellState =
   /** Ни связи, ни отметки. */
   | 'missing';
 
-export type PersonFormCell = {
+/** Что об этапе знает сам сайт, без всяких форм. */
+export type SiteStage = {
+  /** Ученик нажал «я отправил» — или статус выставлен админом. */
+  marked: boolean;
+  markedAt: string | null;
+  /** Открывал страницу этапа; у анкеты такой метки нет. */
+  viewedAt: string | null;
+  /** Оценка проверяющего; у анкеты оценок нет. */
+  stageScore: number | null;
+};
+
+export type PersonFormCell = SiteStage & {
   state: CellState;
   /** Время ответа в форме; если связи нет — наша отметка на сайте. */
   at: string | null;
   signals: MatchSignal[];
+  /** Балл сопоставления, а не оценка за работу. */
   score: number | null;
   sourceFile: string | null;
   sourceRow: number | null;
@@ -43,6 +62,8 @@ export type PersonMapRow = {
   profile: UserProfile;
   contactEmail: string | null;
   contactSource: ContactSource;
+  registeredAt: string | null;
+  verdict: SelectionVerdict;
   cells: Record<FormKind, PersonFormCell>;
   /** По скольким формам связь установлена (0..3). */
   linkedCount: number;
@@ -76,15 +97,24 @@ function contactSourceOf(profile: UserProfile): ContactSource {
   return 'none';
 }
 
-function emptyCell(profile: UserProfile, kind: FormKind): PersonFormCell {
-  const marked = profileStageTimestamp(profile, kind);
+/**
+ * Этапы лежат в базе под историческими именами: эссе — stage1, контест —
+ * stage2, а у анкеты есть только метка отправки. Здесь единственное место,
+ * где про это надо помнить.
+ */
+export function siteStage(profile: UserProfile, kind: FormKind): SiteStage {
+  const markedAt = profileStageTimestamp(profile, kind) ?? null;
+
+  if (kind === 'questionnaire') {
+    return { marked: !!markedAt, markedAt, viewedAt: null, stageScore: null };
+  }
+
+  const essay = kind === 'essay';
   return {
-    state: marked ? 'marked_only' : 'missing',
-    at: marked ?? null,
-    signals: [],
-    score: null,
-    sourceFile: null,
-    sourceRow: null,
+    marked: stageSubmitted(essay ? profile.stage1_status : profile.stage2_status, markedAt),
+    markedAt,
+    viewedAt: (essay ? profile.stage1_viewed_at : profile.stage2_viewed_at) ?? null,
+    stageScore: essay ? profile.stage1_score : profile.stage2_score,
   };
 }
 
@@ -109,10 +139,12 @@ export function buildPersonMap(
     const cells = {} as Record<FormKind, PersonFormCell>;
 
     for (const kind of FORM_KINDS) {
+      const site = siteStage(profile, kind);
       const link = linksByUser.get(profile.id)?.find((l) => l.form_kind === kind);
 
       if (link) {
         cells[kind] = {
+          ...site,
           state: 'linked',
           at: link.form_submitted_at,
           signals: (link.match_signals ?? []) as MatchSignal[],
@@ -126,6 +158,7 @@ export function buildPersonMap(
       const draft = pending?.kind === kind ? pendingByProfile.get(profile.id) : undefined;
       if (draft) {
         cells[kind] = {
+          ...site,
           state: 'pending',
           at: draft.entry.submittedAt ? new Date(draft.entry.submittedAt).toISOString() : null,
           signals: draft.signals,
@@ -136,7 +169,15 @@ export function buildPersonMap(
         continue;
       }
 
-      cells[kind] = emptyCell(profile, kind);
+      cells[kind] = {
+        ...site,
+        state: site.marked ? 'marked_only' : 'missing',
+        at: site.markedAt,
+        signals: [],
+        score: null,
+        sourceFile: null,
+        sourceRow: null,
+      };
     }
 
     const linkedCount = FORM_KINDS.filter((k) => (
@@ -147,6 +188,8 @@ export function buildPersonMap(
       profile,
       contactEmail: profileContactEmail(profile),
       contactSource: contactSourceOf(profile),
+      registeredAt: profile.created_at ?? null,
+      verdict: selectionVerdict(profile.is_enrolled, !!profile.selection_rejected),
       cells,
       linkedCount,
     };
@@ -162,22 +205,73 @@ export function buildOrphanAnswers(pending?: PendingState | null): OrphanAnswer[
   }));
 }
 
-export type PersonMapFilter = 'all' | 'no_contact' | 'incomplete' | 'linked';
+/**
+ * Что изменилось на сайте с прошлого обновления карты. Нужно, чтобы после
+ * авто-обновления было видно: карта не просто перерисовалась, а подобрала
+ * новых людей и новые отметки.
+ */
+export type SiteSnapshot = {
+  profiles: UserProfile[];
+  links: SelectionFormLink[];
+};
 
-export const PERSON_MAP_FILTERS: { value: PersonMapFilter; label: string }[] = [
-  { value: 'all', label: 'Все' },
-  { value: 'no_contact', label: 'Некуда писать' },
-  { value: 'incomplete', label: 'Есть пробелы' },
-  { value: 'linked', label: 'Полностью разобраны' },
-];
+export type SiteDataDiff = {
+  /** Появились в базе. */
+  people: number;
+  /** Отметили этап на сайте. */
+  marks: number;
+  /** Получили оценку за этап. */
+  grades: number;
+  /** Новые сохранённые связи с ответами форм. */
+  links: number;
+};
 
-export function matchesPersonMapFilter(row: PersonMapRow, filter: PersonMapFilter): boolean {
-  switch (filter) {
-    case 'no_contact': return row.contactEmail === null;
-    case 'incomplete': return row.linkedCount < FORM_KINDS.length;
-    case 'linked': return row.linkedCount === FORM_KINDS.length;
-    default: return true;
+export function diffSiteData(before: SiteSnapshot, after: SiteSnapshot): SiteDataDiff {
+  const previous = new Map(before.profiles.map((p) => [p.id, p]));
+  let people = 0;
+  let marks = 0;
+  let grades = 0;
+
+  for (const profile of after.profiles) {
+    const old = previous.get(profile.id);
+
+    if (!old) {
+      people++;
+      // Новичок мог зарегистрироваться и сразу всё отправить — это тоже новость.
+      for (const kind of FORM_KINDS) {
+        const stage = siteStage(profile, kind);
+        if (stage.marked) marks++;
+        if (stage.stageScore !== null) grades++;
+      }
+      continue;
+    }
+
+    for (const kind of FORM_KINDS) {
+      const now = siteStage(profile, kind);
+      const then = siteStage(old, kind);
+      if (now.marked && !then.marked) marks++;
+      if (now.stageScore !== null && then.stageScore === null) grades++;
+    }
   }
+
+  const known = new Set(before.links.map((l) => `${l.user_id}:${l.form_kind}`));
+  const links = after.links.filter((l) => !known.has(`${l.user_id}:${l.form_kind}`)).length;
+
+  return { people, marks, grades, links };
+}
+
+export function siteDataDiffTotal(diff: SiteDataDiff): number {
+  return diff.people + diff.marks + diff.grades + diff.links;
+}
+
+/** Без склонений: «участников: 2» читается одинаково при любом числе. */
+export function describeSiteDataDiff(diff: SiteDataDiff): string {
+  const parts: string[] = [];
+  if (diff.people) parts.push(`новых участников: ${diff.people}`);
+  if (diff.marks) parts.push(`новых отметок: ${diff.marks}`);
+  if (diff.grades) parts.push(`новых оценок: ${diff.grades}`);
+  if (diff.links) parts.push(`новых связей: ${diff.links}`);
+  return parts.join(' · ');
 }
 
 const CELL_STATE_LABELS: Record<CellState, string> = {
@@ -194,6 +288,12 @@ const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
   none: 'нет',
 };
 
+export const VERDICT_LABELS: Record<SelectionVerdict, string> = {
+  accepted: 'Зачислен',
+  rejected: 'Отказ',
+  waiting: 'Без решения',
+};
+
 const dateFmt = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 });
@@ -204,8 +304,32 @@ export function formatMapStamp(iso: string | null): string {
   return Number.isNaN(date.getTime()) ? '' : dateFmt.format(date);
 }
 
+const dayFmt = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit', month: '2-digit', year: 'numeric',
+});
+
+/** Дата без времени — там, где минуты только мешают (например, регистрация). */
+export function formatMapDay(iso: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : dayFmt.format(date);
+}
+
 export function describeSignals(signals: MatchSignal[]): string {
   return signals.map((s) => SIGNAL_LABELS[s]).join(', ');
+}
+
+/** Отметки самого сайта словами — одинаково в таблице и в выгрузке. */
+export function describeSiteStage(cell: SiteStage): string {
+  if (cell.marked) {
+    const stamp = formatMapStamp(cell.markedAt);
+    return stamp ? `отметил ${stamp}` : 'отметил отправку';
+  }
+  if (cell.viewedAt) {
+    const stamp = formatMapStamp(cell.viewedAt);
+    return stamp ? `заходил ${stamp}` : 'заходил';
+  }
+  return 'не приступал';
 }
 
 const SEPARATOR = ';';
@@ -216,6 +340,30 @@ function escapeCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+export function csvLine(cells: string[]): string {
+  return cells.map(escapeCell).join(SEPARATOR);
+}
+
+export function csvFile(lines: string[]): string {
+  return lines.join(ROW_END) + ROW_END;
+}
+
+/** Метка порядка байтов в начале файла: без неё Excel читает UTF-8 как ANSI. */
+const BOM = String.fromCharCode(0xfeff);
+
+/** Отдаёт файл браузеру. */
+export function downloadCsv(content: string, fileName: string): void {
+  const blob = new Blob([BOM + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Карта в CSV: цвет на экране, а здесь то же самое словами. */
 export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[]): string {
   const header = [
@@ -224,10 +372,12 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
     ...FORM_KINDS.flatMap((k) => [
       `${FORM_KIND_LABELS[k]}: статус`,
       `${FORM_KIND_LABELS[k]}: время`,
+      `${FORM_KIND_LABELS[k]}: на сайте`,
+      `${FORM_KIND_LABELS[k]}: балл`,
       `${FORM_KIND_LABELS[k]}: на чём сошлось`,
       `${FORM_KIND_LABELS[k]}: источник`,
     ]),
-    'Форм связано',
+    'Форм связано', 'Решение', 'Регистрация',
   ];
 
   const body = rows.map((row) => [
@@ -245,46 +395,39 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
       return [
         CELL_STATE_LABELS[cell.state],
         formatMapStamp(cell.at),
+        describeSiteStage(cell),
+        cell.stageScore === null ? '' : String(cell.stageScore),
         describeSignals(cell.signals),
         source,
       ];
     }),
     `${row.linkedCount} из ${FORM_KINDS.length}`,
+    VERDICT_LABELS[row.verdict],
+    formatMapStamp(row.registeredAt),
   ]);
 
-  const lines = [header, ...body].map((cells) => cells.map(escapeCell).join(SEPARATOR));
+  const lines = [csvLine(header), ...body.map(csvLine)];
 
   if (orphans.length > 0) {
     lines.push('');
     lines.push(escapeCell('Ответы без аккаунта'));
-    lines.push(['Форма', 'Строка', 'Имя в форме', 'Почта в форме', 'Время', 'Файл']
-      .map(escapeCell).join(SEPARATOR));
+    lines.push(csvLine(['Форма', 'Строка', 'Имя в форме', 'Почта в форме', 'Время', 'Файл']));
     for (const orphan of orphans) {
-      lines.push([
+      lines.push(csvLine([
         FORM_KIND_LABELS[orphan.kind],
         String(orphan.entry.rowNumber),
         orphan.entry.name,
         orphan.entry.email,
         orphan.entry.submittedAt ? formatMapStamp(new Date(orphan.entry.submittedAt).toISOString()) : '',
         orphan.sourceFile ?? '',
-      ].map(escapeCell).join(SEPARATOR));
+      ]));
     }
   }
 
-  return lines.join(ROW_END) + ROW_END;
+  return csvFile(lines);
 }
 
 export function downloadPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[]): void {
   const stamp = new Date().toISOString().slice(0, 10);
-  const blob = new Blob([`\uFEFF${buildPersonMapCsv(rows, orphans)}`], {
-    type: 'text/csv;charset=utf-8;',
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `karta-uchastnikov-${stamp}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(buildPersonMapCsv(rows, orphans), `karta-uchastnikov-${stamp}.csv`);
 }

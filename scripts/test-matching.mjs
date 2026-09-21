@@ -46,6 +46,7 @@ await build({
       export * from '../src/lib/selectionFilters';
       export * from '../src/lib/profileUtils';
       export * from '../src/lib/selectionPersonMap';
+      export * from '../src/lib/selectionStageStats';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -546,8 +547,13 @@ check('карта собирает человека из связей, отме�
     );
     assert.equal(row.contactEmail, null, 'технический адрес почтой не считается');
     assert.equal(row.contactSource, 'none');
-    assert.ok(lib.matchesPersonMapFilter(row, 'no_contact'));
-    assert.ok(!lib.matchesPersonMapFilter(row, 'linked'));
+
+    const query = (patch) => ({ ...lib.EMPTY_PERSON_MAP_QUERY, ...patch });
+    assert.ok(lib.matchesPersonMapQuery(row, query({ contact: 'missing' })));
+    assert.ok(!lib.matchesPersonMapQuery(
+      row,
+      query({ selection: { mode: 'done_all', stages: lib.FORM_KINDS } }),
+    ));
   }
 
   // CSV: заголовок, экранирование, раздел сирот.
@@ -562,7 +568,11 @@ check('карта собирает человека из связей, отме�
     const lines = csv.split('\r\n');
 
     assert.equal(lines[0].split(';')[0], 'Участник');
-    assert.equal(lines[0].split(';').length, 6 + 3 * 4 + 1, 'колонок: базовые + 3 формы по 4 + готовность');
+    assert.equal(
+      lines[0].split(';').length,
+      6 + 3 * 6 + 3,
+      'колонок: базовые + 3 формы по 6 + готовность, решение, регистрация',
+    );
     assert.ok(csv.includes('"Петров; Иван"'), 'точка с запятой экранируется');
     assert.ok(csv.includes('Ответы без аккаунта'));
     assert.ok(csv.includes('anketa.xlsx, строка 7'), 'видно, откуда взялась связь');
@@ -570,6 +580,176 @@ check('карта собирает человека из связей, отме�
   }
 
 
+});
+
+// ── Сводка по этапам, срезы и сбор почт ───────────────────────
+const linkFor = (userId, kind, over = {}) => ({
+  id: `l-${userId}-${kind}`,
+  user_id: userId,
+  form_kind: kind,
+  contact_email: null,
+  form_name: '',
+  form_submitted_at: '2026-08-20T11:30:00Z',
+  source_file: 'f.xlsx',
+  source_row: 1,
+  match_score: 100,
+  match_signals: ['email'],
+  confirmed_by: null,
+  created_at: '',
+  updated_at: '',
+  ...over,
+});
+
+const mapOf = (profiles, links = []) => lib.buildPersonMap(profiles, links, null);
+const idsMatching = (rows, patch) => rows
+  .filter((row) => lib.matchesPersonMapQuery(row, { ...lib.EMPTY_PERSON_MAP_QUERY, ...patch }))
+  .map((row) => row.profile.id);
+
+check('в клетке видны и ответ формы, и то, что отследил сайт', () => {
+  const [marked] = mapOf([profile({
+    stage1_viewed_at: '2026-08-20T10:00:00Z',
+    stage1_submitted_at: '2026-08-21T10:00:00Z',
+    stage1_score: 7,
+  })]);
+  assert.equal(marked.cells.essay.state, 'marked_only');
+  assert.equal(marked.cells.essay.marked, true);
+  assert.equal(marked.cells.essay.stageScore, 7, 'оценка проверяющего видна в карте');
+  assert.ok(lib.describeSiteStage(marked.cells.essay).startsWith('отметил'));
+
+  // Статус «отправлено» без метки времени — всё равно отметка.
+  const [byStatus] = mapOf([profile({ stage2_status: 'submitted' })]);
+  assert.equal(byStatus.cells.contest.marked, true);
+  assert.equal(byStatus.cells.contest.state, 'marked_only');
+
+  // Заходил, но не отправлял — и это тоже видно.
+  const [started] = mapOf([profile({ stage1_viewed_at: '2026-08-20T10:00:00Z' })]);
+  assert.equal(started.cells.essay.marked, false);
+  assert.ok(lib.describeSiteStage(started.cells.essay).startsWith('заходил'));
+  assert.equal(lib.describeSiteStage(mapOf([profile()])[0].cells.essay), 'не приступал');
+});
+
+check('выполненным считается либо ответ, либо отметка — по выбору', () => {
+  const [row] = mapOf([profile({ questionnaire_submitted_at: '2026-08-20T10:00:00Z' })]);
+  assert.equal(lib.stageDone(row.cells.questionnaire, 'answer_or_mark'), true);
+  assert.equal(lib.stageDone(row.cells.questionnaire, 'answer'), false, 'отметка — ещё не ответ');
+
+  const [linked] = mapOf([profile({ id: 'p1' })], [linkFor('p1', 'questionnaire')]);
+  assert.equal(lib.stageDone(linked.cells.questionnaire, 'answer'), true);
+});
+
+check('сводка отвечает, сколько людей прошли каждый этап', () => {
+  const rows = mapOf(
+    [
+      profile({ id: 'p1', display_name: 'С ответом' }),
+      profile({ id: 'p2', display_name: 'С отметкой', questionnaire_submitted_at: '2026-08-20T10:00:00Z' }),
+      profile({ id: 'p3', display_name: 'Ничего' }),
+    ],
+    [linkFor('p1', 'questionnaire')],
+  );
+
+  const [anketa] = lib.tallyStages(rows, 'answer_or_mark');
+  assert.equal(anketa.kind, 'questionnaire');
+  assert.equal(anketa.total, 3);
+  assert.deepEqual(
+    { answer: anketa.counts.answer, mark: anketa.counts.mark_only, done: anketa.counts.done, missing: anketa.counts.missing },
+    { answer: 1, mark: 1, done: 2, missing: 1 },
+  );
+
+  const strict = lib.tallyStages(rows, 'answer')[0];
+  assert.equal(strict.counts.done, 1, 'по строгому счёту отметка не в счёт');
+  assert.equal(strict.counts.missing, 2);
+
+  // У анкеты нет ни страницы этапа, ни оценки — незачем и строки в сводке.
+  assert.deepEqual(lib.stageStatesFor('questionnaire'), ['answer', 'mark_only', 'missing']);
+  assert.ok(lib.stageStatesFor('essay').includes('started'));
+});
+
+check('срез «не сделал хотя бы один из отмеченных этапов»', () => {
+  const rows = mapOf([
+    profile({ id: 'p1', display_name: 'Ничего не сдал' }),
+    profile({
+      id: 'p2',
+      display_name: 'Анкета и эссе',
+      questionnaire_submitted_at: '2026-08-20T10:00:00Z',
+      stage1_submitted_at: '2026-08-20T11:00:00Z',
+    }),
+  ]);
+
+  const pick = (selection) => idsMatching(rows, { selection });
+
+  assert.deepEqual(pick({ mode: 'missing_any', stages: ['questionnaire', 'essay'] }), ['p1']);
+  assert.deepEqual(pick({ mode: 'missing_any', stages: ['contest'] }), ['p1', 'p2']);
+  assert.deepEqual(pick({ mode: 'done_all', stages: ['questionnaire', 'essay'] }), ['p2']);
+  assert.deepEqual(pick({ mode: 'stage', kind: 'essay', state: 'missing' }), ['p1']);
+  assert.deepEqual(pick({ mode: 'stage', kind: 'essay', state: 'mark_only' }), ['p2']);
+  // Ни одного отмеченного этапа — фильтр просто не применяется.
+  assert.deepEqual(pick({ mode: 'missing_any', stages: [] }), ['p1', 'p2']);
+
+  assert.equal(
+    lib.describeSelection({ mode: 'missing_any', stages: ['questionnaire', 'contest'] }),
+    'Не выполнили хотя бы один из: Анкета, Контест',
+  );
+  assert.equal(lib.describeSelection({ mode: 'missing_any', stages: lib.FORM_KINDS }), 'Не выполнили хотя бы один этап');
+});
+
+check('карту можно сузить по почте, решению и поиску', () => {
+  const rows = mapOf([
+    profile({ id: 'p1', contact_email: 'a@b.ru', is_enrolled: true }),
+    profile({ id: 'p2', email: 'nick@id.quantumschool.ru', login: 'nick', selection_rejected: true }),
+  ]);
+
+  assert.deepEqual(idsMatching(rows, { contact: 'known' }), ['p1']);
+  assert.deepEqual(idsMatching(rows, { contact: 'missing' }), ['p2']);
+  assert.deepEqual(idsMatching(rows, { verdict: 'accepted' }), ['p1']);
+  assert.deepEqual(idsMatching(rows, { verdict: 'rejected' }), ['p2']);
+  assert.deepEqual(idsMatching(rows, { text: 'nick' }), ['p2']);
+});
+
+check('список почт: без повторов, и видно, кому писать некуда', () => {
+  const rows = mapOf([
+    profile({ id: 'p1', contact_email: 'Family@mail.ru' }),
+    profile({ id: 'p2', contact_email: 'family@mail.ru' }),
+    profile({ id: 'p3', email: 'nick@id.quantumschool.ru', login: 'nick' }),
+  ]);
+
+  const list = lib.collectEmails(rows);
+  assert.deepEqual(list.emails, ['Family@mail.ru'], 'один адрес на двоих — письмо одно');
+  assert.equal(list.people, 3);
+  assert.equal(list.unreachable.length, 1);
+  assert.equal(list.unreachable[0].profile.id, 'p3');
+  assert.equal(lib.emailListText(['a@b.ru', 'c@d.ru']), 'a@b.ru, c@d.ru');
+});
+
+check('выгрузка списка почт говорит, чего человеку не хватает', () => {
+  const rows = mapOf([profile({
+    id: 'p1',
+    contact_email: 'a@b.ru',
+    questionnaire_submitted_at: '2026-08-20T10:00:00Z',
+  })]);
+
+  assert.equal(lib.missingStagesLabel(rows[0], 'answer_or_mark'), 'Эссе, Контест');
+
+  const csv = lib.buildEmailListCsv(rows, 'answer_or_mark', { mode: 'missing_any', stages: ['essay'] });
+  assert.ok(csv.includes('Не выполнили хотя бы один из: Эссе'), 'в файле написано, какой это срез');
+  assert.ok(csv.includes('a@b.ru'));
+  assert.ok(csv.includes('Эссе, Контест'), 'в строке видно, каких этапов нет');
+});
+
+check('карта видит, что прибавилось с прошлого обновления', () => {
+  const before = { profiles: [profile({ id: 'p1' })], links: [] };
+  const after = {
+    profiles: [
+      profile({ id: 'p1', stage1_submitted_at: '2026-08-21T10:00:00Z', stage1_score: 8 }),
+      profile({ id: 'p2' }),
+    ],
+    links: [linkFor('p1', 'essay')],
+  };
+
+  const diff = lib.diffSiteData(before, after);
+  assert.deepEqual(diff, { people: 1, marks: 1, grades: 1, links: 1 });
+  assert.equal(lib.siteDataDiffTotal(diff), 4);
+  assert.ok(lib.describeSiteDataDiff(diff).includes('новых участников: 1'));
+  assert.equal(lib.siteDataDiffTotal(lib.diffSiteData(after, after)), 0, 'без изменений — нечего сообщать');
 });
 
 console.log(`ок: ${checks} проверок`);
