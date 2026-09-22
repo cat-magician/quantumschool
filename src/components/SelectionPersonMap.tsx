@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Loader2, RefreshCw } from 'lucide-react';
-import { FORM_KIND_LABELS, type FormKind } from '../lib/identityMatching';
+import { Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import {
+  FORM_KIND_LABELS,
+  workAuthorHint,
+  workFileName,
+  type FormKind,
+} from '../lib/identityMatching';
 import { profileEmail, profileLogin } from '../lib/profileUtils';
 import PersonMapEmailList from './PersonMapEmailList';
 import PersonMapFilterBar from './PersonMapFilterBar';
@@ -93,6 +98,20 @@ function FormCell({ cell }: { cell: PersonFormCell }) {
     <div className={`rounded-lg border px-2 py-1.5 ${style.box}`}>
       <div className={`text-[11px] font-medium ${style.text}`}>{style.label}</div>
       {stamp && <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">{stamp}</div>}
+      {cell.workUrl && (
+        // Ссылка на саму работу: по ней видно, что человек действительно
+        // прислал, а не просто нажал кнопку на сайте.
+        <a
+          href={cell.workUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={workAuthorHint(workFileName(cell.workUrl)) || 'Открыть присланный файл'}
+          className="inline-flex items-center gap-1 mt-0.5 text-[11px] text-blue-300 hover:text-blue-200 underline decoration-blue-400/40"
+        >
+          <ExternalLink className="w-3 h-3 shrink-0" />
+          работа
+        </a>
+      )}
       {reasons && (
         // Причин бывает много; полный список — в подсказке, иначе одна ячейка
         // растягивает всю строку и таблица становится нечитаемой.

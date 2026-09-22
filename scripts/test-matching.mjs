@@ -184,7 +184,8 @@ check('дедупликация идёт по коду, когда он есть
 // ── Скоринг ───────────────────────────────────────────────────
 const mkEntry = (over = {}) => ({
   rowNumber: 1, code: '', name: '', email: '', login: '',
-  submittedAt: null, city: '', school: '', grade: '', emailValid: false,
+  submittedAt: null, city: '', school: '', grade: '',
+  workUrl: '', workName: '', emailValid: false,
   ...over,
 });
 
@@ -570,8 +571,8 @@ check('карта собирает человека из связей, отме�
     assert.equal(lines[0].split(';')[0], 'Участник');
     assert.equal(
       lines[0].split(';').length,
-      6 + 3 * 6 + 3,
-      'колонок: базовые + 3 формы по 6 + готовность, решение, регистрация',
+      6 + 3 * 7 + 3,
+      'колонок: базовые + 3 формы по 7 + готовность, решение, регистрация',
     );
     assert.ok(csv.includes('"Петров; Иван"'), 'точка с запятой экранируется');
     assert.ok(csv.includes('Ответы без аккаунта'));
@@ -675,12 +676,20 @@ check('срез «не сделал хотя бы один из отмеченн
     }),
   ]);
 
-  const pick = (selection) => idsMatching(rows, { selection });
+  const pick = (selection, basis) => idsMatching(rows, { selection, ...(basis ? { basis } : {}) });
 
-  assert.deepEqual(pick({ mode: 'missing_any', stages: ['questionnaire', 'essay'] }), ['p1']);
-  assert.deepEqual(pick({ mode: 'missing_any', stages: ['contest'] }), ['p1', 'p2']);
-  assert.deepEqual(pick({ mode: 'done_all', stages: ['questionnaire', 'essay'] }), ['p2']);
-  assert.deepEqual(pick({ mode: 'stage', kind: 'essay', state: 'missing' }), ['p1']);
+  // По умолчанию отметка на сайте не доказывает ничего: сдал тот, чей ответ найден.
+  // У p2 только отметки, поэтому по строгому счёту не сдал и он.
+  assert.deepEqual(pick({ mode: 'missing_any', stages: ['questionnaire', 'essay'] }), ['p1', 'p2']);
+  assert.deepEqual(pick({ mode: 'done_all', stages: ['questionnaire', 'essay'] }), []);
+
+  // Смягчённый счёт — для рассылок: отметившегося не дёргаем.
+  const soft = 'answer_or_mark';
+  assert.deepEqual(pick({ mode: 'missing_any', stages: ['questionnaire', 'essay'] }, soft), ['p1']);
+  assert.deepEqual(pick({ mode: 'done_all', stages: ['questionnaire', 'essay'] }, soft), ['p2']);
+  assert.deepEqual(pick({ mode: 'missing_any', stages: ['contest'] }, soft), ['p1', 'p2']);
+
+  assert.deepEqual(pick({ mode: 'stage', kind: 'essay', state: 'missing' }), ['p1', 'p2']);
   assert.deepEqual(pick({ mode: 'stage', kind: 'essay', state: 'mark_only' }), ['p2']);
   // Ни одного отмеченного этапа — фильтр просто не применяется.
   assert.deepEqual(pick({ mode: 'missing_any', stages: [] }), ['p1', 'p2']);
@@ -750,6 +759,153 @@ check('карта видит, что прибавилось с прошлого 
   assert.equal(lib.siteDataDiffTotal(diff), 4);
   assert.ok(lib.describeSiteDataDiff(diff).includes('новых участников: 1'));
   assert.equal(lib.siteDataDiffTotal(lib.diffSiteData(after, after)), 0, 'без изменений — нечего сообщать');
+});
+
+// ── Ссылка на работу и новые зацепки ──────────────────────────
+check('ссылка на работу берётся и из своей колонки, и из поля ФИО', () => {
+  const mapping = lib.autoDetectColumns(['Ваше ФИО', 'Мотивационное письмо', 'Время создания']);
+  assert.equal(mapping.work, 1, 'колонка с письмом распознаётся сама');
+  assert.equal(mapping.name, 0);
+
+  const entries = lib.buildFormEntries(
+    table(['Ваше ФИО', 'Мотивационное письмо'], [
+      ['Иванов Иван', 'https://disk.yandex.ru/client/disk/a'],
+      ['https://disk.yandex.ru/client/disk/b', ''],
+      ['Петров Пётр', 'не ссылка'],
+    ]),
+    mapping,
+  );
+
+  assert.equal(entries[0].workUrl, 'https://disk.yandex.ru/client/disk/a');
+  assert.equal(entries[1].workUrl, 'https://disk.yandex.ru/client/disk/b',
+    'работа, вставленная в поле ФИО, больше не теряется');
+  assert.equal(entries[1].name, '', 'ссылка именем по-прежнему не считается');
+  assert.equal(entries[2].workUrl, '', 'мусор в колонке работой не считается');
+});
+
+check('колонка работы проверяется содержимым, а не только заголовком', () => {
+  // «Загрузка решений» в мониторе — вердикт, а не файл: ссылок нет, значит и
+  // колонки с работой нет.
+  const monitor = lib.autoDetectColumns(
+    ['place', 'user_name', 'login', '9(Загрузка решений)'],
+    [['1', 'Иванов', 'ivanov', 'OK'], ['2', 'Петров', 'petrov', 'WrongAnswer']],
+  );
+  assert.equal(monitor.work, null);
+
+  // Заголовок ни о чём не говорит, но в колонке ссылки — это и есть работа.
+  const silent = lib.autoDetectColumns(
+    ['Ваше ФИО', 'Ответ'],
+    [['Иванов Иван', 'https://disk.yandex.ru/client/disk/a']],
+  );
+  assert.equal(silent.work, 1);
+  assert.equal(silent.name, 0, 'колонку ФИО за работу не принимаем');
+
+  // Без строк остаётся догадка по заголовку — разметку всё равно видно глазами.
+  assert.equal(lib.autoDetectColumns(['Ваше ФИО', 'Мотивационное письмо']).work, 1);
+});
+
+check('почта из анкеты опознаёт человека в следующей форме', () => {
+  const p = profile({ email: 'nick@id.quantumschool.ru', login: 'nick', contact_email: 'real@mail.ru' });
+  const c = lib.scoreCandidate(mkEntry({ email: 'real@mail.ru', emailValid: true }), p, 'essay');
+  assert.ok(c.signals.includes('email'), 'адрес, узнанный из анкеты, — такой же признак');
+});
+
+check('ФИО из анкеты работает как имя аккаунта', () => {
+  const p = profile({ display_name: 'ivan2010' });
+  const entry = mkEntry({ name: 'Иванов Иван Иванович' });
+
+  assert.ok(!lib.scoreCandidate(entry, p, 'essay').signals.some((x) => x.startsWith('name')));
+
+  const aliases = lib.nameAliasesFromLinks([
+    { user_id: p.id, form_name: 'Иванов Иван Иванович' },
+    { user_id: p.id, form_name: '' },
+  ]);
+  assert.deepEqual(aliases.get(p.id), ['Иванов Иван Иванович']);
+
+  const withAlias = lib.scoreCandidate(entry, p, 'essay', aliases.get(p.id));
+  assert.ok(withAlias.signals.includes('name_exact'), 'ник аккаунта больше не мешает');
+
+  const rows = lib.matchFormEntries([entry], [p], 'essay', aliases);
+  assert.equal(rows[0].best.profileId, p.id);
+});
+
+check('карта показывает ссылку на работу и отдаёт её в выгрузке', () => {
+  const link = {
+    id: 'l1', user_id: 'p1', form_kind: 'essay', contact_email: null,
+    form_name: 'Иванов Иван', form_submitted_at: '2026-08-20T11:30:00Z',
+    work_url: 'https://disk.yandex.ru/client/disk/a',
+    source_file: 'essay.xlsx', source_row: 3, match_score: 55, match_signals: ['time_exact'],
+    confirmed_by: null, created_at: '', updated_at: '',
+  };
+
+  const [row] = lib.buildPersonMap([profile({ id: 'p1' })], [link], null);
+  assert.equal(row.cells.essay.workUrl, 'https://disk.yandex.ru/client/disk/a');
+  assert.ok(lib.buildPersonMapCsv([row], []).includes('https://disk.yandex.ru/client/disk/a'));
+
+  // Работа из текущего разбора видна до сохранения.
+  const pending = {
+    kind: 'essay', sourceFile: 'new.xlsx',
+    matches: [{
+      profileId: 'p2',
+      entry: { rowNumber: 1, submittedAt: null, workUrl: 'https://disk.yandex.ru/client/disk/b' },
+      signals: [], score: 0,
+    }],
+    orphans: [],
+  };
+  const [draft] = lib.buildPersonMap([profile({ id: 'p2' })], [], pending);
+  assert.equal(draft.cells.essay.workUrl, 'https://disk.yandex.ru/client/disk/b');
+});
+
+// ── Транслит и подпись в имени файла ──────────────────────────
+check('одно имя в разных написаниях сходится', () => {
+  assert.equal(lib.compareNames('Кузнецов Иван', 'Kuznetsov Ivan'), 'exact');
+  assert.equal(lib.compareNames('Кузнецов Иван', 'Kuznetcov Ivan'), 'exact');
+  assert.equal(lib.compareNames('Дмитрий Чехов', 'Dmitriy Chekhov'), 'exact');
+  assert.equal(lib.compareNames('Юлия Щербакова', 'Yulia Scherbakova'), 'exact');
+
+  // Кириллица по-прежнему работает как раньше.
+  assert.equal(lib.compareNames('Пётр Королёв', 'Королев Петр'), 'exact');
+  assert.equal(lib.compareNames('Иванов Иван Иванович', 'Иванов Иван'), 'partial');
+
+  // Однофамильцев не роднит: общее слово должно быть не одно.
+  assert.equal(lib.compareNames('Иван Петров', 'Иван Сидоров'), null);
+  assert.equal(lib.compareNames('', 'Иванов Иван'), null);
+});
+
+check('имя файла достаётся из ссылки и чистится от служебного кода', () => {
+  const url = 'https://disk.yandex.ru/client/disk/Yandex.Forms/6a7a100c068ff0b13995f129/Files'
+    + '?path=%2FYandex.Forms%2F6a7a100c068ff0b13995f129%2FFiles%2F'
+    + '0123456789abcdef01234567Ivanov_Ivan_esse.docx';
+
+  assert.equal(lib.workFileName(url), '0123456789abcdef01234567Ivanov_Ivan_esse.docx');
+  assert.equal(lib.workAuthorHint('0123456789abcdef01234567Ivanov_Ivan_esse.docx'), 'Ivanov Ivan esse');
+  assert.equal(lib.workFileName('https://disk.yandex.ru/client/disk/Files'), '', 'ссылка без пути — не беда');
+  assert.equal(lib.workFileName('не ссылка'), '');
+
+  const [entry] = lib.buildFormEntries(
+    table(['Ваше ФИО', 'Мотивационное письмо'], [['', url]]),
+    { ...lib.EMPTY_MAPPING, name: 0, work: 1 },
+  );
+  assert.equal(entry.workName, 'Ivanov Ivan esse');
+});
+
+check('подпись в имени файла опознаёт безымянное эссе', () => {
+  const p = profile({ display_name: 'Иванов Иван' });
+  const entry = mkEntry({ workName: 'Ivanov Ivan esse final' });
+
+  const c = lib.scoreCandidate(entry, p, 'essay');
+  assert.ok(c.signals.includes('file_name_partial') || c.signals.includes('file_name_exact'));
+
+  // Файл, названный без имени, никого ни с кем не роднит.
+  const noise = lib.scoreCandidate(mkEntry({ workName: 'motivation letter final' }), p, 'essay');
+  assert.ok(!noise.signals.some((x) => x.startsWith('file_name')));
+
+  // Когда ФИО в форме есть, имя файла не дублирует сигнал.
+  const named = lib.scoreCandidate(
+    mkEntry({ name: 'Иванов Иван', workName: 'Ivanov Ivan esse' }), p, 'essay',
+  );
+  assert.ok(named.signals.includes('name_exact'));
+  assert.ok(!named.signals.some((x) => x.startsWith('file_name')));
 });
 
 console.log(`ок: ${checks} проверок`);

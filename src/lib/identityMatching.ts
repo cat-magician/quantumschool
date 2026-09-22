@@ -35,11 +35,14 @@ export type ColumnMapping = {
   city: number | null;
   school: number | null;
   grade: number | null;
+  /** Ссылка на присланную работу — единственное доказательство, что этап сделан. */
+  work: number | null;
 };
 
 export const EMPTY_MAPPING: ColumnMapping = {
   code: null,
   name: null, email: null, submittedAt: null, login: null, city: null, school: null, grade: null,
+  work: null,
 };
 
 const HEADER_HINTS: Record<keyof ColumnMapping, RegExp[]> = {
@@ -51,6 +54,10 @@ const HEADER_HINTS: Record<keyof ColumnMapping, RegExp[]> = {
   city: [/откуда\s*вы/i, /город/i, /населённый|населенный/i],
   school: [/школ/i, /учебное\s*заведение/i],
   grade: [/класс/i, /курс/i],
+  work: [
+    /мотивацион/i, /^письмо/i, /эссе/i, /решени/i,
+    /ссылк/i, /файл/i, /работ/i, /документ/i,
+  ],
 };
 
 /**
@@ -66,9 +73,40 @@ const HEADER_BLOCKLIST: Record<keyof ColumnMapping, RegExp[]> = {
   city: [],
   school: [],
   grade: [],
+  work: [],
 };
 
-export function autoDetectColumns(headers: string[]): ColumnMapping {
+/**
+ * Колонку с работой заголовок выдаёт не всегда: у монитора «9(Загрузка
+ * решений)» — это вердикт, а не файл, зато в эссе половина участников вставила
+ * ссылку в поле ФИО. Поэтому догадку по заголовку проверяем содержимым, а если
+ * заголовок молчит — ищем колонку, где ссылки просто есть.
+ */
+function detectWorkColumn(
+  mapping: ColumnMapping,
+  headers: string[],
+  rows: string[][],
+): number | null {
+  const hasLinks = (index: number) => rows.some((row) => isLink(row[index] ?? ''));
+
+  if (mapping.work !== null) return hasLinks(mapping.work) ? mapping.work : null;
+
+  const taken = new Set(
+    (Object.keys(mapping) as (keyof ColumnMapping)[])
+      .filter((key) => key !== 'work')
+      .map((key) => mapping[key])
+      .filter((index): index is number => index !== null),
+  );
+
+  for (let index = 0; index < headers.length; index++) {
+    if (taken.has(index)) continue;
+    if (hasLinks(index)) return index;
+  }
+
+  return null;
+}
+
+export function autoDetectColumns(headers: string[], rows: string[][] = []): ColumnMapping {
   const mapping = { ...EMPTY_MAPPING };
 
   for (const key of Object.keys(HEADER_HINTS) as (keyof ColumnMapping)[]) {
@@ -80,6 +118,9 @@ export function autoDetectColumns(headers: string[]): ColumnMapping {
       if (index >= 0) { mapping[key] = index; break; }
     }
   }
+
+  // Без строк проверить нечем — остаётся догадка по заголовку.
+  if (rows.length > 0) mapping.work = detectWorkColumn(mapping, headers, rows);
 
   return mapping;
 }
@@ -96,6 +137,13 @@ export type FormEntry = {
   city: string;
   school: string;
   grade: string;
+  /**
+   * Ссылка на присланную работу. Для эссе это и есть доказательство отправки:
+   * отметка на сайте показывает только намерение, а файл — факт.
+   */
+  workUrl: string;
+  /** Как назван присланный файл — иногда это и есть подпись автора. */
+  workName: string;
   /** Адрес похож на почту. С опечаткой писать участнику некуда. */
   emailValid: boolean;
   /** Отброшена как повторная отправка того же человека. */
@@ -105,10 +153,24 @@ export type FormEntry = {
 const URL_RE = /^https?:\/\//i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+export function isLink(raw: string): boolean {
+  return URL_RE.test(raw.trim());
+}
+
 /** Ссылку в поле ФИО именем не считаем: часть форм так и заполнялась. */
 function cleanName(raw: string): string {
   const value = raw.trim();
   return URL_RE.test(value) ? '' : value;
+}
+
+/**
+ * Ссылка на работу: сначала своя колонка, а если человек вставил файл в поле
+ * ФИО — берём оттуда. Так делала половина отвечавших, и раньше эта ссылка
+ * просто пропадала вместе с именем.
+ */
+function pickWork(workCell: string, nameCell: string): string {
+  if (isLink(workCell)) return workCell.trim();
+  return isLink(nameCell) ? nameCell.trim() : '';
 }
 
 export function normalizeName(raw: string): string {
@@ -120,6 +182,67 @@ export function normalizeName(raw: string): string {
     .filter(Boolean)
     .sort()
     .join(' ');
+}
+
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y',
+  ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Огрублённая латиница: одно и то же имя пишут по-разному — Кузнецов,
+ * Kuznetsov, Kuznetcov, Kuznecov. Схлопываем разночтения (ts/tc/ц → c, kh → h,
+ * y/j → i, сдвоенные буквы → одна), чтобы такие записи сходились.
+ *
+ * Огрубление щедрое, поэтому само по себе оно ничего не решает: частичным
+ * совпадением считается только два общих слова.
+ */
+export function translitName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[а-яё]/g, (letter) => TRANSLIT[letter] ?? letter)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/shch|sch/g, 's')
+    .replace(/kh/g, 'h')
+    .replace(/ts|tc/g, 'c')
+    .replace(/ch/g, 'c')
+    .replace(/sh/g, 's')
+    .replace(/zh/g, 'z')
+    .replace(/[yj]/g, 'i')
+    .replace(/(.)\1+/g, '$1')
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
+/**
+ * Имя присланного файла спрятано в самой ссылке: Диск кладёт путь к файлу в
+ * параметр path. Ничего скачивать не нужно — имя видно из выгрузки.
+ */
+export function workFileName(url: string): string {
+  try {
+    const raw = new URL(url).searchParams.get('path');
+    if (!raw) return '';
+    return decodeURIComponent(raw).split('/').filter(Boolean).pop() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Подпись автора в имени файла: Формы приписывают спереди 24-значный
+ * служебный код, а дальше идёт то, как человек назвал работу — часто своим же
+ * ФИО, обычно транслитом.
+ */
+export function workAuthorHint(fileName: string): string {
+  return fileName
+    .replace(/^[0-9a-f]{24}/i, '')
+    .replace(/\.[a-z0-9]{1,5}$/i, '')
+    .replace(/[-_+.]+/g, ' ')
+    .trim();
 }
 
 export function normalizeEmail(raw: string): string {
@@ -163,16 +286,19 @@ export function buildFormEntries(
 ): FormEntry[] {
   const entries: FormEntry[] = table.rows.map((row, i) => {
     const email = normalizeEmail(cell(row, mapping.email));
+    const rawName = cell(row, mapping.name);
     return {
       rowNumber: i + 1,
       code: cell(row, mapping.code).toLowerCase(),
-      name: cleanName(cell(row, mapping.name)),
+      name: cleanName(rawName),
       email,
       login: cell(row, mapping.login).toLowerCase(),
       submittedAt: parseFormTimestamp(cell(row, mapping.submittedAt), offsetHours),
       city: cell(row, mapping.city),
       school: cell(row, mapping.school),
       grade: cell(row, mapping.grade),
+      workUrl: pickWork(cell(row, mapping.work), rawName),
+      workName: workAuthorHint(workFileName(pickWork(cell(row, mapping.work), rawName))),
       emailValid: email !== '' && isLikelyEmail(email),
     };
   });
@@ -203,6 +329,8 @@ export type MatchSignal =
   | 'login_local'
   | 'name_exact'
   | 'name_partial'
+  | 'file_name_exact'
+  | 'file_name_partial'
   | 'time_exact'
   | 'time_close'
   | 'time_near'
@@ -218,6 +346,8 @@ export const SIGNAL_LABELS: Record<MatchSignal, string> = {
   login_local: 'логин похож на почту',
   name_exact: 'ФИО совпало',
   name_partial: 'ФИО частично',
+  file_name_exact: 'ФИО в имени файла',
+  file_name_partial: 'имя файла частично',
   time_exact: 'время ±2 мин',
   time_close: 'время ±5 мин',
   time_near: 'время ±30 мин',
@@ -234,6 +364,10 @@ const SIGNAL_WEIGHTS: Record<MatchSignal, number> = {
   login_local: 30,
   name_exact: 50,
   name_partial: 25,
+  // Имя файла — слабее подписи в самой форме: люди называют работы как
+  // попало, и «esse final» не должно никого ни с кем роднить.
+  file_name_exact: 45,
+  file_name_partial: 22,
   time_exact: 55,
   time_close: 40,
   time_near: 25,
@@ -245,23 +379,50 @@ const SIGNAL_WEIGHTS: Record<MatchSignal, number> = {
 
 const MINUTE = 60_000;
 
-function nameSignal(entryName: string, profileName: string): MatchSignal | null {
-  if (!entryName || !profileName) return null;
-
-  const a = normalizeName(entryName);
-  const b = normalizeName(profileName);
-  if (!a || !b) return null;
-  if (a === b) return 'name_exact';
-
+function sharedWordCount(a: string, b: string): number {
   const aWords = new Set(a.split(' ').filter((w) => w.length >= 3));
   const bWords = new Set(b.split(' ').filter((w) => w.length >= 3));
-  if (aWords.size === 0 || bWords.size === 0) return null;
+  if (aWords.size === 0 || bWords.size === 0) return 0;
 
   let shared = 0;
   for (const word of aWords) if (bWords.has(word)) shared++;
+  return shared;
+}
 
-  // Совпадение одного слова — это чаще всего просто частое имя, не человек.
-  return shared >= 2 ? 'name_partial' : null;
+export type NameMatch = 'exact' | 'partial' | null;
+
+/**
+ * Одно ли это имя. Сверяем дважды: как есть и в огрублённой латинице — файлы с
+ * работами подписаны транслитом, и «Кузнецов» должен сойтись с «Kuznetsov».
+ *
+ * Совпадение одного слова — это чаще всего просто частое имя, не человек,
+ * поэтому частичным считаем только два общих слова и больше.
+ */
+export function compareNames(left: string, right: string): NameMatch {
+  if (!left || !right) return null;
+
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (a && b && a === b) return 'exact';
+
+  const ta = translitName(left);
+  const tb = translitName(right);
+  if (ta && tb && ta === tb) return 'exact';
+
+  if (sharedWordCount(a, b) >= 2 || sharedWordCount(ta, tb) >= 2) return 'partial';
+  return null;
+}
+
+function nameSignal(entryName: string, profileName: string): MatchSignal | null {
+  const match = compareNames(entryName, profileName);
+  if (match === 'exact') return 'name_exact';
+  return match === 'partial' ? 'name_partial' : null;
+}
+
+function fileNameSignal(hint: string, profileName: string): MatchSignal | null {
+  const match = compareNames(hint, profileName);
+  if (match === 'exact') return 'file_name_exact';
+  return match === 'partial' ? 'file_name_partial' : null;
 }
 
 function timeSignal(entryAt: number | null, profileAt: string | null | undefined): MatchSignal | null {
@@ -288,10 +449,34 @@ export type Candidate = {
   signals: MatchSignal[];
 };
 
+/**
+ * Что мы узнали о человеке из уже разобранных форм: анкета подписана ФИО,
+ * которое может не совпадать с именем аккаунта. Для следующей формы это ФИО —
+ * такой же законный признак, как имя в профиле.
+ */
+export type ProfileAliases = Map<string, string[]>;
+
+export function nameAliasesFromLinks(
+  links: { user_id: string; form_name?: string | null }[],
+): ProfileAliases {
+  const aliases: ProfileAliases = new Map();
+
+  for (const link of links) {
+    const name = link.form_name?.trim();
+    if (!name) continue;
+    const list = aliases.get(link.user_id);
+    if (!list) aliases.set(link.user_id, [name]);
+    else if (!list.includes(name)) list.push(name);
+  }
+
+  return aliases;
+}
+
 export function scoreCandidate(
   entry: FormEntry,
   profile: UserProfile,
   kind: FormKind,
+  aliases: string[] = [],
 ): Candidate {
   const signals: MatchSignal[] = [];
 
@@ -300,7 +485,10 @@ export function scoreCandidate(
 
   const profileMail = normalizeEmail(profileEmail(profile) ?? '');
   const recovery = normalizeEmail(profile.recovery_email ?? '');
-  if (entry.email && (entry.email === profileMail || entry.email === recovery)) {
+  // Почта из анкеты у входов по логину — единственный настоящий адрес, и
+  // следующие формы человек подписывает ею же.
+  const fromForm = normalizeEmail(profile.contact_email ?? '');
+  if (entry.email && [profileMail, recovery, fromForm].includes(entry.email)) {
     signals.push('email');
   }
 
@@ -317,8 +505,29 @@ export function scoreCandidate(
     else if (profileMail && entry.login === profileMail.split('@')[0]) signals.push('login_local');
   }
 
-  const byName = nameSignal(entry.name, profile.display_name);
+  // Имя аккаунта бывает ником, а в анкете человек подписался полным ФИО:
+  // сверяемся со всеми именами, под которыми мы его уже видели.
+  const byName = [profile.display_name, ...aliases]
+    .map((known) => nameSignal(entry.name, known))
+    .reduce<MatchSignal | null>((best, signal) => {
+      if (!signal) return best;
+      if (signal === 'name_exact' || best === null) return signal;
+      return best;
+    }, null);
   if (byName) signals.push(byName);
+
+  // Подпись в имени файла — запасной вход для эссе: там половина работ
+  // пришла вообще без ФИО, зато файл назван фамилией.
+  if (entry.workName && !byName) {
+    const byFile = [profile.display_name, ...aliases]
+      .map((known) => fileNameSignal(entry.workName, known))
+      .reduce<MatchSignal | null>((best, signal) => {
+        if (!signal) return best;
+        if (signal === 'file_name_exact' || best === null) return signal;
+        return best;
+      }, null);
+    if (byFile) signals.push(byFile);
+  }
 
   const byTime = timeSignal(entry.submittedAt, profileStageTimestamp(profile, kind));
   if (byTime) signals.push(byTime);
@@ -388,12 +597,13 @@ export function matchFormEntries(
   entries: FormEntry[],
   profiles: UserProfile[],
   kind: FormKind,
+  aliases?: ProfileAliases,
 ): MatchRow[] {
   const active = entries.filter((e) => !e.supersededBy);
 
   const scored = active.map((entry) => {
     const candidates = profiles
-      .map((profile) => scoreCandidate(entry, profile, kind))
+      .map((profile) => scoreCandidate(entry, profile, kind, aliases?.get(profile.id) ?? []))
       .filter((c) => c.score >= LIKELY_THRESHOLD)
       .sort((a, b) => b.score - a.score);
     return { entry, candidates };

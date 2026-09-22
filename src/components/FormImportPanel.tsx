@@ -9,6 +9,7 @@ const MAPPING_FIELDS: { key: keyof ColumnMapping; label: string }[] = [
   { key: 'name', label: 'ФИО' },
   { key: 'email', label: 'Почта' },
   { key: 'submittedAt', label: 'Время отправки' },
+  { key: 'work', label: 'Ссылка на работу' },
   { key: 'login', label: 'Логин или ник' },
   { key: 'city', label: 'Город' },
   { key: 'school', label: 'Школа' },

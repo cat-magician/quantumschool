@@ -3300,6 +3300,9 @@ CREATE TABLE IF NOT EXISTS public.selection_form_links (
   contact_email text,
   form_name text NOT NULL DEFAULT '',
   form_submitted_at timestamptz,
+  -- Ссылка на присланную работу. Отметка «я отправил» на сайте показывает
+  -- только намерение; сданным этап считается, когда есть эта ссылка.
+  work_url text,
   source_file text NOT NULL DEFAULT '',
   source_row integer,
   match_score integer,
@@ -3353,7 +3356,7 @@ BEGIN
   END IF;
 
   INSERT INTO public.selection_form_links (
-    user_id, form_kind, contact_email, form_name, form_submitted_at,
+    user_id, form_kind, contact_email, form_name, form_submitted_at, work_url,
     source_file, source_row, match_score, match_signals, confirmed_by, updated_at
   )
   SELECT
@@ -3362,6 +3365,7 @@ BEGIN
     lower(NULLIF(trim(item->>'contact_email'), '')),
     COALESCE(NULLIF(trim(item->>'form_name'), ''), ''),
     NULLIF(item->>'form_submitted_at', '')::timestamptz,
+    NULLIF(trim(item->>'work_url'), ''),
     COALESCE(NULLIF(trim(item->>'source_file'), ''), ''),
     NULLIF(item->>'source_row', '')::integer,
     NULLIF(item->>'match_score', '')::integer,
@@ -3376,6 +3380,9 @@ BEGIN
     contact_email = EXCLUDED.contact_email,
     form_name = EXCLUDED.form_name,
     form_submitted_at = EXCLUDED.form_submitted_at,
+    -- Пустую ссылку не пишем поверх найденной: повторный разбор файла без
+    -- колонки с работой не должен стирать уже известную работу.
+    work_url = COALESCE(EXCLUDED.work_url, public.selection_form_links.work_url),
     source_file = EXCLUDED.source_file,
     source_row = EXCLUDED.source_row,
     match_score = EXCLUDED.match_score,
@@ -3475,3 +3482,15 @@ ALTER TABLE public.selection_stage_config
 
 ALTER TABLE public.selection_stage_config
   ADD COLUMN IF NOT EXISTS contest_instructions text NOT NULL DEFAULT '';
+
+-- ══════════════════════════════════════════════════════════════
+-- Ссылка на присланную работу
+-- ══════════════════════════════════════════════════════════════
+--
+-- Отметка «я отправил» на сайте говорит только о намерении: человек мог
+-- нажать кнопку и ничего не прислать. Сданным этап считается тогда, когда в
+-- выгрузке формы есть ссылка на работу, поэтому она хранится рядом со связью
+-- и видна в карте участников.
+
+ALTER TABLE public.selection_form_links
+  ADD COLUMN IF NOT EXISTS work_url text;

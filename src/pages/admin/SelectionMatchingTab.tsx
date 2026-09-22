@@ -28,6 +28,7 @@ import {
   buildFormEntries,
   conflictingProfileIds,
   matchFormEntries,
+  nameAliasesFromLinks,
   profileStageTimestamp,
   resolveMatch,
   summarizeMatches,
@@ -229,7 +230,7 @@ export default function SelectionMatchingTab() {
       }
       setTable(parsed);
       setFileName(file.name);
-      setMapping(autoDetectColumns(parsed.headers));
+      setMapping(autoDetectColumns(parsed.headers, parsed.rows));
       setOverrides({});
       setSavedCount(null);
     } catch (e) {
@@ -244,9 +245,16 @@ export default function SelectionMatchingTab() {
     [table, mapping, offsetHours],
   );
 
+  /**
+   * Имена, которыми человек подписался в уже разобранных формах. Анкета почти
+   * всегда подписана полным ФИО, а имя аккаунта бывает ником — без этих
+   * алиасов эссе к такому аккаунту не привязать.
+   */
+  const aliases = useMemo(() => nameAliasesFromLinks(links), [links]);
+
   const rows = useMemo(
-    () => (entries.length ? matchFormEntries(entries, profiles, kind) : []),
-    [entries, profiles, kind],
+    () => (entries.length ? matchFormEntries(entries, profiles, kind, aliases) : []),
+    [entries, profiles, kind, aliases],
   );
 
   const summary = useMemo(
@@ -294,6 +302,7 @@ export default function SelectionMatchingTab() {
         form_submitted_at: row.entry.submittedAt === null
           ? null
           : new Date(row.entry.submittedAt).toISOString(),
+        work_url: row.entry.workUrl || null,
         source_file: fileName ?? '',
         source_row: row.entry.rowNumber,
         match_score: candidate?.score ?? null,

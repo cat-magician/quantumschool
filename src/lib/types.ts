@@ -231,6 +231,8 @@ export interface SelectionFormLink {
   contact_email: string | null;
   form_name: string;
   form_submitted_at: string | null;
+  /** Ссылка на присланную работу: доказательство, что этап действительно сдан. */
+  work_url: string | null;
   source_file: string;
   source_row: number | null;
   match_score: number | null;

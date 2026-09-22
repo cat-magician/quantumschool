@@ -49,6 +49,8 @@ export type PersonFormCell = SiteStage & {
   state: CellState;
   /** Время ответа в форме; если связи нет — наша отметка на сайте. */
   at: string | null;
+  /** Ссылка на присланную работу — то самое доказательство отправки. */
+  workUrl: string | null;
   signals: MatchSignal[];
   /** Балл сопоставления, а не оценка за работу. */
   score: number | null;
@@ -147,6 +149,7 @@ export function buildPersonMap(
           ...site,
           state: 'linked',
           at: link.form_submitted_at,
+          workUrl: link.work_url || null,
           signals: (link.match_signals ?? []) as MatchSignal[],
           score: link.match_score,
           sourceFile: link.source_file || null,
@@ -161,6 +164,7 @@ export function buildPersonMap(
           ...site,
           state: 'pending',
           at: draft.entry.submittedAt ? new Date(draft.entry.submittedAt).toISOString() : null,
+          workUrl: draft.entry.workUrl || null,
           signals: draft.signals,
           score: draft.score,
           sourceFile: pending?.sourceFile ?? null,
@@ -173,6 +177,7 @@ export function buildPersonMap(
         ...site,
         state: site.marked ? 'marked_only' : 'missing',
         at: site.markedAt,
+        workUrl: null,
         signals: [],
         score: null,
         sourceFile: null,
@@ -372,6 +377,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
     ...FORM_KINDS.flatMap((k) => [
       `${FORM_KIND_LABELS[k]}: статус`,
       `${FORM_KIND_LABELS[k]}: время`,
+      `${FORM_KIND_LABELS[k]}: работа`,
       `${FORM_KIND_LABELS[k]}: на сайте`,
       `${FORM_KIND_LABELS[k]}: балл`,
       `${FORM_KIND_LABELS[k]}: на чём сошлось`,
@@ -395,6 +401,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
       return [
         CELL_STATE_LABELS[cell.state],
         formatMapStamp(cell.at),
+        cell.workUrl ?? '',
         describeSiteStage(cell),
         cell.stageScore === null ? '' : String(cell.stageScore),
         describeSignals(cell.signals),
