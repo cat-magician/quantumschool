@@ -5,6 +5,7 @@
  */
 
 import { build } from 'esbuild';
+import { buildCsv, readArchive } from './contest-archive-to-csv.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -906,6 +907,47 @@ check('подпись в имени файла опознаёт безымянн
   );
   assert.ok(named.signals.includes('name_exact'));
   assert.ok(!named.signals.some((x) => x.startsWith('file_name')));
+});
+
+// ── Архив посылок Контеста ────────────────────────────────────
+check('архив посылок превращается в список участников', () => {
+  const people = readArchive([
+    'ivanov.ii-134068138/',
+    'ivanov.ii-134068138/1-165188004-No-compiler-OK',
+    'ivanov.ii-134068138/1-165188001-No-compiler-WrongAnswer',
+    'ivanov.ii-134068138/9-165252878-No-compiler-PresentationError.pdf',
+    'Петров Пётр-134186110/',
+    'Петров Пётр-134186110/2-165183026-No-compiler-OK',
+    'Петров Пётр-134186110/3-165183027-No-compiler-OK',
+    'мусор-без-номера/файл',
+  ]);
+
+  assert.equal(people.length, 2);
+  // Впереди тот, кто сдал больше задач.
+  assert.equal(people[0].who, 'Петров Пётр');
+  assert.equal(people[0].solved.size, 2);
+
+  const ivanov = people.find((p) => p.participantId === '134068138');
+  assert.equal(ivanov.submissions, 3, 'считаем все посылки, не только зачтённые');
+  assert.equal(ivanov.solved.size, 1, 'повторная посылка по той же задаче — не вторая задача');
+});
+
+check('монитор добавляет к архиву логин и балл', () => {
+  const people = readArchive([
+    'Петров Пётр-134186110/', 'Петров Пётр-134186110/1-1-No-compiler-OK',
+    'vasya.p-134186111/', 'vasya.p-134186111/1-2-No-compiler-OK',
+  ]);
+  const monitor = new Map([['петров пётр', { login: 'petrov.pp', score: '42' }]]);
+
+  const lines = buildCsv(people, monitor).trim().split(/\r?\n/);
+  const rows = lines.slice(1).map((line) => line.split(';'));
+  const byName = new Map(rows.map((cells) => [cells[0], cells]));
+
+  assert.deepEqual(lines[0].split(';').slice(0, 2), ['user_name', 'Логин']);
+  assert.equal(byName.get('Петров Пётр')[1], 'petrov.pp', 'логин пришёл из монитора');
+  assert.equal(byName.get('Петров Пётр')[5], '42');
+  assert.equal(byName.get('vasya.p')[1], 'vasya.p', 'подпись-логин сгодится и без монитора');
+  assert.equal(byName.get('vasya.p')[5], '', 'вне монитора балла нет — и выдумывать его нечего');
 });
 
 console.log(`ок: ${checks} проверок`);
