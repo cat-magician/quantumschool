@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
+import { ChevronDown, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
 import { FormSelect } from './FormControls';
 import { FORM_KIND_LABELS, type ColumnMapping, type FormKind } from '../lib/identityMatching';
 import type { TableData } from '../lib/tableImport';
@@ -40,6 +40,82 @@ function columnOptions(headers: string[]) {
   ];
 }
 
+/**
+ * Приём файлов. Брать можно сразу несколько: формы связаны между собой, и
+ * разбирать их вместе точнее, чем по очереди.
+ */
+export function FormDropzone({
+  parsing,
+  error,
+  onFilesSelected,
+  compact = false,
+}: {
+  parsing: boolean;
+  error: string | null;
+  onFilesSelected: (files: File[]) => void;
+  /** Когда файлы уже загружены, зона ужимается до одной строки. */
+  compact?: boolean;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const inputId = useId();
+
+  const handle = (files: FileList | null) => {
+    const list = files ? [...files] : [];
+    if (list.length > 0) onFilesSelected(list);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          handle(e.dataTransfer.files);
+        }}
+        className={`rounded-2xl border border-dashed transition-colors ${
+          dragging ? 'border-blue-500/60 bg-blue-500/5' : 'border-white/15 bg-slate-900/40'
+        }`}
+      >
+        <label
+          htmlFor={inputId}
+          className={`flex flex-col items-center gap-2 text-center cursor-pointer ${
+            compact ? 'px-4 py-4' : 'px-6 py-10'
+          }`}
+        >
+          {parsing
+            ? <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+            : <Upload className={compact ? 'w-4 h-4 text-slate-500' : 'w-6 h-6 text-slate-500'} />}
+          <span className="text-sm text-white font-medium">
+            {parsing ? 'Читаем файлы…' : compact ? 'Добавить ещё выгрузку' : 'Перетащите выгрузки или выберите файлы'}
+          </span>
+          {!compact && (
+            <span className="text-xs text-slate-500">
+              .xlsx или .csv — можно сразу все три формы. Файлы разбираются в браузере
+              и никуда не уходят
+            </span>
+          )}
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept=".csv,.xlsx"
+          multiple
+          className="sr-only"
+          onChange={(e) => {
+            handle(e.target.files);
+            e.target.value = '';
+          }}
+        />
+      </div>
+
+      {error && <p className="text-sm text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
+/** Одна загруженная выгрузка: какая это форма и как размечены её колонки. */
 export default function FormImportPanel({
   kind,
   onKindChange,
@@ -49,129 +125,76 @@ export default function FormImportPanel({
   onMappingChange,
   offsetHours,
   onOffsetChange,
-  parsing,
-  error,
-  onFileSelected,
-  onReset,
+  onRemove,
 }: {
   kind: FormKind;
   onKindChange: (kind: FormKind) => void;
-  fileName: string | null;
-  table: TableData | null;
+  fileName: string;
+  table: TableData;
   mapping: ColumnMapping;
   onMappingChange: (mapping: ColumnMapping) => void;
   offsetHours: number;
   onOffsetChange: (hours: number) => void;
-  parsing: boolean;
-  error: string | null;
-  onFileSelected: (file: File) => void;
-  onReset: () => void;
+  onRemove: () => void;
 }) {
-  const [dragging, setDragging] = useState(false);
-  const inputId = useId();
-
-  const handleFiles = (files: FileList | null) => {
-    const file = files?.[0];
-    if (file) onFileSelected(file);
-  };
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
 
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
-          Какая форма
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {FORM_KINDS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              aria-pressed={kind === item}
-              onClick={() => onKindChange(item)}
-              className={`px-3.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                kind === item
-                  ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
-                  : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
-              }`}
-            >
-              {FORM_KIND_LABELS[item]}
-            </button>
-          ))}
+    <div className="rounded-2xl bg-slate-900/60 border border-white/5 p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="w-5 h-5 text-emerald-400 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-white truncate">{fileName}</p>
+          <p className="text-xs text-slate-500">
+            {table.rows.length} строк, {table.headers.length} колонок
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+        >
+          Колонки
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-rose-300 hover:bg-white/5 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" />
+          Убрать
+        </button>
       </div>
 
-      {table ? (
-        <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-slate-900/60 border border-white/5">
-          <FileSpreadsheet className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-white truncate">{fileName}</p>
-            <p className="text-xs text-slate-500">
-              {table.rows.length} строк, {table.headers.length} колонок
-            </p>
-          </div>
+      <div className="flex flex-wrap gap-2">
+        {FORM_KINDS.map((item) => (
           <button
+            key={item}
             type="button"
-            onClick={onReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            aria-pressed={kind === item}
+            onClick={() => onKindChange(item)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              kind === item
+                ? 'bg-blue-600/20 text-blue-300 border-blue-500/30'
+                : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+            }`}
           >
-            <X className="w-3.5 h-3.5" />
-            Убрать файл
+            {FORM_KIND_LABELS[item]}
           </button>
-        </div>
-      ) : (
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          className={`rounded-2xl border border-dashed transition-colors ${
-            dragging ? 'border-blue-500/60 bg-blue-500/5' : 'border-white/15 bg-slate-900/40'
-          }`}
-        >
-          <label
-            htmlFor={inputId}
-            className="flex flex-col items-center gap-2 px-6 py-10 text-center cursor-pointer"
-          >
-            {parsing
-              ? <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-              : <Upload className="w-6 h-6 text-slate-500" />}
-            <span className="text-sm text-white font-medium">
-              {parsing ? 'Читаем файл…' : 'Перетащите выгрузку или выберите файл'}
-            </span>
-            <span className="text-xs text-slate-500">
-              .xlsx или .csv из Яндекс.Форм — файл разбирается в браузере и никуда не уходит
-            </span>
-          </label>
-          <input
-            id={inputId}
-            type="file"
-            accept=".csv,.xlsx"
-            className="sr-only"
-            onChange={(e) => {
-              handleFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-        </div>
-      )}
+        ))}
+      </div>
 
-      {error && (
-        <p className="text-sm text-rose-400">{error}</p>
-      )}
-
-      {table && (
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/5 space-y-3">
-          <div>
-            <p className="text-sm font-medium text-white">Колонки</p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Определены по заголовкам — поправьте, если угадано неверно.
-              Обязательна хотя бы одна: код участника, ФИО, почта или логин.
-              Если в форме есть код, остальное не понадобится.
-            </p>
-          </div>
+      {open && (
+        <div id={panelId} className="pt-3 border-t border-white/5 space-y-3">
+          <p className="text-xs text-slate-500">
+            Определены по заголовкам — поправьте, если угадано неверно. Обязательна хотя бы
+            одна: код участника, ФИО, почта или логин. Если в форме есть код, остальное не
+            понадобится.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {MAPPING_FIELDS.map((field) => (
               <div key={field.key} className="min-w-0">

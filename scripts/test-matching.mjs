@@ -817,11 +817,12 @@ check('ФИО из анкеты работает как имя аккаунта'
 
   assert.ok(!lib.scoreCandidate(entry, p, 'essay').signals.some((x) => x.startsWith('name')));
 
-  const aliases = lib.nameAliasesFromLinks([
-    { user_id: p.id, form_name: 'Иванов Иван Иванович' },
+  const aliases = lib.aliasesFromLinks([
+    { user_id: p.id, form_name: 'Иванов Иван Иванович', contact_email: 'real@mail.ru' },
     { user_id: p.id, form_name: '' },
   ]);
-  assert.deepEqual(aliases.get(p.id), ['Иванов Иван Иванович']);
+  assert.deepEqual(aliases.get(p.id).names, ['Иванов Иван Иванович']);
+  assert.deepEqual(aliases.get(p.id).emails, ['real@mail.ru'], 'почта из анкеты тоже запоминается');
 
   const withAlias = lib.scoreCandidate(entry, p, 'essay', aliases.get(p.id));
   assert.ok(withAlias.signals.includes('name_exact'), 'ник аккаунта больше не мешает');
@@ -948,6 +949,68 @@ check('монитор добавляет к архиву логин и балл'
   assert.equal(byName.get('Петров Пётр')[5], '42');
   assert.equal(byName.get('vasya.p')[1], 'vasya.p', 'подпись-логин сгодится и без монитора');
   assert.equal(byName.get('vasya.p')[5], '', 'вне монитора балла нет — и выдумывать его нечего');
+});
+
+// ── Совместный разбор нескольких выгрузок ─────────────────────
+check('анкета опознаёт эссе, когда разбираем формы вместе', () => {
+  const p = profile({ id: 'p1', display_name: 'ivan2010', email: 'ivan2010@yandex.ru' });
+  const anketa = [mkEntry({ rowNumber: 1, email: 'ivan2010@yandex.ru', emailValid: true, name: 'Иванов Иван' })];
+  const essay = [mkEntry({ rowNumber: 1, name: 'Иванов Иван' })];
+
+  // Поодиночке: в профиле ник, и эссе не к кому привязать.
+  assert.equal(lib.matchFormEntries(essay, [p], 'essay')[0].best, null);
+
+  // Вместе: анкета сошлась по почте, её ФИО стало признаком для эссе.
+  const [anketaRows, essayRows] = lib.matchFormSources(
+    [{ kind: 'questionnaire', entries: anketa }, { kind: 'essay', entries: essay }],
+    [p],
+  );
+  assert.equal(anketaRows[0].confidence, 'confident');
+  assert.equal(essayRows[0].best.profileId, 'p1');
+  assert.ok(essayRows[0].best.signals.includes('name_exact'));
+});
+
+check('на догадках не учимся', () => {
+  const p = profile({ id: 'p1', display_name: 'Иванов Иван', email: 'ivanov@yandex.ru' });
+  // Только частичное совпадение ФИО — не повод разносить эту почту по формам.
+  const anketa = [mkEntry({ rowNumber: 1, name: 'Иванов Иван Иванович', email: 'levo@mail.ru', emailValid: true })];
+  const essay = [mkEntry({ rowNumber: 1, email: 'levo@mail.ru', emailValid: true })];
+
+  const [anketaRows, essayRows] = lib.matchFormSources(
+    [{ kind: 'questionnaire', entries: anketa }, { kind: 'essay', entries: essay }],
+    [p],
+  );
+
+  assert.notEqual(anketaRows[0].confidence, 'confident', 'частичное ФИО решает не само');
+  assert.equal(essayRows[0].best, null, 'непроверенная почта в другую форму не уходит');
+});
+
+check('карта показывает разбор сразу нескольких файлов', () => {
+  const entry = (over) => ({ rowNumber: 1, submittedAt: null, workUrl: '', ...over });
+  const rows = lib.buildPersonMap([profile({ id: 'p1' })], [], [
+    {
+      kind: 'questionnaire', sourceFile: 'anketa.xlsx',
+      matches: [{ profileId: 'p1', entry: entry({}), signals: ['email'], score: 100 }],
+      orphans: [],
+    },
+    {
+      kind: 'essay', sourceFile: 'essay.xlsx',
+      matches: [{ profileId: 'p1', entry: entry({ workUrl: 'https://disk.yandex.ru/a' }), signals: [], score: 50 }],
+      orphans: [entry({ rowNumber: 7 })],
+    },
+  ]);
+
+  assert.equal(rows[0].cells.questionnaire.state, 'pending');
+  assert.equal(rows[0].cells.questionnaire.sourceFile, 'anketa.xlsx');
+  assert.equal(rows[0].cells.essay.state, 'pending');
+  assert.equal(rows[0].cells.essay.workUrl, 'https://disk.yandex.ru/a');
+  assert.equal(rows[0].linkedCount, 2);
+
+  const orphans = lib.buildOrphanAnswers([
+    { kind: 'essay', sourceFile: 'essay.xlsx', matches: [], orphans: [entry({ rowNumber: 7 })] },
+  ]);
+  assert.equal(orphans.length, 1);
+  assert.equal(orphans[0].kind, 'essay');
 });
 
 console.log(`ок: ${checks} проверок`);

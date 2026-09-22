@@ -120,10 +120,19 @@ export function siteStage(profile: UserProfile, kind: FormKind): SiteStage {
   };
 }
 
+/** Разбор может идти сразу по нескольким выгрузкам — по одной на форму. */
+export type PendingInput = PendingState | PendingState[] | null | undefined;
+
+function pendingByKind(pending: PendingInput): Map<FormKind, PendingState> {
+  const list = pending ? (Array.isArray(pending) ? pending : [pending]) : [];
+  // Две выгрузки одной формы — берём последнюю: она и лежит на экране.
+  return new Map(list.map((state) => [state.kind, state]));
+}
+
 export function buildPersonMap(
   profiles: UserProfile[],
   links: SelectionFormLink[],
-  pending?: PendingState | null,
+  pending?: PendingInput,
 ): PersonMapRow[] {
   const linksByUser = new Map<string, SelectionFormLink[]>();
   for (const link of links) {
@@ -132,9 +141,10 @@ export function buildPersonMap(
     else linksByUser.set(link.user_id, [link]);
   }
 
-  const pendingByProfile = new Map<string, PendingMatch>();
-  for (const match of pending?.matches ?? []) {
-    pendingByProfile.set(match.profileId, match);
+  const byKind = pendingByKind(pending);
+  const pendingByProfile = new Map<FormKind, Map<string, PendingMatch>>();
+  for (const [kind, state] of byKind) {
+    pendingByProfile.set(kind, new Map(state.matches.map((m) => [m.profileId, m])));
   }
 
   return profiles.map((profile) => {
@@ -158,7 +168,7 @@ export function buildPersonMap(
         continue;
       }
 
-      const draft = pending?.kind === kind ? pendingByProfile.get(profile.id) : undefined;
+      const draft = pendingByProfile.get(kind)?.get(profile.id);
       if (draft) {
         cells[kind] = {
           ...site,
@@ -167,7 +177,7 @@ export function buildPersonMap(
           workUrl: draft.entry.workUrl || null,
           signals: draft.signals,
           score: draft.score,
-          sourceFile: pending?.sourceFile ?? null,
+          sourceFile: byKind.get(kind)?.sourceFile ?? null,
           sourceRow: draft.entry.rowNumber,
         };
         continue;
@@ -201,13 +211,12 @@ export function buildPersonMap(
   });
 }
 
-export function buildOrphanAnswers(pending?: PendingState | null): OrphanAnswer[] {
-  if (!pending) return [];
-  return pending.orphans.map((entry) => ({
-    kind: pending.kind,
+export function buildOrphanAnswers(pending?: PendingInput): OrphanAnswer[] {
+  return [...pendingByKind(pending).values()].flatMap((state) => state.orphans.map((entry) => ({
+    kind: state.kind,
     entry,
-    sourceFile: pending.sourceFile,
-  }));
+    sourceFile: state.sourceFile,
+  })));
 }
 
 /**

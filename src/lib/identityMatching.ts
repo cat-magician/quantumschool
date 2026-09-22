@@ -450,25 +450,43 @@ export type Candidate = {
 };
 
 /**
- * Что мы узнали о человеке из уже разобранных форм: анкета подписана ФИО,
- * которое может не совпадать с именем аккаунта. Для следующей формы это ФИО —
- * такой же законный признак, как имя в профиле.
+ * Что мы узнали о человеке из уже разобранных форм. Анкета подписана ФИО и
+ * почтой, которых может не быть в профиле, — для следующей формы это такие же
+ * законные признаки, как имя и адрес аккаунта. Формы связаны между собой
+ * человеком, и разбирать их поодиночке значит каждый раз начинать с нуля.
  */
-export type ProfileAliases = Map<string, string[]>;
+export type KnownIdentity = { names: string[]; emails: string[] };
+export type ProfileAliases = Map<string, KnownIdentity>;
 
-export function nameAliasesFromLinks(
-  links: { user_id: string; form_name?: string | null }[],
-): ProfileAliases {
-  const aliases: ProfileAliases = new Map();
+const NOTHING_KNOWN: KnownIdentity = { names: [], emails: [] };
 
-  for (const link of links) {
-    const name = link.form_name?.trim();
-    if (!name) continue;
-    const list = aliases.get(link.user_id);
-    if (!list) aliases.set(link.user_id, [name]);
-    else if (!list.includes(name)) list.push(name);
+export function rememberIdentity(
+  aliases: ProfileAliases,
+  profileId: string,
+  found: { name?: string | null; email?: string | null },
+): boolean {
+  const known = aliases.get(profileId) ?? { names: [], emails: [] };
+  const name = found.name?.trim();
+  const email = normalizeEmail(found.email ?? '');
+  let added = false;
+
+  if (name && !known.names.includes(name)) { known.names.push(name); added = true; }
+  if (email && isLikelyEmail(email) && !known.emails.includes(email)) {
+    known.emails.push(email);
+    added = true;
   }
 
+  if (added) aliases.set(profileId, known);
+  return added;
+}
+
+export function aliasesFromLinks(
+  links: { user_id: string; form_name?: string | null; contact_email?: string | null }[],
+): ProfileAliases {
+  const aliases: ProfileAliases = new Map();
+  for (const link of links) {
+    rememberIdentity(aliases, link.user_id, { name: link.form_name, email: link.contact_email });
+  }
   return aliases;
 }
 
@@ -476,7 +494,7 @@ export function scoreCandidate(
   entry: FormEntry,
   profile: UserProfile,
   kind: FormKind,
-  aliases: string[] = [],
+  known: KnownIdentity = NOTHING_KNOWN,
 ): Candidate {
   const signals: MatchSignal[] = [];
 
@@ -488,16 +506,15 @@ export function scoreCandidate(
   // Почта из анкеты у входов по логину — единственный настоящий адрес, и
   // следующие формы человек подписывает ею же.
   const fromForm = normalizeEmail(profile.contact_email ?? '');
-  if (entry.email && [profileMail, recovery, fromForm].includes(entry.email)) {
-    signals.push('email');
-  }
+  const addresses = [profileMail, recovery, fromForm, ...known.emails].filter(Boolean);
+  if (entry.email && addresses.includes(entry.email)) signals.push('email');
 
   // Монитор Контеста подписывает участника логином Яндекс ID, а аккаунты с
   // чужим доменом — полным адресом почты. Совпадение с локальной частью
   // адреса («ivanov» ← ivanov@mail.ru) — только догадка: разные люди легко
   // получают одинаковый префикс, поэтому решать по нему нельзя.
   if (entry.login) {
-    const exact = [profile.yandex_login, profileLogin(profile), profileMail]
+    const exact = [profile.yandex_login, profileLogin(profile), profileMail, ...known.emails]
       .filter((v): v is string => Boolean(v))
       .map((v) => v.toLowerCase());
 
@@ -507,7 +524,7 @@ export function scoreCandidate(
 
   // Имя аккаунта бывает ником, а в анкете человек подписался полным ФИО:
   // сверяемся со всеми именами, под которыми мы его уже видели.
-  const byName = [profile.display_name, ...aliases]
+  const byName = [profile.display_name, ...known.names]
     .map((known) => nameSignal(entry.name, known))
     .reduce<MatchSignal | null>((best, signal) => {
       if (!signal) return best;
@@ -519,7 +536,7 @@ export function scoreCandidate(
   // Подпись в имени файла — запасной вход для эссе: там половина работ
   // пришла вообще без ФИО, зато файл назван фамилией.
   if (entry.workName && !byName) {
-    const byFile = [profile.display_name, ...aliases]
+    const byFile = [profile.display_name, ...known.names]
       .map((known) => fileNameSignal(entry.workName, known))
       .reduce<MatchSignal | null>((best, signal) => {
         if (!signal) return best;
@@ -603,7 +620,7 @@ export function matchFormEntries(
 
   const scored = active.map((entry) => {
     const candidates = profiles
-      .map((profile) => scoreCandidate(entry, profile, kind, aliases?.get(profile.id) ?? []))
+      .map((profile) => scoreCandidate(entry, profile, kind, aliases?.get(profile.id)))
       .filter((c) => c.score >= LIKELY_THRESHOLD)
       .sort((a, b) => b.score - a.score);
     return { entry, candidates };
@@ -639,6 +656,60 @@ export function matchFormEntries(
 }
 
 /** Решение админа по строке: `undefined` — не трогал, `null` — «не сопоставлять». */
+/** Одна загруженная выгрузка: какая это форма и что из неё прочиталось. */
+export type FormSource = {
+  kind: FormKind;
+  entries: FormEntry[];
+};
+
+/**
+ * Сколько раз прогонять разбор. Второй проход подхватывает то, что узнал
+ * первый (ФИО и почту из анкеты), третий — то, что узнал второй. Дальше
+ * узнавать уже нечего, но на всякий случай есть предел.
+ */
+const CROSS_FORM_PASSES = 4;
+
+/**
+ * Разбор нескольких выгрузок разом.
+ *
+ * Формы связаны человеком: анкета знает ФИО и почту, эссе — время и файл,
+ * контест — яндекс-логин. Поодиночке каждая слепа, поэтому найденное в одной
+ * форме сразу становится признаком для остальных, и проходы повторяются, пока
+ * что-то новое находится.
+ */
+export function matchFormSources(
+  sources: FormSource[],
+  profiles: UserProfile[],
+  aliases: ProfileAliases = new Map(),
+): MatchRow[][] {
+  const known: ProfileAliases = new Map(
+    [...aliases].map(([id, identity]) => [id, {
+      names: [...identity.names],
+      emails: [...identity.emails],
+    }]),
+  );
+
+  let result: MatchRow[][] = [];
+
+  for (let pass = 0; pass < CROSS_FORM_PASSES; pass++) {
+    result = sources.map((source) => matchFormEntries(source.entries, profiles, source.kind, known));
+
+    let learned = 0;
+    for (const rows of result) {
+      for (const row of rows) {
+        // Учимся только на бесспорном: догадка, принятая за факт, потащит за
+        // собой следующие формы и размножит одну ошибку на три.
+        if (row.confidence !== 'confident' || !row.best) continue;
+        if (rememberIdentity(known, row.best.profileId, row.entry)) learned++;
+      }
+    }
+
+    if (learned === 0) break;
+  }
+
+  return result;
+}
+
 export type MatchOverrides = Record<number, string | null>;
 
 export type ResolvedMatch = {

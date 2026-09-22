@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, Check, Link2Off, Loader2, Save, Search, UserX,
 } from 'lucide-react';
@@ -15,23 +15,20 @@ import {
 } from '../../lib/selectionPersonMap';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import UserAvatar from '../../components/UserAvatar';
-import FormImportPanel from '../../components/FormImportPanel';
+import FormImportPanel, { FormDropzone } from '../../components/FormImportPanel';
 import { SearchableActionList, type PickerRow } from '../../components/SearchablePicker';
 import { supabase } from '../../lib/supabase';
 import type { SelectionFormLink, UserProfile } from '../../lib/types';
 import { profileAccountLabel, profileDisplayName } from '../../lib/profileUtils';
 import {
-  EMPTY_MAPPING,
   FORM_KIND_LABELS,
   SIGNAL_LABELS,
+  aliasesFromLinks,
   autoDetectColumns,
   buildFormEntries,
-  conflictingProfileIds,
-  matchFormEntries,
-  nameAliasesFromLinks,
+  matchFormSources,
   profileStageTimestamp,
   resolveMatch,
-  summarizeMatches,
   type Candidate,
   type ColumnMapping,
   type FormKind,
@@ -48,6 +45,23 @@ import {
 } from '../../lib/selectionFormLinks';
 
 type Basket = 'review' | 'ready' | 'unmatched';
+
+/** Одна загруженная выгрузка со своей разметкой колонок. */
+type Source = {
+  id: string;
+  kind: FormKind;
+  fileName: string;
+  table: TableData;
+  mapping: ColumnMapping;
+  offsetHours: number;
+};
+
+/** Строка разбора вместе с тем, из какого файла она приехала. */
+type ReviewItem = {
+  key: string;
+  source: Source;
+  row: MatchRow;
+};
 
 /**
  * Карта должна показывать то, что есть в базе сейчас, а не на момент открытия
@@ -128,20 +142,17 @@ export default function SelectionMatchingTab() {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [freshDiff, setFreshDiff] = useState<SiteDataDiff | null>(null);
 
-  const [kind, setKind] = useState<FormKind>('questionnaire');
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [table, setTable] = useState<TableData | null>(null);
-  const [mapping, setMapping] = useState<ColumnMapping>(EMPTY_MAPPING);
-  const [offsetHours, setOffsetHours] = useState(0);
+  const [sources, setSources] = useState<Source[]>([]);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
 
-  const [overrides, setOverrides] = useState<MatchOverrides>({});
+  /** Решения админа — по одному набору на файл: номера строк у файлов свои. */
+  const [overrides, setOverrides] = useState<Record<string, MatchOverrides>>({});
   const [basket, setBasket] = useState<Basket>('review');
   // Карта открывается первой: сначала смотрим, что уже известно, потом
   // докладываем в неё файл формы.
   const [view, setView] = useState<'map' | 'review'>('map');
-  const [pickerRow, setPickerRow] = useState<number | null>(null);
+  const [pickerKey, setPickerKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
@@ -208,108 +219,218 @@ export default function SelectionMatchingTab() {
     };
   }, []);
 
-  const resetImport = () => {
-    setFileName(null);
-    setTable(null);
-    setMapping(EMPTY_MAPPING);
-    setOverrides({});
-    setParseError(null);
-    setSavedCount(null);
-    setSaveError(null);
-    setPickerRow(null);
+  /**
+   * Какая это форма, видно по заголовкам: у монитора Контеста свои колонки,
+   * у эссе — ссылка на работу, у анкеты — почта. Ошибиться не страшно, вид
+   * формы переключается на карточке файла.
+   */
+  const guessKind = (parsed: TableData, mapping: ColumnMapping): FormKind => {
+    const headers = parsed.headers.join(' ').toLowerCase();
+    if (/user_?name|login|place|score/.test(headers)) return 'contest';
+    if (mapping.work !== null) return 'essay';
+    return 'questionnaire';
   };
 
-  const handleFile = async (file: File) => {
+  const addFiles = async (files: File[]) => {
     setParsing(true);
     setParseError(null);
-    try {
-      const parsed = await readTableFile(file);
-      if (parsed.rows.length === 0) {
-        setParseError('В файле нет строк с данными');
-        return;
+    const added: Source[] = [];
+    const failed: string[] = [];
+
+    for (const file of files) {
+      try {
+        const parsed = await readTableFile(file);
+        if (parsed.rows.length === 0) {
+          failed.push(`${file.name}: нет строк с данными`);
+          continue;
+        }
+        const mapping = autoDetectColumns(parsed.headers, parsed.rows);
+        added.push({
+          id: `${file.name}-${Date.now()}-${added.length}`,
+          kind: guessKind(parsed, mapping),
+          fileName: file.name,
+          table: parsed,
+          mapping,
+          offsetHours: 0,
+        });
+      } catch (e) {
+        failed.push(`${file.name}: ${e instanceof Error ? e.message : 'не удалось прочитать'}`);
       }
-      setTable(parsed);
-      setFileName(file.name);
-      setMapping(autoDetectColumns(parsed.headers, parsed.rows));
-      setOverrides({});
-      setSavedCount(null);
-    } catch (e) {
-      setParseError(e instanceof Error ? e.message : 'Не удалось прочитать файл');
-    } finally {
-      setParsing(false);
     }
+
+    if (added.length > 0) {
+      setSources((prev) => [...prev, ...added]);
+      setSavedCount(null);
+    }
+    setParseError(failed.length > 0 ? failed.join('; ') : null);
+    setParsing(false);
   };
 
-  const entries = useMemo(
-    () => (table ? buildFormEntries(table, mapping, offsetHours) : []),
-    [table, mapping, offsetHours],
-  );
+  const patchSource = (id: string, patch: Partial<Source>) => {
+    setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setSavedCount(null);
+  };
+
+  const removeSource = (id: string) => {
+    setSources((prev) => prev.filter((s) => s.id !== id));
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setPickerKey(null);
+    setSavedCount(null);
+  };
+
+  const setOverride = (sourceId: string, rowNumber: number, value: string | null) => {
+    setOverrides((prev) => ({
+      ...prev,
+      [sourceId]: { ...prev[sourceId], [rowNumber]: value },
+    }));
+  };
+
+  const clearOverride = (sourceId: string, rowNumber: number) => {
+    setOverrides((prev) => {
+      const forSource = { ...prev[sourceId] };
+      delete forSource[rowNumber];
+      return { ...prev, [sourceId]: forSource };
+    });
+  };
 
   /**
-   * Имена, которыми человек подписался в уже разобранных формах. Анкета почти
-   * всегда подписана полным ФИО, а имя аккаунта бывает ником — без этих
-   * алиасов эссе к такому аккаунту не привязать.
+   * Разбор идёт по всем загруженным файлам разом: найденное в одной форме
+   * становится признаком для остальных. Анкета отдаёт ФИО и почту, по ним
+   * находится безымянное эссе, а уже оно подтверждает аккаунт для контеста.
    */
-  const aliases = useMemo(() => nameAliasesFromLinks(links), [links]);
+  const known = useMemo(() => aliasesFromLinks(links), [links]);
 
-  const rows = useMemo(
-    () => (entries.length ? matchFormEntries(entries, profiles, kind, aliases) : []),
-    [entries, profiles, kind, aliases],
+  const parsed = useMemo(() => sources.map((source) => ({
+    source,
+    entries: buildFormEntries(source.table, source.mapping, source.offsetHours),
+  })), [sources]);
+
+  const matched = useMemo(() => matchFormSources(
+    parsed.map(({ source, entries }) => ({ kind: source.kind, entries })),
+    profiles,
+    known,
+  ), [parsed, profiles, known]);
+
+  const items: ReviewItem[] = useMemo(() => parsed.flatMap(({ source }, index) => (
+    (matched[index] ?? []).map((row) => ({
+      key: `${source.id}:${row.entry.rowNumber}`,
+      source,
+      row,
+    }))
+  )), [parsed, matched]);
+
+  const overridesFor = useCallback(
+    (sourceId: string): MatchOverrides => overrides[sourceId] ?? {},
+    [overrides],
   );
 
-  const summary = useMemo(
-    () => summarizeMatches(entries, rows, profiles, overrides),
-    [entries, rows, profiles, overrides],
-  );
+  const summary = useMemo(() => {
+    const linked = new Set<string>();
+    let ready = 0;
+    let needsReview = 0;
+    let unmatched = 0;
 
-  const conflicts = useMemo(() => conflictingProfileIds(rows, overrides), [rows, overrides]);
+    for (const item of items) {
+      const resolved = resolveMatch(item.row, overridesFor(item.source.id));
+      if (resolved.profileId) linked.add(resolved.profileId);
+      if (resolved.ready) ready++;
+      else if (resolved.profileId) needsReview++;
+      else unmatched++;
+    }
+
+    return {
+      ready,
+      needsReview,
+      unmatched,
+      duplicates: parsed.reduce((n, { entries }) => n + entries.filter((e) => e.supersededBy).length, 0),
+      profilesWithoutEntry: profiles.filter((p) => !linked.has(p.id)).length,
+    };
+  }, [items, overridesFor, parsed, profiles]);
+
+  /**
+   * Один аккаунт не может дважды сдать одну и ту же форму, но три разных формы
+   * у него быть обязаны — поэтому конфликты считаем внутри вида формы.
+   */
+  const conflicts = useMemo(() => {
+    const seen = new Map<FormKind, Set<string>>();
+    const clashes = new Map<FormKind, Set<string>>();
+
+    for (const item of items) {
+      const { profileId } = resolveMatch(item.row, overridesFor(item.source.id));
+      if (!profileId) continue;
+      const kind = item.source.kind;
+      const already = seen.get(kind) ?? new Set<string>();
+      if (already.has(profileId)) {
+        const clash = clashes.get(kind) ?? new Set<string>();
+        clash.add(profileId);
+        clashes.set(kind, clash);
+      }
+      already.add(profileId);
+      seen.set(kind, already);
+    }
+
+    return clashes;
+  }, [items, overridesFor]);
+
+  const conflictCount = useMemo(
+    () => [...conflicts.values()].reduce((n, set) => n + set.size, 0),
+    [conflicts],
+  );
 
   const profilesById = useMemo(
     () => new Map(profiles.map((p) => [p.id, p])),
     [profiles],
   );
 
-  const linkForKind = useMemo(() => {
-    const index = new Map<string, SelectionFormLink>();
+  const linksByKind = useMemo(() => {
+    const index = new Map<FormKind, Map<string, SelectionFormLink>>();
     for (const link of links) {
-      if (link.form_kind === kind) index.set(link.user_id, link);
+      const kind = link.form_kind as FormKind;
+      const forKind = index.get(kind) ?? new Map<string, SelectionFormLink>();
+      forKind.set(link.user_id, link);
+      index.set(kind, forKind);
     }
     return index;
-  }, [links, kind]);
+  }, [links]);
 
   const bucketed = useMemo(() => {
-    const result: Record<Basket, MatchRow[]> = { review: [], ready: [], unmatched: [] };
-    for (const row of rows) {
-      const { profileId, ready } = resolveMatch(row, overrides);
-      if (!profileId) result.unmatched.push(row);
-      else if (ready) result.ready.push(row);
-      else result.review.push(row);
+    const result: Record<Basket, ReviewItem[]> = { review: [], ready: [], unmatched: [] };
+    for (const item of items) {
+      const { profileId, ready } = resolveMatch(item.row, overridesFor(item.source.id));
+      if (!profileId) result.unmatched.push(item);
+      else if (ready) result.ready.push(item);
+      else result.review.push(item);
     }
     return result;
-  }, [rows, overrides]);
+  }, [items, overridesFor]);
 
   const drafts: FormLinkDraft[] = useMemo(() => (
-    rows.flatMap((row) => {
-      const { profileId, ready } = resolveMatch(row, overrides);
-      if (!profileId || !ready || conflicts.has(profileId)) return [];
+    items.flatMap(({ source, row }) => {
+      const { profileId, ready } = resolveMatch(row, overridesFor(source.id));
+      if (!profileId || !ready) return [];
+      if (conflicts.get(source.kind)?.has(profileId)) return [];
 
       const candidate = candidateFor(row, profileId);
       return [{
         user_id: profileId,
-        form_kind: kind,
+        form_kind: source.kind,
         contact_email: row.entry.emailValid ? row.entry.email : null,
         form_name: row.entry.name,
         form_submitted_at: row.entry.submittedAt === null
           ? null
           : new Date(row.entry.submittedAt).toISOString(),
         work_url: row.entry.workUrl || null,
-        source_file: fileName ?? '',
+        source_file: source.fileName,
         source_row: row.entry.rowNumber,
         match_score: candidate?.score ?? null,
         match_signals: candidate?.signals ?? [],
       }];
     })
-  ), [rows, overrides, conflicts, kind, fileName]);
+  ), [items, overridesFor, conflicts]);
 
   const save = async () => {
     setSaving(true);
@@ -326,7 +447,7 @@ export default function SelectionMatchingTab() {
     setSaving(false);
   };
 
-  const unlink = async (userId: string) => {
+  const unlink = async (userId: string, kind: FormKind) => {
     setSaving(true);
     savingRef.current = true;
     const { error } = await clearSelectionFormLink(userId, kind);
@@ -358,13 +479,12 @@ export default function SelectionMatchingTab() {
     })
   );
 
-  const pending: PendingState | null = useMemo(() => {
-    if (!rows.length) return null;
-
+  const pending: PendingState[] = useMemo(() => parsed.map(({ source }, index) => {
     const matches = [];
     const orphans = [];
-    for (const row of rows) {
-      const resolved = resolveMatch(row, overrides);
+
+    for (const row of matched[index] ?? []) {
+      const resolved = resolveMatch(row, overridesFor(source.id));
       const candidate = candidateFor(row, resolved.profileId);
       if (resolved.profileId) {
         matches.push({
@@ -378,8 +498,8 @@ export default function SelectionMatchingTab() {
       }
     }
 
-    return { kind, sourceFile: fileName, matches, orphans };
-  }, [rows, overrides, kind, fileName]);
+    return { kind: source.kind, sourceFile: source.fileName, matches, orphans };
+  }), [parsed, matched, overridesFor]);
 
   const personMap = useMemo(
     () => buildPersonMap(profiles, links, pending),
@@ -407,9 +527,9 @@ export default function SelectionMatchingTab() {
           автора ответа формы не сохраняли — восстанавливаем по почте, ФИО и времени отправки
         </p>
         <SectionHint text={SECTION_HINT.admin.selectionMatching} className="mt-1.5" />
-        {view === 'review' && linkForKind.size > 0 && (
+        {view === 'review' && links.length > 0 && (
           <p className="text-xs text-slate-500 mt-2">
-            Уже связано с аккаунтами: {linkForKind.size} · {FORM_KIND_LABELS[kind].toLowerCase()}
+            Уже связано с аккаунтами: {links.length} ответов по всем формам
           </p>
         )}
       </div>
@@ -417,7 +537,7 @@ export default function SelectionMatchingTab() {
       <div className="flex flex-wrap gap-2">
         {([
           ['map', 'Карта участников'],
-          ['review', 'Разбор файла'],
+          ['review', 'Разбор выгрузок'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -447,29 +567,45 @@ export default function SelectionMatchingTab() {
       )}
 
       {view === 'review' && (
-      <FormImportPanel
-        kind={kind}
-        onKindChange={(next) => { setKind(next); setOverrides({}); setSavedCount(null); }}
-        fileName={fileName}
-        table={table}
-        mapping={mapping}
-        onMappingChange={setMapping}
-        offsetHours={offsetHours}
-        onOffsetChange={setOffsetHours}
-        parsing={parsing}
-        error={parseError}
-        onFileSelected={(file) => { void handleFile(file); }}
-        onReset={resetImport}
-      />
+        <div className="space-y-3">
+          <FormDropzone
+            parsing={parsing}
+            error={parseError}
+            compact={sources.length > 0}
+            onFilesSelected={(files) => { void addFiles(files); }}
+          />
+
+          {sources.map((source) => (
+            <FormImportPanel
+              key={source.id}
+              kind={source.kind}
+              onKindChange={(next) => patchSource(source.id, { kind: next })}
+              fileName={source.fileName}
+              table={source.table}
+              mapping={source.mapping}
+              onMappingChange={(next) => patchSource(source.id, { mapping: next })}
+              offsetHours={source.offsetHours}
+              onOffsetChange={(next) => patchSource(source.id, { offsetHours: next })}
+              onRemove={() => removeSource(source.id)}
+            />
+          ))}
+
+          {sources.length > 1 && (
+            <p className="text-xs text-slate-500">
+              Файлы разбираются вместе: найденное в одной форме помогает опознать человека
+              в остальных.
+            </p>
+          )}
+        </div>
       )}
 
-      {view === 'review' && table && rows.length === 0 && (
+      {view === 'review' && sources.length > 0 && items.length === 0 && (
         <p className="text-sm text-amber-400">
           Ни одну строку не удалось прочитать — проверьте разметку колонок.
         </p>
       )}
 
-      {view === 'review' && rows.length > 0 && (
+      {view === 'review' && items.length > 0 && (
         <>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <SummaryCard label="Сойдётся само" value={summary.ready} tone="good" />
@@ -484,11 +620,11 @@ export default function SelectionMatchingTab() {
             </p>
           )}
 
-          {conflicts.size > 0 && (
+          {conflictCount > 0 && (
             <p className="flex items-start gap-2 text-sm text-amber-400">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              Один аккаунт выбран для нескольких ответов ({conflicts.size}) — такие строки
-              не сохранятся, пока выбор не разойдётся.
+              Один аккаунт выбран для нескольких ответов одной и той же формы
+              ({conflictCount}) — такие строки не сохранятся, пока выбор не разойдётся.
             </p>
           )}
 
@@ -518,17 +654,18 @@ export default function SelectionMatchingTab() {
             </div>
           ) : (
             <div className="space-y-3">
-              {visibleRows.map((row) => {
-                const { profileId, manual, ready } = resolveMatch(row, overrides);
+              {visibleRows.map(({ key, source, row }) => {
+                const kind = source.kind;
+                const { profileId, manual, ready } = resolveMatch(row, overridesFor(source.id));
                 const profile = profileId ? profilesById.get(profileId) ?? null : null;
                 const candidate = candidateFor(row, profileId);
-                const existing = profileId ? linkForKind.get(profileId) : undefined;
-                const conflicting = profileId ? conflicts.has(profileId) : false;
-                const picking = pickerRow === row.entry.rowNumber;
+                const existing = profileId ? linksByKind.get(kind)?.get(profileId) : undefined;
+                const conflicting = profileId ? !!conflicts.get(kind)?.has(profileId) : false;
+                const picking = pickerKey === key;
 
                 return (
                   <div
-                    key={row.entry.rowNumber}
+                    key={key}
                     className={`rounded-2xl border p-4 space-y-3 ${
                       conflicting
                         ? 'bg-amber-500/5 border-amber-500/30'
@@ -538,7 +675,10 @@ export default function SelectionMatchingTab() {
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                          Строка {row.entry.rowNumber} · {FORM_KIND_LABELS[kind]}
+                          {FORM_KIND_LABELS[kind]} · строка {row.entry.rowNumber}
+                          <span className="ml-1.5 normal-case tracking-normal text-slate-600">
+                            {source.fileName}
+                          </span>
                         </p>
                         <p className="text-sm text-white truncate">
                           {row.entry.name || <span className="text-slate-500">без имени</span>}
@@ -601,7 +741,7 @@ export default function SelectionMatchingTab() {
                       {profileId && !ready && (
                         <button
                           type="button"
-                          onClick={() => setOverrides((prev) => ({ ...prev, [row.entry.rowNumber]: profileId }))}
+                          onClick={() => setOverride(source.id, row.entry.rowNumber, profileId)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors"
                         >
                           <Check className="w-3.5 h-3.5" />
@@ -610,7 +750,7 @@ export default function SelectionMatchingTab() {
                       )}
                       <button
                         type="button"
-                        onClick={() => setPickerRow(picking ? null : row.entry.rowNumber)}
+                        onClick={() => setPickerKey(picking ? null : key)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-slate-300 border border-white/10 hover:text-white transition-colors"
                       >
                         <Search className="w-3.5 h-3.5" />
@@ -619,7 +759,7 @@ export default function SelectionMatchingTab() {
                       {profileId && (
                         <button
                           type="button"
-                          onClick={() => setOverrides((prev) => ({ ...prev, [row.entry.rowNumber]: null }))}
+                          onClick={() => setOverride(source.id, row.entry.rowNumber, null)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-slate-400 border border-white/10 hover:text-rose-300 hover:border-rose-500/30 transition-colors"
                         >
                           <UserX className="w-3.5 h-3.5" />
@@ -629,11 +769,7 @@ export default function SelectionMatchingTab() {
                       {manual && (
                         <button
                           type="button"
-                          onClick={() => setOverrides((prev) => {
-                            const next = { ...prev };
-                            delete next[row.entry.rowNumber];
-                            return next;
-                          })}
+                          onClick={() => clearOverride(source.id, row.entry.rowNumber)}
                           className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-white transition-colors"
                         >
                           Вернуть авто
@@ -642,7 +778,7 @@ export default function SelectionMatchingTab() {
                       {existing && (
                         <button
                           type="button"
-                          onClick={() => { void unlink(existing.user_id); }}
+                          onClick={() => { void unlink(existing.user_id, kind); }}
                           disabled={saving}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-300 transition-colors disabled:opacity-50"
                         >
@@ -657,8 +793,8 @@ export default function SelectionMatchingTab() {
                         <SearchableActionList
                           items={pickerItems(row)}
                           onPick={(id) => {
-                            setOverrides((prev) => ({ ...prev, [row.entry.rowNumber]: id }));
-                            setPickerRow(null);
+                            setOverride(source.id, row.entry.rowNumber, id);
+                            setPickerKey(null);
                           }}
                           searchPlaceholder="Имя, почта, логин, школа…"
                           emptyText="Участников нет"
