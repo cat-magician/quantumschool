@@ -157,10 +157,23 @@ export function isLink(raw: string): boolean {
   return URL_RE.test(raw.trim());
 }
 
-/** Ссылку в поле ФИО именем не считаем: часть форм так и заполнялась. */
+/**
+ * Ссылку в поле ФИО именем не считаем: часть форм так и заполнялась. Как и
+ * мусор вроде «<h» — в имени должно быть хотя бы одно слово из двух букв.
+ */
 function cleanName(raw: string): string {
   const value = raw.trim();
-  return URL_RE.test(value) ? '' : value;
+  if (URL_RE.test(value)) return '';
+  return /\p{L}{2,}/u.test(value) ? value : '';
+}
+
+/**
+ * Похоже ли на настоящее имя: два слова и больше, из букв. «ivan2010» и
+ * «А _» — не имена, а подписи; противоречить ФИО они не могут.
+ */
+export function isRealName(raw: string | null | undefined): boolean {
+  const words = (raw ?? '').trim().split(/\s+/).filter((w) => /^\p{L}[\p{L}-]*$/u.test(w) && w.length >= 2);
+  return words.length >= 2;
 }
 
 /**
@@ -319,7 +332,47 @@ export function buildFormEntries(
     latestByKey.set(key, newer);
   }
 
+  collapseResentFiles(entries);
   return entries;
+}
+
+/** Сколько времени между отправками одного и того же файла считаем повтором. */
+const RESEND_WINDOW_MS = 15 * 60_000;
+
+/**
+ * Один и тот же файл, отправленный дважды за несколько минут, — это повторная
+ * отправка одного человека, а не два участника. Так было со строками 52 и 53:
+ * одинаковое имя файла, одинаковый текст, минута разницы — и вторая из них
+ * висела «без аккаунта». Остаётся более поздняя; имя и почта, если они были
+ * только в ранней, переезжают в неё.
+ *
+ * Сравниваем по имени файла без служебного кода Форм: одинаково называют
+ * работы многие («motivatsionnoe_pismo.docx»), поэтому и окно короткое.
+ */
+function collapseResentFiles(entries: FormEntry[]): void {
+  const byFile = new Map<string, FormEntry>();
+  const ordered = [...entries]
+    .filter((e) => !e.supersededBy && e.workUrl && e.submittedAt !== null)
+    .sort((a, b) => (a.submittedAt ?? 0) - (b.submittedAt ?? 0));
+
+  for (const entry of ordered) {
+    const key = workAuthorHint(workFileName(entry.workUrl)).toLowerCase()
+      || entry.workUrl.toLowerCase();
+    const previous = byFile.get(key);
+    byFile.set(key, entry);
+    if (!previous) continue;
+    if ((entry.submittedAt ?? 0) - (previous.submittedAt ?? 0) > RESEND_WINDOW_MS) continue;
+
+    // Две подписи разными людьми — это уже не повтор, а совпадение имён файлов.
+    if (previous.name && entry.name && !compareNames(previous.name, entry.name)) continue;
+
+    previous.supersededBy = entry.rowNumber;
+    if (!entry.name) entry.name = previous.name;
+    if (!entry.email) {
+      entry.email = previous.email;
+      entry.emailValid = previous.emailValid;
+    }
+  }
 }
 
 export type MatchSignal =
@@ -331,6 +384,7 @@ export type MatchSignal =
   | 'name_partial'
   | 'file_name_exact'
   | 'file_name_partial'
+  | 'name_conflict'
   | 'time_exact'
   | 'time_close'
   | 'time_near'
@@ -347,7 +401,8 @@ export const SIGNAL_LABELS: Record<MatchSignal, string> = {
   name_exact: 'ФИО совпало',
   name_partial: 'ФИО частично',
   file_name_exact: 'ФИО в имени файла',
-  file_name_partial: 'имя файла частично',
+  file_name_partial: 'фамилия в имени файла',
+  name_conflict: 'подписано другим именем',
   time_exact: 'время ±2 мин',
   time_close: 'время ±5 мин',
   time_near: 'время ±30 мин',
@@ -367,7 +422,11 @@ const SIGNAL_WEIGHTS: Record<MatchSignal, number> = {
   // Имя файла — слабее подписи в самой форме: люди называют работы как
   // попало, и «esse final» не должно никого ни с кем роднить.
   file_name_exact: 45,
-  file_name_partial: 22,
+  file_name_partial: 30,
+  // Подпись чужим ФИО — это довод против, а не просто отсутствие довода.
+  // Вес такой, чтобы одно время или школа не вытягивали чужого человека
+  // даже в подсказки, а почта — вытягивала, но только на ручной разбор.
+  name_conflict: -60,
   time_exact: 55,
   time_close: 40,
   time_near: 25,
@@ -419,10 +478,65 @@ function nameSignal(entryName: string, profileName: string): MatchSignal | null 
   return match === 'partial' ? 'name_partial' : null;
 }
 
-function fileNameSignal(hint: string, profileName: string): MatchSignal | null {
-  const match = compareNames(hint, profileName);
-  if (match === 'exact') return 'file_name_exact';
-  return match === 'partial' ? 'file_name_partial' : null;
+/** Одно слово в огрублённой латинице: «Кузнецов» → «kuznecov». */
+function coarseWord(raw: string): string {
+  return translitName(raw).replace(/\s+/g, '');
+}
+
+/**
+ * Частые имена: одно имя в названии файла («pismo_aleksandr») ничего не
+ * говорит — Александров в отборе десяток. Фамилия говорит, имя нет.
+ */
+const COMMON_FIRST_NAMES = new Set([
+  'Александр', 'Алексей', 'Андрей', 'Антон', 'Артём', 'Артем', 'Арсений', 'Борис',
+  'Вадим', 'Василий', 'Виктор', 'Владимир', 'Владислав', 'Глеб', 'Георгий', 'Григорий',
+  'Даниил', 'Денис', 'Дмитрий', 'Егор', 'Иван', 'Игорь', 'Илья', 'Кирилл', 'Константин',
+  'Лев', 'Леонид', 'Максим', 'Марк', 'Матвей', 'Михаил', 'Никита', 'Николай', 'Олег',
+  'Павел', 'Пётр', 'Петр', 'Роман', 'Руслан', 'Семён', 'Сергей', 'Степан', 'Тимофей',
+  'Тимур', 'Фёдор', 'Федор', 'Ярослав', 'Юрий', 'Анастасия', 'Анна', 'Алина', 'Алиса',
+  'Арина', 'Валерия', 'Варвара', 'Вероника', 'Виктория', 'Дарья', 'Екатерина',
+  'Елизавета', 'Ирина', 'Кристина', 'Ксения', 'Мария', 'Милана', 'Надежда', 'Наталья',
+  'Ольга', 'Полина', 'София', 'Софья', 'Таисия', 'Ульяна', 'Юлия', 'Яна', 'Маргарита',
+  'Татьяна', 'Вера', 'Ева', 'Лиза', 'Саша', 'Маша', 'Даша',
+].map(coarseWord));
+
+/**
+ * ФИО в имени файла. Сравнивать словами мало: имена склеивают
+ * («esselarionovandrej») или пишут одну фамилию («…_golubtsov»). Поэтому ищем
+ * слова ФИО подстрокой в имени файла, огрубив обе стороны до латиницы.
+ *
+ * Два слова ФИО в файле — это подпись. Одно засчитывается, только если оно
+ * длинное и не из частых имён: «golubcov» — да, «aleksandr» и «ivan» — нет.
+ */
+function fileNameSignal(hint: string, names: string[]): MatchSignal | null {
+  const file = coarseWord(hint);
+  if (!file) return null;
+
+  let best: MatchSignal | null = null;
+  for (const name of names) {
+    const words = name.split(/\s+/).map(coarseWord).filter((w) => w.length >= 4);
+    const hits = words.filter((w) => file.includes(w));
+    if (hits.length >= 2) return 'file_name_exact';
+    const surname = hits.find((w) => w.length >= 5 && !COMMON_FIRST_NAMES.has(w));
+    if (surname) best = 'file_name_partial';
+  }
+  return best;
+}
+
+/**
+ * Подписано ли явно другим человеком: у ответа настоящее ФИО, у аккаунта
+ * тоже, и ни одного общего слова. «Лиза Шишкина» и «Шишкина Елизавета» —
+ * не противоречие, общее слово есть; «Петров Пётр» и «Иванов Иван» — оно.
+ */
+function namesContradict(entryName: string, knownNames: string[]): boolean {
+  if (!isRealName(entryName)) return false;
+  const real = knownNames.filter(isRealName);
+  if (real.length === 0) return false;
+
+  const entryWords = new Set(
+    entryName.split(/\s+/).map(coarseWord).filter((w) => w.length >= 3),
+  );
+  return !real.some((name) => name.split(/\s+/).map(coarseWord).some((w) => entryWords.has(w)));
 }
 
 function timeSignal(entryAt: number | null, profileAt: string | null | undefined): MatchSignal | null {
@@ -533,18 +647,17 @@ export function scoreCandidate(
     }, null);
   if (byName) signals.push(byName);
 
+  const knownNames = [profile.display_name, ...known.names];
+
   // Подпись в имени файла — запасной вход для эссе: там половина работ
   // пришла вообще без ФИО, зато файл назван фамилией.
   if (entry.workName && !byName) {
-    const byFile = [profile.display_name, ...known.names]
-      .map((known) => fileNameSignal(entry.workName, known))
-      .reduce<MatchSignal | null>((best, signal) => {
-        if (!signal) return best;
-        if (signal === 'file_name_exact' || best === null) return signal;
-        return best;
-      }, null);
+    const byFile = fileNameSignal(entry.workName, knownNames);
     if (byFile) signals.push(byFile);
   }
+
+  // Ответ подписан другим человеком — время и школа такое не перевесят.
+  if (!byName && namesContradict(entry.name, knownNames)) signals.push('name_conflict');
 
   const byTime = timeSignal(entry.submittedAt, profileStageTimestamp(profile, kind));
   if (byTime) signals.push(byTime);
@@ -564,6 +677,17 @@ export type MatchRow = {
   best: Candidate | null;
   alternatives: Candidate[];
   confidence: MatchConfidence;
+  /**
+   * Этот ответ уже сохранён за аккаунтом — тот же файл или та же отправка.
+   * Решать его заново не нужно: выгрузку просто скачали ещё раз.
+   */
+  savedFor: string | null;
+  /**
+   * Похожие аккаунты, у которых эта форма уже занята другим ответом. Их не
+   * предлагаем, но показываем: высокий балл у занятого аккаунта чаще всего
+   * значит, что строка — его повторная отправка.
+   */
+  busy: Candidate[];
 };
 
 // 25 — ровно вес «время ±30 мин» и «ФИО частично». Ниже этого подсказка
@@ -583,6 +707,10 @@ function hasTimeSignal(candidate: Candidate | null): boolean {
 function classify(best: Candidate | null, runnerUp: Candidate | null): MatchConfidence {
   if (!best || best.score < LIKELY_THRESHOLD) return 'unmatched';
 
+  // Подписано другим человеком — даже совпавшая почта решает только вместе с
+  // человеком: братья и сёстры часто сидят на родительском адресе.
+  if (best.signals.includes('name_conflict') && !best.signals.includes('code')) return 'likely';
+
   // Код, точная почта или логин — решают сами по себе.
   if (
     best.signals.includes('code')
@@ -601,22 +729,125 @@ function classify(best: Candidate | null, runnerUp: Candidate | null): MatchConf
     return 'confident';
   }
 
+  // ФИО совпало целиком — с профилем или с тем, как человек подписал другую
+  // форму, — и больше никто по имени не подходит. Это не догадка: однофамилец
+  // с тем же именем дал бы второго кандидата, и решал бы уже человек.
+  if (best.signals.includes('name_exact') && !hasNameSignal(runnerUp) && gap >= 25) {
+    return 'confident';
+  }
+
   // Иначе нужен и высокий балл, и заметный отрыв от второго кандидата.
   if (best.score >= CONFIDENT_THRESHOLD && gap >= 25) return 'confident';
   return 'likely';
 }
 
+const NAME_SIGNALS: MatchSignal[] = ['name_exact', 'name_partial', 'file_name_exact', 'file_name_partial'];
+
+function hasNameSignal(candidate: Candidate | null): boolean {
+  return !!candidate && NAME_SIGNALS.some((s) => candidate.signals.includes(s));
+}
+
+/** Ответ, уже сохранённый за аккаунтом по этой форме. */
+export type SavedAnswer = {
+  profileId: string;
+  workUrl: string | null;
+  submittedAt: number | null;
+  name: string;
+  email: string | null;
+  sourceFile: string;
+  sourceRow: number | null;
+};
+
 /**
- * Один аккаунт — одна строка формы. Разбираем пары по убыванию балла, поэтому
- * сильные совпадения занимают аккаунт раньше слабых.
+ * Слоты формы: у каждого аккаунта на каждую форму — один ответ. Занятый
+ * аккаунт свободным не считается: предлагать его другой строке значит
+ * отнимать у человека уже подтверждённую работу.
+ */
+export type TakenSlots = Map<string, SavedAnswer>;
+
+export function takenSlotsFromLinks(
+  links: {
+    user_id: string;
+    form_kind: string;
+    work_url?: string | null;
+    form_submitted_at: string | null;
+    form_name?: string | null;
+    contact_email?: string | null;
+    source_file?: string | null;
+    source_row?: number | null;
+  }[],
+  kind: FormKind,
+): TakenSlots {
+  const slots: TakenSlots = new Map();
+  for (const link of links) {
+    if (link.form_kind !== kind) continue;
+    const at = link.form_submitted_at ? Date.parse(link.form_submitted_at) : NaN;
+    slots.set(link.user_id, {
+      profileId: link.user_id,
+      workUrl: link.work_url ?? null,
+      submittedAt: Number.isNaN(at) ? null : at,
+      name: link.form_name ?? '',
+      email: link.contact_email ?? null,
+      sourceFile: link.source_file ?? '',
+      sourceRow: link.source_row ?? null,
+    });
+  }
+  return slots;
+}
+
+/**
+ * Та же ли это отправка, что уже сохранена. Лучший признак — файл работы;
+ * без него — момент отправки с точностью до минуты плюс почта или имя.
+ */
+export function sameAnswer(entry: FormEntry, saved: SavedAnswer): boolean {
+  if (entry.workUrl && saved.workUrl) {
+    return (workFileName(entry.workUrl) || entry.workUrl) === (workFileName(saved.workUrl) || saved.workUrl);
+  }
+  // Работа есть только с одной стороны — это разные отправки.
+  if (entry.workUrl || saved.workUrl) return false;
+
+  if (entry.submittedAt === null || saved.submittedAt === null) return false;
+  const apart = Math.abs(entry.submittedAt - saved.submittedAt);
+
+  if (entry.email && saved.email) {
+    return apart <= 60_000 && normalizeEmail(entry.email) === normalizeEmail(saved.email);
+  }
+  if (entry.name && saved.name) {
+    return apart <= 60_000 && compareNames(entry.name, saved.name) !== null;
+  }
+  // Подтвердить нечем — годится только та же секунда: повторная выгрузка
+  // отдаёт время отправки один в один, а соседняя отправка уже другая.
+  return apart <= 1000 && !entry.name && !saved.name;
+}
+
+/**
+ * Один аккаунт — одна строка формы. Сначала узнаём уже сохранённые ответы,
+ * потом раздаём остальные строки свободным аккаунтам по убыванию балла:
+ * сильные совпадения занимают аккаунт раньше слабых, а занятые сохранёнными
+ * ответами аккаунты не достаются никому.
  */
 export function matchFormEntries(
   entries: FormEntry[],
   profiles: UserProfile[],
   kind: FormKind,
   aliases?: ProfileAliases,
+  taken: TakenSlots = new Map(),
 ): MatchRow[] {
   const active = entries.filter((e) => !e.supersededBy);
+  const profilesById = new Map(profiles.map((p) => [p.id, p]));
+
+  // Один сохранённый ответ узнаёт только одна строка: две строки не могут
+  // быть одной и той же отправкой.
+  const savedBy = new Map<number, string>();
+  const recognised = new Set<string>();
+  for (const entry of active) {
+    for (const [profileId, saved] of taken) {
+      if (recognised.has(profileId) || !sameAnswer(entry, saved)) continue;
+      savedBy.set(entry.rowNumber, profileId);
+      recognised.add(profileId);
+      break;
+    }
+  }
 
   const scored = active.map((entry) => {
     const candidates = profiles
@@ -626,25 +857,42 @@ export function matchFormEntries(
     return { entry, candidates };
   });
 
-  const pairs = scored.flatMap(({ entry, candidates }) =>
-    candidates.map((candidate) => ({ entry, candidate })));
-  pairs.sort((a, b) => b.candidate.score - a.candidate.score);
-
-  const takenProfiles = new Set<string>();
   const assigned = new Map<number, Candidate>();
+  for (const { entry } of scored) {
+    const owner = savedBy.get(entry.rowNumber);
+    if (!owner) continue;
+    const profile = profilesById.get(owner);
+    assigned.set(entry.rowNumber, profile
+      ? scoreCandidate(entry, profile, kind, aliases?.get(owner))
+      : { profileId: owner, score: 0, signals: [] });
+  }
+
+  const occupied = new Set(taken.keys());
+  const pairs = scored
+    .filter(({ entry }) => !savedBy.has(entry.rowNumber))
+    .flatMap(({ entry, candidates }) => candidates.map((candidate) => ({ entry, candidate })));
+  pairs.sort((a, b) => b.candidate.score - a.candidate.score);
 
   for (const { entry, candidate } of pairs) {
     if (assigned.has(entry.rowNumber)) continue;
-    if (takenProfiles.has(candidate.profileId)) continue;
+    if (occupied.has(candidate.profileId)) continue;
     assigned.set(entry.rowNumber, candidate);
-    takenProfiles.add(candidate.profileId);
+    occupied.add(candidate.profileId);
   }
 
   const rows: MatchRow[] = scored.map(({ entry, candidates }) => {
+    const savedFor = savedBy.get(entry.rowNumber) ?? null;
     const best = assigned.get(entry.rowNumber) ?? null;
-    const alternatives = candidates.filter((c) => c.profileId !== best?.profileId).slice(0, 4);
-    const runnerUp = alternatives[0] ?? null;
-    return { entry, best, alternatives, confidence: classify(best, runnerUp) };
+    const others = candidates.filter((c) => c.profileId !== best?.profileId);
+    const free = others.filter((c) => !taken.has(c.profileId));
+    const busy = savedFor
+      ? []
+      : others.filter((c) => taken.has(c.profileId) && c.score >= (best?.score ?? LIKELY_THRESHOLD));
+
+    // Соперник для оценки уверенности — любой, в том числе занятый: если
+    // занятый аккаунт похож не меньше, строка может быть его повтором.
+    const confidence: MatchConfidence = savedFor ? 'confident' : classify(best, others[0] ?? null);
+    return { entry, best, alternatives: free.slice(0, 4), confidence, savedFor, busy: busy.slice(0, 2) };
   });
 
   // Сначала то, что требует внимания.
@@ -681,6 +929,7 @@ export function matchFormSources(
   sources: FormSource[],
   profiles: UserProfile[],
   aliases: ProfileAliases = new Map(),
+  takenByKind: Map<FormKind, TakenSlots> = new Map(),
 ): MatchRow[][] {
   const known: ProfileAliases = new Map(
     [...aliases].map(([id, identity]) => [id, {
@@ -692,7 +941,9 @@ export function matchFormSources(
   let result: MatchRow[][] = [];
 
   for (let pass = 0; pass < CROSS_FORM_PASSES; pass++) {
-    result = sources.map((source) => matchFormEntries(source.entries, profiles, source.kind, known));
+    result = sources.map((source) => matchFormEntries(
+      source.entries, profiles, source.kind, known, takenByKind.get(source.kind),
+    ));
 
     let learned = 0;
     for (const rows of result) {

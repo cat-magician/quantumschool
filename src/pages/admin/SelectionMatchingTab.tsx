@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, Check, Link2Off, Loader2, Save, Search, UserX,
+  AlertTriangle, Check, ExternalLink, Link2Off, Loader2, Save, Search, UserX,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
 import SelectionPersonMap from '../../components/SelectionPersonMap';
@@ -29,6 +29,9 @@ import {
   matchFormSources,
   profileStageTimestamp,
   resolveMatch,
+  takenSlotsFromLinks,
+  workAuthorHint,
+  workFileName,
   type Candidate,
   type ColumnMapping,
   type FormKind,
@@ -44,7 +47,7 @@ import {
   type FormLinkDraft,
 } from '../../lib/selectionFormLinks';
 
-type Basket = 'review' | 'ready' | 'unmatched';
+type Basket = 'review' | 'ready' | 'unmatched' | 'saved';
 
 /** Одна загруженная выгрузка со своей разметкой колонок. */
 type Source = {
@@ -73,6 +76,8 @@ const BASKET_LABELS: Record<Basket, string> = {
   review: 'Требуют решения',
   ready: 'Сойдётся само',
   unmatched: 'Без аккаунта',
+  // Та же выгрузка, загруженная повторно: эти ответы уже лежат в базе.
+  saved: 'Уже сохранено',
 };
 
 const dateTimeFmt = new Intl.DateTimeFormat('ru-RU', {
@@ -309,11 +314,21 @@ export default function SelectionMatchingTab() {
     entries: buildFormEntries(source.table, source.mapping, source.offsetHours),
   })), [sources]);
 
+  /**
+   * Кто какую форму уже сдал: у каждого аккаунта на каждую форму один ответ.
+   * Занятые аккаунты другим строкам не предлагаются — они не свободны.
+   */
+  const takenByKind = useMemo(() => new Map(
+    (['questionnaire', 'essay', 'contest'] as FormKind[])
+      .map((kind) => [kind, takenSlotsFromLinks(links, kind)] as const),
+  ), [links]);
+
   const matched = useMemo(() => matchFormSources(
     parsed.map(({ source, entries }) => ({ kind: source.kind, entries })),
     profiles,
     known,
-  ), [parsed, profiles, known]);
+    takenByKind,
+  ), [parsed, profiles, known, takenByKind]);
 
   const items: ReviewItem[] = useMemo(() => parsed.flatMap(({ source }, index) => (
     (matched[index] ?? []).map((row) => ({
@@ -333,8 +348,14 @@ export default function SelectionMatchingTab() {
     let ready = 0;
     let needsReview = 0;
     let unmatched = 0;
+    let saved = 0;
 
     for (const item of items) {
+      if (item.row.savedFor) {
+        saved++;
+        linked.add(item.row.savedFor);
+        continue;
+      }
       const resolved = resolveMatch(item.row, overridesFor(item.source.id));
       if (resolved.profileId) linked.add(resolved.profileId);
       if (resolved.ready) ready++;
@@ -346,6 +367,7 @@ export default function SelectionMatchingTab() {
       ready,
       needsReview,
       unmatched,
+      saved,
       duplicates: parsed.reduce((n, { entries }) => n + entries.filter((e) => e.supersededBy).length, 0),
       profilesWithoutEntry: profiles.filter((p) => !linked.has(p.id)).length,
     };
@@ -398,8 +420,12 @@ export default function SelectionMatchingTab() {
   }, [links]);
 
   const bucketed = useMemo(() => {
-    const result: Record<Basket, ReviewItem[]> = { review: [], ready: [], unmatched: [] };
+    const result: Record<Basket, ReviewItem[]> = { review: [], ready: [], unmatched: [], saved: [] };
     for (const item of items) {
+      if (item.row.savedFor) {
+        result.saved.push(item);
+        continue;
+      }
       const { profileId, ready } = resolveMatch(item.row, overridesFor(item.source.id));
       if (!profileId) result.unmatched.push(item);
       else if (ready) result.ready.push(item);
@@ -410,9 +436,19 @@ export default function SelectionMatchingTab() {
 
   const drafts: FormLinkDraft[] = useMemo(() => (
     items.flatMap(({ source, row }) => {
-      const { profileId, ready } = resolveMatch(row, overridesFor(source.id));
-      if (!profileId || !ready) return [];
-      if (conflicts.get(source.kind)?.has(profileId)) return [];
+      let profileId: string;
+      if (row.savedFor) {
+        // Уже сохранено: перезаписывать незачем — разве что дописать ссылку
+        // на работу, которой в старой связи ещё не было.
+        const link = linksByKind.get(source.kind)?.get(row.savedFor);
+        if (!row.entry.workUrl || link?.work_url) return [];
+        profileId = row.savedFor;
+      } else {
+        const resolved = resolveMatch(row, overridesFor(source.id));
+        if (!resolved.profileId || !resolved.ready) return [];
+        if (conflicts.get(source.kind)?.has(resolved.profileId)) return [];
+        profileId = resolved.profileId;
+      }
 
       const candidate = candidateFor(row, profileId);
       return [{
@@ -430,7 +466,7 @@ export default function SelectionMatchingTab() {
         match_signals: candidate?.signals ?? [],
       }];
     })
-  ), [items, overridesFor, conflicts]);
+  ), [items, overridesFor, conflicts, linksByKind]);
 
   const save = async () => {
     setSaving(true);
@@ -457,27 +493,45 @@ export default function SelectionMatchingTab() {
     setSaving(false);
   };
 
-  const pickerItems = (row: MatchRow): PickerRow[] => (
-    profiles.map((profile) => {
-      const candidate = candidateFor(row, profile.id);
-      const account = profileAccountLabel(profile);
-      return {
-        id: profile.id,
-        title: profileDisplayName(profile),
-        subtitle: [account, profile.city, profile.school].filter(Boolean).join(' · ') || null,
-        searchText: [
-          profile.display_name, profile.email, profile.login, profile.yandex_login,
-          profile.recovery_email, profile.contact_email, profile.city, profile.school,
-        ].filter(Boolean).join(' '),
-        leading: (
-          <UserAvatar displayName={profileDisplayName(profile)} avatarUrl={profile.avatar_url} size="xs" />
-        ),
-        trailing: candidate ? (
-          <span className="text-[11px] text-slate-500 shrink-0">{candidate.score}</span>
-        ) : undefined,
-      };
-    })
-  );
+  /**
+   * Список для ручного выбора. Сверху — кого предлагает разбор, дальше
+   * свободные, в самом низу — занятые: у них эта форма уже сохранена, и
+   * выбрать их можно только осознанно, заменив сохранённый ответ.
+   */
+  const pickerItems = (row: MatchRow, kind: FormKind): PickerRow[] => {
+    const taken = takenByKind.get(kind);
+    const rank = (id: string) => {
+      if (candidateFor(row, id)) return 0;
+      return taken?.has(id) ? 2 : 1;
+    };
+
+    return [...profiles]
+      .sort((a, b) => rank(a.id) - rank(b.id))
+      .map((profile) => {
+        const candidate = candidateFor(row, profile.id);
+        const busy = taken?.get(profile.id);
+        const account = profileAccountLabel(profile);
+        return {
+          id: profile.id,
+          title: profileDisplayName(profile),
+          subtitle: busy
+            ? `уже сохранено: ${busy.sourceFile || 'без файла'}${busy.sourceRow ? `, строка ${busy.sourceRow}` : ''}`
+            : [account, profile.city, profile.school].filter(Boolean).join(' · ') || null,
+          searchText: [
+            profile.display_name, profile.email, profile.login, profile.yandex_login,
+            profile.recovery_email, profile.contact_email, profile.city, profile.school,
+          ].filter(Boolean).join(' '),
+          leading: (
+            <UserAvatar displayName={profileDisplayName(profile)} avatarUrl={profile.avatar_url} size="xs" />
+          ),
+          trailing: busy ? (
+            <span className="text-[11px] text-amber-400 shrink-0">занят</span>
+          ) : candidate ? (
+            <span className="text-[11px] text-slate-500 shrink-0">{candidate.score}</span>
+          ) : undefined,
+        };
+      });
+  };
 
   const pending: PendingState[] = useMemo(() => parsed.map(({ source }, index) => {
     const matches = [];
@@ -607,10 +661,11 @@ export default function SelectionMatchingTab() {
 
       {view === 'review' && items.length > 0 && (
         <>
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
             <SummaryCard label="Сойдётся само" value={summary.ready} tone="good" />
             <SummaryCard label="Требуют решения" value={summary.needsReview} tone="warn" />
             <SummaryCard label="Без аккаунта" value={summary.unmatched} />
+            <SummaryCard label="Уже сохранено" value={summary.saved} />
             <SummaryCard label="Аккаунты без ответа" value={summary.profilesWithoutEntry} />
           </div>
 
@@ -648,9 +703,9 @@ export default function SelectionMatchingTab() {
 
           {visibleRows.length === 0 ? (
             <div className="text-center py-12 text-slate-500 text-sm">
-              {basket === 'review'
-                ? 'Здесь пусто — решать нечего.'
-                : 'Пустая корзина.'}
+              {basket === 'review' && 'Здесь пусто — решать нечего.'}
+              {basket === 'saved' && 'Ничего из загруженного ещё не сохранено.'}
+              {(basket === 'ready' || basket === 'unmatched') && 'Пустая корзина.'}
             </div>
           ) : (
             <div className="space-y-3">
@@ -660,8 +715,14 @@ export default function SelectionMatchingTab() {
                 const profile = profileId ? profilesById.get(profileId) ?? null : null;
                 const candidate = candidateFor(row, profileId);
                 const existing = profileId ? linksByKind.get(kind)?.get(profileId) : undefined;
+                // Занят другим ответом: у аккаунта сохранено не это, а что-то ещё.
+                const replaces = existing && !row.savedFor ? existing : undefined;
                 const conflicting = profileId ? !!conflicts.get(kind)?.has(profileId) : false;
                 const picking = pickerKey === key;
+                const fileLabel = row.entry.workUrl
+                  ? workAuthorHint(workFileName(row.entry.workUrl)) || 'открыть работу'
+                  : '';
+                const signedAsOther = !!candidate?.signals.includes('name_conflict');
 
                 return (
                   <div
@@ -694,6 +755,18 @@ export default function SelectionMatchingTab() {
                           {row.entry.login ? ` · ${row.entry.login}` : ''}
                           {row.entry.code ? ' · с кодом участника' : ''}
                         </p>
+                        {row.entry.workUrl && (
+                          // Работа под рукой: без неё проверить предложение нечем.
+                          <a
+                            href={row.entry.workUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-1 max-w-full text-xs text-blue-300 hover:text-blue-200 underline decoration-blue-400/40"
+                          >
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span className="truncate">работа: {fileLabel}</span>
+                          </a>
+                        )}
                       </div>
 
                       <div className="min-w-0 md:border-l md:border-white/5 md:pl-4">
@@ -730,13 +803,44 @@ export default function SelectionMatchingTab() {
                       </div>
                     </div>
 
-                    {existing && (
-                      <p className="text-xs text-slate-500">
-                        Связь уже сохранена: строка {existing.source_row ?? '—'} из «{existing.source_file || 'без файла'}».
-                        Подтверждение её перезапишет.
+                    {row.savedFor && (
+                      <p className="text-xs text-emerald-300/90">
+                        Этот ответ уже сохранён за аккаунтом
+                        {existing ? ` (строка ${existing.source_row ?? '—'} из «${existing.source_file || 'без файла'}»)` : ''}
+                        {' '}— решать нечего.
                       </p>
                     )}
 
+                    {replaces && (
+                      <p className="flex items-start gap-2 text-xs text-amber-400">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        У этого аккаунта уже сохранён другой ответ этой формы: строка
+                        {' '}{replaces.source_row ?? '—'} из «{replaces.source_file || 'без файла'}».
+                        Подтверждение заменит его.
+                      </p>
+                    )}
+
+                    {signedAsOther && (
+                      <p className="flex items-start gap-2 text-xs text-rose-300">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        В форме подписано «{row.entry.name}», а у аккаунта другое имя. Сверьтесь с
+                        работой — само такое не сохранится.
+                      </p>
+                    )}
+
+                    {row.busy.length > 0 && (
+                      <p className="flex items-start gap-2 text-xs text-slate-400">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                        <span>
+                          Похоже и на{' '}
+                          {row.busy.map((c) => profileDisplayName(profilesById.get(c.profileId) ?? { display_name: '' })).join(', ')}
+                          , но у них эта форма уже сохранена — возможно, это повторная отправка.
+                          Им строка не предлагается.
+                        </span>
+                      </p>
+                    )}
+
+                    {!row.savedFor && (
                     <div className="flex flex-wrap items-center gap-2">
                       {profileId && !ready && (
                         <button
@@ -775,23 +879,25 @@ export default function SelectionMatchingTab() {
                           Вернуть авто
                         </button>
                       )}
-                      {existing && (
-                        <button
-                          type="button"
-                          onClick={() => { void unlink(existing.user_id, kind); }}
-                          disabled={saving}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-300 transition-colors disabled:opacity-50"
-                        >
-                          <Link2Off className="w-3.5 h-3.5" />
-                          Снять сохранённую
-                        </button>
-                      )}
                     </div>
+                    )}
+
+                    {existing && (
+                      <button
+                        type="button"
+                        onClick={() => { void unlink(existing.user_id, kind); }}
+                        disabled={saving}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-300 transition-colors disabled:opacity-50"
+                      >
+                        <Link2Off className="w-3.5 h-3.5" />
+                        {row.savedFor ? 'Снять сохранённую связь' : 'Снять связь, которая сейчас у аккаунта'}
+                      </button>
+                    )}
 
                     {picking && (
                       <div className="pt-3 border-t border-white/5">
                         <SearchableActionList
-                          items={pickerItems(row)}
+                          items={pickerItems(row, kind)}
                           onPick={(id) => {
                             setOverride(source.id, row.entry.rowNumber, id);
                             setPickerKey(null);

@@ -320,7 +320,7 @@ check('совсем далёкое время кандидата не созда
 const alice = profile({ id: 'aaaa1111-1111-1111-1111-111111111111', display_name: 'Иванов Иван', email: 'ivanov@yandex.ru' });
 const bob = profile({ id: 'bbbb2222-2222-2222-2222-222222222222', display_name: 'Петров Пётр', email: 'petrov@yandex.ru' });
 
-check('точная почта — готово, только ФИО — на подтверждение', () => {
+check('почта и единственное полное ФИО решают сами, однофамильцы — нет', () => {
   const entries = [
     mkEntry({ rowNumber: 1, email: 'ivanov@yandex.ru', emailValid: true }),
     mkEntry({ rowNumber: 2, name: 'Петров Петр' }),
@@ -330,14 +330,19 @@ check('точная почта — готово, только ФИО — на п
 
   assert.equal(byRow.get(1).confidence, 'confident');
   assert.equal(byRow.get(1).best.profileId, alice.id);
-  assert.equal(byRow.get(2).confidence, 'likely');
+  assert.equal(byRow.get(2).confidence, 'confident', 'ФИО совпало целиком, и больше никто не подходит');
   assert.equal(byRow.get(2).best.profileId, bob.id);
 
   const summary = lib.summarizeMatches(entries, rows, [alice, bob], {});
   assert.deepEqual(
     { ready: summary.ready, needsReview: summary.needsReview, unmatched: summary.unmatched },
-    { ready: 1, needsReview: 1, unmatched: 0 },
+    { ready: 2, needsReview: 0, unmatched: 0 },
   );
+
+  // Двое с одинаковым ФИО — угадывать нельзя, решает человек.
+  const twin = profile({ id: 'cccc3333-3333-3333-3333-333333333333', display_name: 'Петров Пётр', email: 'petrov2@yandex.ru' });
+  const [row] = lib.matchFormEntries([mkEntry({ rowNumber: 1, name: 'Петров Петр' })], [bob, twin], 'questionnaire');
+  assert.equal(row.confidence, 'likely');
 });
 
 check('один аккаунт не достаётся двум строкам автоматически', () => {
@@ -1011,6 +1016,153 @@ check('карта показывает разбор сразу нескольк�
   ]);
   assert.equal(orphans.length, 1);
   assert.equal(orphans[0].kind, 'essay');
+});
+
+// ── Занятые аккаунты, подпись чужим именем, фамилии в файлах, повторы ─
+const ESSAY_URL = (file) => 'https://disk.yandex.ru/client/disk/Yandex.Forms/x/Files?path='
+  + encodeURIComponent(`/Yandex.Forms/x/Files/0123456789abcdef01234567${file}`);
+
+check('мусор в поле ФИО именем не считается', () => {
+  const entries = lib.buildFormEntries(
+    table(['Ваше ФИО'], [['<h'], ['Иванов Иван'], ['Кирилл']]),
+    { ...lib.EMPTY_MAPPING, name: 0 },
+  );
+  assert.deepEqual(entries.map((e) => e.name), ['', 'Иванов Иван', 'Кирилл']);
+
+  assert.equal(lib.isRealName('Иванов Иван'), true);
+  assert.equal(lib.isRealName('ivan2010'), false, 'ник — не имя');
+  assert.equal(lib.isRealName('А _'), false);
+});
+
+check('один файл, отправленный дважды за минуту, — это один человек', () => {
+  const same = ESSAY_URL('_motivatsionnoe_pismo_v_kvantovyii_krzhok.pdf');
+  const entries = lib.buildFormEntries(
+    table(['Ваше ФИО', 'Мотивационное письмо', 'Время создания'], [
+      ['<h', same, '2026-09-17 21:49:00'],
+      ['Брызгалов Ярослав Кириллович', same, '2026-09-17 21:50:00'],
+      // Та же «motivatsionnoe_pismo.docx» у разных людей через часы — не повтор.
+      ['Райвид Денис', ESSAY_URL('_motivatsionnoe_pismo.docx'), '2026-08-20 11:45:00'],
+      ['', ESSAY_URL('_motivatsionnoe_pismo.docx'), '2026-08-20 19:18:00'],
+    ]),
+    { ...lib.EMPTY_MAPPING, name: 0, work: 1, submittedAt: 2 },
+  );
+
+  assert.equal(entries[0].supersededBy, 2, 'ранняя отправка ушла в повтор');
+  assert.equal(entries[1].supersededBy, undefined);
+  assert.equal(entries[2].supersededBy, undefined, 'одинаковое имя файла через часы — разные люди');
+  assert.equal(entries[3].supersededBy, undefined);
+});
+
+check('повтор не склеивает двух разных подписавшихся', () => {
+  const same = ESSAY_URL('_esse.docx');
+  const entries = lib.buildFormEntries(
+    table(['Ваше ФИО', 'Мотивационное письмо', 'Время создания'], [
+      ['Иванов Иван', same, '2026-09-07 19:30:00'],
+      ['Петров Пётр', same, '2026-09-07 19:37:00'],
+    ]),
+    { ...lib.EMPTY_MAPPING, name: 0, work: 1, submittedAt: 2 },
+  );
+  assert.ok(entries.every((e) => !e.supersededBy));
+});
+
+check('фамилия находится и в склеенном имени файла', () => {
+  const larionov = profile({ id: 'p1', display_name: 'Ларионов Андрей' });
+  const glued = lib.scoreCandidate(mkEntry({ workName: 'esselarionovandrej' }), larionov, 'essay');
+  assert.ok(glued.signals.includes('file_name_exact'), 'фамилия и имя внутри одного слова');
+
+  const golubtsov = profile({ id: 'p2', display_name: 'Голубцов Владимир' });
+  const lone = lib.scoreCandidate(
+    mkEntry({ workName: 'esse kvantovyie tehnologii golubtsov' }), golubtsov, 'essay',
+  );
+  assert.ok(lone.signals.includes('file_name_partial'), 'одной длинной фамилии хватает на подсказку');
+
+  // Частое имя в названии файла никого не выделяет.
+  const aleksandr = profile({ id: 'p3', display_name: 'Смирнов Александр' });
+  const common = lib.scoreCandidate(mkEntry({ workName: 'pismo aleksandr' }), aleksandr, 'essay');
+  assert.ok(!common.signals.some((s) => s.startsWith('file_name')));
+
+  // «novyij dokument» — не «Новик».
+  const novik = profile({ id: 'p4', display_name: 'Новик Илья' });
+  const doc = lib.scoreCandidate(mkEntry({ workName: 'novyij dokument' }), novik, 'essay');
+  assert.ok(!doc.signals.some((s) => s.startsWith('file_name')));
+});
+
+check('подписанное чужим именем не предлагается по одному времени', () => {
+  const ivanov = profile({
+    id: 'p1', display_name: 'Иванов Иван', stage1_submitted_at: '2026-08-20T11:31:00Z',
+  });
+  const entry = mkEntry({ name: 'Петров Пётр', submittedAt: Date.parse('2026-08-20T11:30:00Z') });
+
+  const c = lib.scoreCandidate(entry, ivanov, 'essay');
+  assert.ok(c.signals.includes('name_conflict'));
+  assert.ok(c.score < 25, 'точное время не вытягивает чужую подпись даже в подсказки');
+
+  const [row] = lib.matchFormEntries([entry], [ivanov], 'essay');
+  assert.equal(row.best, null);
+});
+
+check('уменьшительное имя и ник противоречием не считаются', () => {
+  const liza = profile({ id: 'p1', display_name: 'Шишкина Елизавета' });
+  const c = lib.scoreCandidate(mkEntry({ name: 'Лиза Шишкина' }), liza, 'essay');
+  assert.ok(!c.signals.includes('name_conflict'), 'общая фамилия — не противоречие');
+
+  const nick = profile({ id: 'p2', display_name: 'ivan2010' });
+  const n = lib.scoreCandidate(mkEntry({ name: 'Иванов Иван' }), nick, 'essay');
+  assert.ok(!n.signals.includes('name_conflict'), 'ник не может противоречить ФИО');
+});
+
+check('почта при чужой подписи решает только вместе с человеком', () => {
+  const sibling = profile({ id: 'p1', display_name: 'Иванова Мария', email: 'parent@mail.ru' });
+  const entry = mkEntry({ name: 'Иванов Пётр Сергеевич', email: 'parent@mail.ru', emailValid: true });
+  const [row] = lib.matchFormEntries([entry], [sibling], 'questionnaire');
+
+  assert.equal(row.best.profileId, 'p1');
+  assert.equal(row.confidence, 'likely', 'братья и сёстры на одном адресе — решать человеку');
+});
+
+check('аккаунт с сохранённым ответом не предлагается как свободный', () => {
+  const owner = profile({
+    id: 'owner', display_name: 'Райвид Денис', stage1_submitted_at: '2026-08-20T11:45:00Z',
+  });
+  const other = profile({
+    id: 'other', display_name: 'Сидорова Анна', stage1_submitted_at: '2026-08-20T19:18:00Z',
+  });
+
+  const taken = lib.takenSlotsFromLinks([{
+    user_id: 'owner', form_kind: 'essay',
+    work_url: ESSAY_URL('_motivatsionnoe_pismo.docx'),
+    form_submitted_at: '2026-08-20T11:45:31Z', form_name: '',
+    source_file: 'essay.xlsx', source_row: 1,
+  }], 'essay');
+
+  const saved = mkEntry({
+    rowNumber: 1, submittedAt: Date.parse('2026-08-20T11:45:31Z'),
+    workUrl: ESSAY_URL('_motivatsionnoe_pismo.docx'),
+  });
+  // Другая работа по времени близка к отметке владельца — но он уже занят.
+  const fresh = mkEntry({ rowNumber: 2, submittedAt: Date.parse('2026-08-20T11:46:10Z') });
+
+  const rows = lib.matchFormEntries([saved, fresh], [owner, other], 'essay', undefined, taken);
+  const byRow = new Map(rows.map((r) => [r.entry.rowNumber, r]));
+
+  assert.equal(byRow.get(1).savedFor, 'owner', 'повторно загруженный ответ узнан как сохранённый');
+  assert.equal(byRow.get(2).best, null, 'занятого владельца другой строке не отдаём');
+  assert.equal(byRow.get(2).busy[0].profileId, 'owner', 'но показываем, на кого строка похожа');
+});
+
+check('та же отправка узнаётся и без файла — по моменту и почте', () => {
+  const saved = {
+    profileId: 'p1', workUrl: null, submittedAt: Date.parse('2026-08-20T11:30:41Z'),
+    name: 'Райвид Денис Максимович', email: 'raivid@mail.ru', sourceFile: 'anketa.xlsx', sourceRow: 1,
+  };
+  const same = mkEntry({
+    submittedAt: Date.parse('2026-08-20T11:30:41Z'), email: 'raivid@mail.ru', emailValid: true,
+  });
+  const other = mkEntry({
+    submittedAt: Date.parse('2026-08-20T11:30:41Z'), email: 'someone@mail.ru', emailValid: true,
+  });
+  assert.equal(lib.sameAnswer(same, saved), true);
+  assert.equal(lib.sameAnswer(other, saved), false, 'в ту же секунду мог отправить и другой');
 });
 
 console.log(`ок: ${checks} проверок`);
