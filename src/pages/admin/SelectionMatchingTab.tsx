@@ -5,7 +5,7 @@ import {
 import SectionHint from '../../components/SectionHint';
 import { FormSelect } from '../../components/FormControls';
 import { useAppDialog } from '../../lib/AppDialogContext';
-import SelectionPersonMap from '../../components/SelectionPersonMap';
+import SelectionPersonMap, { type MapAnswerOption } from '../../components/SelectionPersonMap';
 import {
   buildOrphanAnswers,
   buildPersonMap,
@@ -32,6 +32,7 @@ import {
   profileStageTimestamp,
   resolveMatch,
   sameAnswer,
+  scoreCandidate,
   takenSlotsFromLinks,
   workAuthorHint,
   workFileName,
@@ -554,7 +555,6 @@ export default function SelectionMatchingTab() {
       } else {
         const resolved = resolveMatch(row, overridesFor(source.id));
         if (!resolved.profileId || !resolved.ready) return [];
-        if (conflicts.get(source.kind)?.has(resolved.profileId)) return [];
         profileId = resolved.profileId;
       }
 
@@ -575,7 +575,73 @@ export default function SelectionMatchingTab() {
         match_signals: candidate?.signals ?? [],
       }));
     })
-  ), [items, overridesFor, conflicts, takenByKind]);
+  ), [items, overridesFor, takenByKind]);
+
+  /**
+   * Ответы загруженных выгрузок для ручной привязки из карты. Уже
+   * сохранённые не предлагаем — у них хозяин есть.
+   */
+  const answerOptionsByKind = useMemo(() => {
+    const byKind: Partial<Record<FormKind, (MapAnswerOption & { item: ReviewItem })[]>> = {};
+    for (const item of items) {
+      const { key, source, row } = item;
+      if (row.savedFor) continue;
+      const { profileId } = resolveMatch(row, overridesFor(source.id));
+      const owner = profileId ? profilesById.get(profileId) : undefined;
+      const entry = row.entry;
+      const file = entry.workUrl ? workAuthorHint(workFileName(entry.workUrl)) : '';
+      const option: MapAnswerOption = {
+        key,
+        kind: source.kind,
+        title: entry.name || entry.login || entry.email || 'без имени',
+        subtitle: [
+          entry.email,
+          entry.submittedAt !== null ? formatStamp(entry.submittedAt) : '',
+          entry.login && entry.login !== entry.name ? `логин ${entry.login}` : '',
+          file ? `файл «${file}»` : '',
+          `строка ${entry.rowNumber}`,
+        ].filter(Boolean).join(' · '),
+        ownerName: owner ? profileDisplayName(owner) : null,
+        workUrl: entry.workUrl || null,
+      };
+      (byKind[source.kind] ??= []).push({ ...option, item });
+    }
+    return byKind;
+  }, [items, overridesFor, profilesById]);
+
+  /**
+   * Список под конкретного человека: сверху свободные ответы, похожие на него
+   * (по тем же признакам, что и разбор), и подпись — чем похожи.
+   */
+  const answerOptions = useCallback((profileId: string, kind: FormKind): MapAnswerOption[] => {
+    const profile = profilesById.get(profileId);
+    const options = answerOptionsByKind[kind] ?? [];
+    if (!profile) return options;
+
+    return options
+      .map((option) => {
+        const best = option.item.row.versions
+          .map((version) => scoreCandidate(version, profile, kind, known.get(profileId)))
+          .reduce((top, c) => (c.score > top.score ? c : top));
+        const hint = best.score > 0
+          ? best.signals.filter((signal) => signal !== 'name_conflict').map((signal) => SIGNAL_LABELS[signal]).join(', ')
+          : '';
+        return { option: { ...option, hint: hint || undefined }, score: best.score };
+      })
+      .sort((a, b) => (
+        Number(!!a.option.ownerName) - Number(!!b.option.ownerName)
+        || b.score - a.score
+        || a.option.title.localeCompare(b.option.title, 'ru')
+      ))
+      .map(({ option }) => option);
+  }, [answerOptionsByKind, profilesById, known]);
+
+  const assignFromMap = (profileId: string, _kind: FormKind, optionKey: string) => {
+    const item = items.find((candidate) => candidate.key === optionKey);
+    if (!item) return;
+    setOverride(item.source.id, item.row.entry.rowNumber, profileId);
+    setSavedCount(null);
+  };
 
   const clearAll = async () => {
     const label = clearKind === 'all' ? 'по всем формам' : `формы «${FORM_KIND_LABELS[clearKind]}»`;
@@ -750,6 +816,13 @@ export default function SelectionMatchingTab() {
           refreshing={refreshing}
           onRefresh={() => { void loadRef.current({ silent: true, announce: true }); }}
           diff={freshDiff}
+          answerOptions={answerOptions}
+          onAssign={assignFromMap}
+          unsavedCount={drafts.length}
+          onSave={() => { void save(); }}
+          saving={saving}
+          saveMessage={saveError ?? (savedCount !== null ? `Сохранено связей: ${savedCount}` : null)}
+          onOpenReview={() => setView('review')}
         />
       )}
 
@@ -842,8 +915,8 @@ export default function SelectionMatchingTab() {
           {conflictCount > 0 && (
             <p className="flex items-start gap-2 text-sm text-amber-400">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              Один аккаунт выбран для нескольких ответов одной и той же формы
-              ({conflictCount}) — такие строки не сохранятся, пока выбор не разойдётся.
+              Одному аккаунту достались несколько строк одной формы ({conflictCount}). Они
+              сохранятся как версии этого человека — если это ошибка, поправьте выбор.
             </p>
           )}
 

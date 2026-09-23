@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import {
+  Download, ExternalLink, Link2, Loader2, RefreshCw, Save, X,
+} from 'lucide-react';
+import { SearchableActionList, type PickerRow } from './SearchablePicker';
 import {
   FORM_KIND_LABELS,
   workAuthorHint,
@@ -88,7 +91,23 @@ const VERDICT_STYLES: Record<SelectionVerdict, string> = {
 
 const timeFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
-function FormCell({ cell }: { cell: PersonFormCell }) {
+/**
+ * Ответ из загруженной выгрузки, который можно вручную отдать человеку прямо
+ * из карты. Свободные — те, кому разбор не нашёл хозяина.
+ */
+export type MapAnswerOption = {
+  key: string;
+  kind: FormKind;
+  title: string;
+  subtitle: string;
+  /** Кому ответ отдан сейчас; пусто — никому. */
+  ownerName: string | null;
+  workUrl: string | null;
+  /** Чем ответ похож на этого человека — если похож. */
+  hint?: string;
+};
+
+function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void }) {
   const style = CELL_STYLES[cell.state];
   const answered = cellHasAnswer(cell);
   const stamp = answered ? formatMapStamp(cell.at) : '';
@@ -130,6 +149,118 @@ function FormCell({ cell }: { cell: PersonFormCell }) {
           <span className="text-blue-300 tabular-nums"> · {cell.stageScore}/10</span>
         )}
       </div>
+      {onLink && (
+        <button
+          type="button"
+          onClick={onLink}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] text-violet-300 hover:text-violet-200 transition-colors"
+        >
+          <Link2 className="w-3 h-3" />
+          связать…
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Ручная привязка из карты: человек известен, осталось указать, какой ответ
+ * формы его. Показываем ответы загруженных выгрузок — свободные первыми.
+ */
+function LinkDialog({
+  personName,
+  kind,
+  options,
+  onPick,
+  onClose,
+  onOpenReview,
+}: {
+  personName: string;
+  kind: FormKind;
+  options: MapAnswerOption[];
+  onPick: (key: string) => void;
+  onClose: () => void;
+  onOpenReview?: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const rows: PickerRow[] = options.map((option) => ({
+    id: option.key,
+    title: option.title,
+    subtitle: [option.hint && `похоже: ${option.hint}`, option.subtitle].filter(Boolean).join(' · ') || null,
+    searchText: `${option.title} ${option.subtitle} ${option.ownerName ?? ''}`,
+    trailing: option.ownerName ? (
+      <span className="text-[11px] text-amber-400 shrink-0 max-w-[10rem] truncate">
+        сейчас → {option.ownerName}
+      </span>
+    ) : (
+      <span className="text-[11px] text-emerald-300 shrink-0">свободен</span>
+    ),
+  }));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Связать ответ формы «${FORM_KIND_LABELS[kind]}» с ${personName}`}
+        className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-slate-900 border border-white/10 p-5 space-y-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              {FORM_KIND_LABELS[kind]}
+            </p>
+            <h3 className="text-base font-semibold text-white truncate">{personName}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Какой ответ его? Сверху — свободные и похожие на него. Выбранный ответ уйдёт
+              этому человеку, сохранить можно кнопкой внизу карты.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {options.length === 0 ? (
+          <div className="text-sm text-slate-400 space-y-3">
+            <p>
+              Ответов этой формы пока не из чего выбирать: загрузите её выгрузку во вкладке
+              «Разбор выгрузок» — тогда они появятся здесь.
+            </p>
+            {onOpenReview && (
+              <button
+                type="button"
+                onClick={onOpenReview}
+                className="px-3.5 py-2 rounded-xl text-sm font-medium bg-violet-500/20 text-violet-200 border border-violet-500/40"
+              >
+                Открыть разбор выгрузок
+              </button>
+            )}
+          </div>
+        ) : (
+          <SearchableActionList
+            items={rows}
+            onPick={onPick}
+            searchPlaceholder="Имя, почта, логин, файл…"
+            emptyText="Ответов нет"
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -141,6 +272,13 @@ export default function SelectionPersonMap({
   refreshing = false,
   onRefresh,
   diff,
+  answerOptions,
+  onAssign,
+  unsavedCount = 0,
+  onSave,
+  saving = false,
+  saveMessage,
+  onOpenReview,
 }: {
   rows: PersonMapRow[];
   orphans: OrphanAnswer[];
@@ -150,8 +288,18 @@ export default function SelectionPersonMap({
   onRefresh?: () => void;
   /** Что прибавилось с прошлого обновления. */
   diff?: SiteDataDiff | null;
+  /** Ответы загруженных выгрузок для человека и формы — похожие первыми. */
+  answerOptions?: (profileId: string, kind: FormKind) => MapAnswerOption[];
+  onAssign?: (profileId: string, kind: FormKind, optionKey: string) => void;
+  /** Сколько связей разобрано, но не сохранено. */
+  unsavedCount?: number;
+  onSave?: () => void;
+  saving?: boolean;
+  saveMessage?: string | null;
+  onOpenReview?: () => void;
 }) {
   const [query, setQuery] = useState<PersonMapQuery>(EMPTY_PERSON_MAP_QUERY);
+  const [linking, setLinking] = useState<{ profileId: string; name: string; kind: FormKind } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -348,11 +496,22 @@ export default function SelectionPersonMap({
                       </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">{contact.note}</div>
                     </td>
-                    {FORM_KINDS.map((kind) => (
-                      <td key={kind} className="px-2 py-2 bg-white/[0.015]">
-                        <FormCell cell={row.cells[kind]} />
-                      </td>
-                    ))}
+                    {FORM_KINDS.map((kind) => {
+                      const cell = row.cells[kind];
+                      const empty = cell.state === 'missing' || cell.state === 'marked_only';
+                      return (
+                        <td key={kind} className="px-2 py-2 bg-white/[0.015]">
+                          <FormCell
+                            cell={cell}
+                            onLink={onAssign && empty ? () => setLinking({
+                              profileId: row.profile.id,
+                              name: row.profile.display_name?.trim() || 'Участник',
+                              kind,
+                            }) : undefined}
+                          />
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-2.5">
                       <span className={`text-xs font-medium tabular-nums ${
                         complete ? 'text-emerald-300' : 'text-slate-400'
@@ -372,6 +531,38 @@ export default function SelectionPersonMap({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {linking && onAssign && (
+        <LinkDialog
+          personName={linking.name}
+          kind={linking.kind}
+          options={answerOptions?.(linking.profileId, linking.kind) ?? []}
+          onPick={(key) => {
+            onAssign(linking.profileId, linking.kind, key);
+            setLinking(null);
+          }}
+          onClose={() => setLinking(null)}
+          onOpenReview={onOpenReview ? () => { setLinking(null); onOpenReview(); } : undefined}
+        />
+      )}
+
+      {onSave && (unsavedCount > 0 || saveMessage) && (
+        <div className="sticky bottom-4 z-30 flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-slate-900/95 border border-white/10 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || unsavedCount === 0}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Сохранить связи ({unsavedCount})
+          </button>
+          <p className="text-xs text-slate-500 min-w-0 flex-1">
+            Сюда входят и привязки из карты, и точные совпадения разбора.
+          </p>
+          {saveMessage && <p className="text-xs text-slate-300">{saveMessage}</p>}
         </div>
       )}
 
