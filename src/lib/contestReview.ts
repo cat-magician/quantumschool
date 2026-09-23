@@ -36,13 +36,26 @@ export type ContestSubmission = {
   answer: string | null;
 };
 
-export type ReviewLevel = 'clean' | 'questions' | 'suspicious';
+export type ReviewLevel = 'clean' | 'questions' | 'suspicious' | 'staff';
 
 export const REVIEW_LEVEL_LABELS: Record<ReviewLevel, string> = {
   clean: 'похоже на честное решение',
   questions: 'есть вопросы',
   suspicious: 'подозрительно',
+  staff: 'служебный аккаунт — не участник',
 };
+
+/**
+ * Аккаунты организаторов: они решают контест, чтобы проверить его, и в
+ * анализе участников им не место — иначе «сдавал следом за участником»
+ * превращается в ложное обвинение. Узнаём по подписи школы и по списку,
+ * который отмечают вручную.
+ */
+const STAFF_SIGNATURE = /quantum|rqc\.ru/i;
+
+export function isStaffSignature(who: string, marked: ReadonlySet<string> = new Set()): boolean {
+  return marked.has(who.trim().toLowerCase()) || STAFF_SIGNATURE.test(who);
+}
 
 export type ContestReview = {
   participantId: string;
@@ -111,7 +124,15 @@ type Person = {
   span: number;
 };
 
-export function reviewContest(submissions: ContestSubmission[]): Map<string, ContestReview> {
+export function reviewContest(
+  allSubmissions: ContestSubmission[],
+  staff: ReadonlySet<string> = new Set(),
+): Map<string, ContestReview> {
+  const staffIds = new Set(
+    allSubmissions.filter((s) => isStaffSignature(s.who, staff)).map((s) => s.participantId),
+  );
+  const submissions = allSubmissions.filter((s) => !staffIds.has(s.participantId));
+
   // Задача «с ответом» — там, где сдают короткий текст; остальные — файлы решений.
   const byTask = new Map<number, ContestSubmission[]>();
   for (const s of submissions) byTask.set(s.task, [...(byTask.get(s.task) ?? []), s]);
@@ -249,6 +270,18 @@ export function reviewContest(submissions: ContestSubmission[]): Map<string, Con
       comment,
       findings,
       linkedTo: [...linkedTo],
+    });
+  }
+
+  for (const s of allSubmissions) {
+    if (!staffIds.has(s.participantId) || reviews.has(s.participantId)) continue;
+    reviews.set(s.participantId, {
+      participantId: s.participantId,
+      who: s.who,
+      level: 'staff',
+      comment: 'Служебный аккаунт организаторов — в проверке участников не учитывается.',
+      findings: [],
+      linkedTo: [],
     });
   }
 

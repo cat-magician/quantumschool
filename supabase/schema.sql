@@ -3579,6 +3579,13 @@ ALTER TABLE public.selection_stage_config
 ALTER TABLE public.selection_stage_config
   ADD COLUMN IF NOT EXISTS contest_instructions text NOT NULL DEFAULT '';
 
+-- Служебные аккаунты Контеста — подписи, под которыми организаторы сами
+-- решали соревнование. Проверка честности участников их не учитывает:
+-- иначе организатор, проверявший задачи, выглядит вторым аккаунтом
+-- участника, за которым «сдавал следом».
+ALTER TABLE public.selection_stage_config
+  ADD COLUMN IF NOT EXISTS contest_staff text[] NOT NULL DEFAULT '{}';
+
 -- ══════════════════════════════════════════════════════════════
 -- Ссылка на присланную работу
 -- ══════════════════════════════════════════════════════════════

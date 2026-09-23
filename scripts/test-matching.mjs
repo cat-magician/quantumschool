@@ -1388,5 +1388,24 @@ check('склейка с монитором несёт итог проверки
   assert.equal(merged.rows[0][merged.headers.indexOf('Проверка')], 'есть вопросы');
 });
 
+check('служебные аккаунты не участвуют в проверке и никого не подставляют', () => {
+  const subs = [];
+  for (let p = 0; p < 5; p++) {
+    for (let t = 1; t <= 8; t++) subs.push(sub(`Честный ${p}`, `10${p}`, t, 100000 + p * 50000 + t * 1000));
+    subs.push(sub(`Честный ${p}`, `10${p}`, 9, 100000 + p * 50000 + 9000, 'PresentationError', '', 'pdf'));
+  }
+  // Организатор проверял задачи следом за участником.
+  for (let t = 1; t <= 8; t++) subs.push(sub('Пользователь Q.', '300', t, 100000 + t * 1000 + 50));
+  subs.push(sub('quantumchallenge@rqc.ru', '400', 1, 999999, 'WrongAnswer', '0'));
+
+  const marked = lib.reviewContest(subs, new Set(['пользователь q.']));
+  assert.equal(marked.get('300').level, 'staff');
+  assert.equal(marked.get('400').level, 'staff', 'подпись школы узнаётся сама');
+  assert.equal(marked.get('100').level, 'clean', 'участник больше не подозревается из-за организатора');
+
+  // Без пометки тот же организатор выглядел бы вторым аккаунтом.
+  assert.notEqual(lib.reviewContest(subs).get('100').level, 'clean');
+});
+
 await Promise.all(pending);
 console.log(`ок: ${checks} проверок`);

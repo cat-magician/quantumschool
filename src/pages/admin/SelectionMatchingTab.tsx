@@ -5,6 +5,8 @@ import {
 import SectionHint from '../../components/SectionHint';
 import { FormSelect } from '../../components/FormControls';
 import { useAppDialog } from '../../lib/AppDialogContext';
+import { useAuth } from '../../lib/AuthContext';
+import { fetchSelectionConfig, saveSelectionConfig } from '../../lib/selectionConfig';
 import SelectionPersonMap, { type MapAnswerOption } from '../../components/SelectionPersonMap';
 import {
   buildOrphanAnswers,
@@ -103,6 +105,7 @@ const REVIEW_TONES: Record<ReviewLevel, string> = {
   clean: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25',
   questions: 'text-amber-300 bg-amber-500/10 border-amber-500/25',
   suspicious: 'text-rose-300 bg-rose-500/10 border-rose-500/30',
+  staff: 'text-slate-300 bg-white/5 border-white/10',
 };
 
 /**
@@ -110,9 +113,10 @@ const REVIEW_TONES: Record<ReviewLevel, string> = {
  * загрузили: архив даёт всех, кто слал посылки, монитор — логины и баллы.
  */
 function contestSource(parts: ContestParts, id: string): Source {
-  const reviews = parts.submissions ? reviewContest(parts.submissions) : undefined;
+  // Итоги проверки считаются во вкладке: они зависят от списка служебных
+  // аккаунтов, который можно поменять уже после загрузки архива.
   const table = parts.archive
-    ? mergeContest(parts.archive, parts.monitor, reviews)
+    ? mergeContest(parts.archive, parts.monitor)
     : parts.monitor ?? { headers: [], rows: [] };
   const fileName = [
     parts.archiveName && `архив посылок: ${parts.archiveName}`,
@@ -120,15 +124,8 @@ function contestSource(parts: ContestParts, id: string): Source {
   ].filter(Boolean).join(' + ');
 
   let note: string;
-  const doubtful = reviews
-    ? [...reviews.values()].filter((r) => r.level !== 'clean').length
-    : 0;
-  const reviewNote = reviews
-    ? ` · проверка честности: вопросы или подозрения у ${doubtful} из ${reviews.size}`
-    : '';
-
   if (parts.archive && parts.monitor) {
-    note = `Склеено: ${parts.archive.length} участников из архива, логины и баллы — из монитора${reviewNote}`;
+    note = `Склеено: ${parts.archive.length} участников из архива, логины и баллы — из монитора`;
   } else if (parts.archive) {
     note = 'Только архив: логины есть лишь у тех, кто подписан логином. Добавьте монитор — подтянутся остальные';
   } else {
@@ -144,7 +141,6 @@ function contestSource(parts: ContestParts, id: string): Source {
     offsetHours: 0,
     contest: parts,
     note,
-    reviews,
   };
 }
 
@@ -252,6 +248,28 @@ export default function SelectionMatchingTab() {
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [clearKind, setClearKind] = useState<FormKind | 'all'>('all');
   const { confirm } = useAppDialog();
+  const { user } = useAuth();
+  /** Подписи служебных аккаунтов Контеста — из настроек отбора. */
+  const [contestStaff, setContestStaff] = useState<string[]>([]);
+
+  useEffect(() => {
+    void fetchSelectionConfig().then((config) => setContestStaff(config.contest_staff ?? []));
+  }, []);
+
+  const toggleStaff = async (signature: string) => {
+    const key = signature.trim().toLowerCase();
+    const next = contestStaff.includes(key)
+      ? contestStaff.filter((s) => s !== key)
+      : [...contestStaff, key];
+    setContestStaff(next);
+    if (!user) return;
+    const { error } = await saveSelectionConfig({ contest_staff: next }, user.id);
+    if (error) {
+      setSaveError(/contest_staff|schema cache/i.test(error.message)
+        ? 'Список служебных аккаунтов не сохранился: примените supabase/schema.sql.'
+        : error.message);
+    }
+  };
 
   const snapshotRef = useRef<SiteSnapshot>({ profiles: [], links: [] });
   const savingRef = useRef(false);
@@ -461,14 +479,21 @@ export default function SelectionMatchingTab() {
 
   /** Итог проверки честности у строки контеста — по ID участника в ключе ответа. */
   const contestReviews = useMemo(() => {
+    const staff = new Set(contestStaff);
     const byKey = new Map<string, ContestReview>();
     for (const source of sources) {
-      for (const [participantId, review] of source.reviews ?? []) {
+      if (!source.contest?.submissions) continue;
+      for (const [participantId, review] of reviewContest(source.contest.submissions, staff)) {
         byKey.set(`id:${participantId}`, review);
       }
     }
     return byKey;
-  }, [sources]);
+  }, [sources, contestStaff]);
+
+  const reviewSummary = useMemo(() => {
+    const all = [...contestReviews.values()].filter((r) => r.level !== 'staff');
+    return { total: all.length, doubtful: all.filter((r) => r.level !== 'clean').length };
+  }, [contestReviews]);
 
   const overridesFor = useCallback(
     (sourceId: string): MatchOverrides => overrides[sourceId] ?? {},
@@ -929,6 +954,13 @@ export default function SelectionMatchingTab() {
               в остальных.
             </p>
           )}
+
+          {reviewSummary.total > 0 && (
+            <p className="text-xs text-slate-400">
+              Проверка честности контеста: вопросы или подозрения у {reviewSummary.doubtful} из
+              {' '}{reviewSummary.total} участников — подробности в карточках строк.
+            </p>
+          )}
         </div>
       )}
 
@@ -1151,10 +1183,23 @@ export default function SelectionMatchingTab() {
                         ) : (
                           <p className="text-slate-300">{review.comment}</p>
                         )}
-                        <p className="text-[11px] text-slate-500">
-                          Это предположение по поведению в Контесте, а не доказательство —
-                          сверьтесь с загруженными решениями.
-                        </p>
+                        {review.level !== 'staff' && (
+                          <p className="text-[11px] text-slate-500">
+                            Это предположение по поведению в Контесте, а не доказательство —
+                            сверьтесь с загруженными решениями.
+                          </p>
+                        )}
+                        {(contestStaff.includes(review.who.trim().toLowerCase()) || review.level !== 'staff') && (
+                          <button
+                            type="button"
+                            onClick={() => { void toggleStaff(review.who); }}
+                            className="text-[11px] text-slate-400 hover:text-white underline decoration-slate-500/50 transition-colors"
+                          >
+                            {contestStaff.includes(review.who.trim().toLowerCase())
+                              ? 'Это участник, а не служебный аккаунт — вернуть в проверку'
+                              : 'Это служебный аккаунт организаторов — не проверять'}
+                          </button>
+                        )}
                         {!row.savedFor && twins.filter((t) => t.owner).map((twin) => (
                           <button
                             key={twin.who}
