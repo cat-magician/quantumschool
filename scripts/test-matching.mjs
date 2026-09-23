@@ -48,6 +48,7 @@ await build({
       export * from '../src/lib/selectionPersonMap';
       export * from '../src/lib/selectionStageStats';
       export * from '../src/lib/contestArchive';
+      export * from '../src/lib/contestReview';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -581,8 +582,8 @@ check('карта собирает человека из связей, отме�
     assert.equal(lines[0].split(';')[0], 'Участник');
     assert.equal(
       lines[0].split(';').length,
-      6 + 3 * 7 + 3,
-      'колонок: базовые + 3 формы по 7 + готовность, решение, регистрация',
+      6 + 3 * 8 + 3,
+      'колонок: базовые + 3 формы по 8 + готовность, решение, регистрация',
     );
     assert.ok(csv.includes('"Петров; Иван"'), 'точка с запятой экранируется');
     assert.ok(csv.includes('Ответы без аккаунта'));
@@ -1320,6 +1321,71 @@ check('новая отправка сохранённого человека п�
 
   assert.equal(row.savedFor, 'p1', 'группа узнана по сохранённой версии');
   assert.equal(row.versions.length, 2, 'и новая отправка в ней же — сохранится версией');
+});
+
+// ── Проверка честности контеста ─────────────────────────────────────
+const sub = (who, pid, task, sid, verdict = 'OK', answer = '1', extension = '') => ({
+  who, participantId: pid, task, submissionId: sid, verdict, extension, size: answer ? answer.length : 50000,
+  answer: extension ? null : answer,
+});
+
+check('подпись-абракадабра и обезличенная узнаются, обычные логины — нет', () => {
+  assert.ok(lib.looksLikeGibberish('Lkhxkhxkgxkgx'));
+  assert.ok(lib.looksLikeGibberish('Jekebdk-difzyfkodbdjd'));
+  for (const normal of ['pischalnikovtp', 'vbourlak', 'kirill.pingvinovitch', 'steblevets.a', 'NapoleonBonpart', 'daniilkandaurov1']) {
+    assert.ok(!lib.looksLikeGibberish(normal), `${normal} — обычный логин`);
+  }
+  assert.ok(lib.looksFaceless('Пользователь Q.'));
+  assert.ok(!lib.looksFaceless('Пользователева Анна'));
+});
+
+check('проверка находит второй аккаунт, спешку без выкладок и честных', () => {
+  const subs = [];
+  // Пятеро честных: решают 8 задач в обычном темпе и загружают решения.
+  for (let p = 0; p < 5; p++) {
+    for (let t = 1; t <= 8; t++) subs.push(sub(`Честный ${p}`, `10${p}`, t, 100000 + p * 50000 + t * 1000));
+    subs.push(sub(`Честный ${p}`, `10${p}`, 9, 100000 + p * 50000 + 9000, 'PresentationError', '', 'pdf'));
+  }
+  // Спешка: восемь верных ответов подряд, решений нет.
+  for (let t = 1; t <= 8; t++) subs.push(sub('Быстрый', '200', t, 700000 + t * 10));
+  // Тень: по всем задачам сдаёт через пару номеров после первого честного.
+  for (let t = 1; t <= 8; t++) subs.push(sub('Пользователь Q.', '300', t, 100000 + t * 1000 + 50));
+
+  const reviews = lib.reviewContest(subs);
+
+  const fast = reviews.get('200');
+  assert.equal(fast.level, 'suspicious');
+  assert.ok(fast.findings.some((f) => f.includes('быстрее обычного')));
+  assert.ok(fast.findings.some((f) => f.includes('решений нет')));
+
+  const shadow = reviews.get('300');
+  assert.equal(shadow.level, 'suspicious');
+  assert.ok(shadow.findings.some((f) => f.includes('следом за «Честный 0»')));
+  assert.deepEqual(shadow.linkedTo, ['100']);
+  assert.ok(reviews.get('100').findings.some((f) => f.includes('второй ли это его аккаунт')));
+
+  assert.equal(reviews.get('101').level, 'clean');
+  assert.match(reviews.get('101').comment, /похоже на честное/);
+});
+
+check('задачи с файлами решений не путаются с ответами', () => {
+  const subs = [
+    sub('Иванов', '1', 1, 1000), sub('Иванов', '1', 2, 2000),
+    sub('Иванов', '1', 9, 3000, 'PresentationError', '', 'pdf'),
+    sub('Иванов', '1', 10, 4000, 'PresentationError', '', 'jpg'),
+  ];
+  const [review] = lib.reviewContest(subs).values();
+  assert.ok(!review.findings.some((f) => f.includes('решений нет')), 'файлы решений загружены');
+});
+
+check('склейка с монитором несёт итог проверки', () => {
+  const people = lib.readContestArchive(['Иванов-100000/', 'Иванов-100000/1-1-No-compiler-OK']);
+  const reviews = new Map([['100000', { participantId: '100000', who: 'Иванов', level: 'questions', comment: 'Предположение: есть вопросы.', findings: ['x'], linkedTo: [] }]]);
+  const merged = lib.mergeContest(people, null, reviews);
+  const at = merged.headers.indexOf('Комментарий проверки');
+  assert.ok(at > 0);
+  assert.equal(merged.rows[0][at], 'Предположение: есть вопросы.');
+  assert.equal(merged.rows[0][merged.headers.indexOf('Проверка')], 'есть вопросы');
 });
 
 await Promise.all(pending);

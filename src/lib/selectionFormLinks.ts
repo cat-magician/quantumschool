@@ -18,6 +18,8 @@ export type FormLinkDraft = {
   form_name: string;
   form_submitted_at: string | null;
   work_url: string | null;
+  /** Итог проверки честности — только у контеста. */
+  review_note?: string | null;
   source_file: string;
   source_row: number | null;
   match_score: number | null;

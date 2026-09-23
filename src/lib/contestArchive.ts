@@ -1,4 +1,6 @@
 import type { TableData } from './tableImport';
+import type { ContestReview, ContestSubmission } from './contestReview';
+import { REVIEW_LEVEL_LABELS } from './contestReview';
 
 /**
  * Архив всех посылок Контеста — источник того, кто на самом деле участвовал.
@@ -35,12 +37,24 @@ async function readSlice(file: Blob, start: number, end: number): Promise<DataVi
   return new DataView(await file.slice(start, end).arrayBuffer());
 }
 
+type ZipEntry = {
+  name: string;
+  method: number;
+  offset: number;
+  compressedSize: number;
+  size: number;
+};
+
 /**
  * Имена файлов из оглавления zip. Оглавление лежит в конце архива, поэтому
  * читаем только хвост: архив посылок весит под сотню мегабайт, а нужны из
  * него несколько килобайт.
  */
 export async function readZipNames(file: Blob): Promise<string[]> {
+  return (await readZipDirectory(file)).map((entry) => entry.name);
+}
+
+async function readZipDirectory(file: Blob): Promise<ZipEntry[]> {
   const tailStart = Math.max(0, file.size - TAIL_BYTES);
   const tail = await readSlice(file, tailStart, file.size);
 
@@ -60,7 +74,7 @@ export async function readZipNames(file: Blob): Promise<string[]> {
   const directory = await readSlice(file, offset, offset + size);
   const utf8 = new TextDecoder('utf-8');
   const dos = new TextDecoder('ibm866');
-  const names: string[] = [];
+  const entries: ZipEntry[] = [];
   let pointer = 0;
 
   for (let i = 0; i < count; i++) {
@@ -72,11 +86,73 @@ export async function readZipNames(file: Blob): Promise<string[]> {
     const commentLength = directory.getUint16(pointer + 32, true);
     const raw = new Uint8Array(directory.buffer, directory.byteOffset + pointer + 46, nameLength);
 
-    names.push((flags & UTF8_FLAG ? utf8 : dos).decode(raw));
+    entries.push({
+      name: (flags & UTF8_FLAG ? utf8 : dos).decode(raw),
+      method: directory.getUint16(pointer + 10, true),
+      compressedSize: directory.getUint32(pointer + 20, true),
+      size: directory.getUint32(pointer + 24, true),
+      offset: directory.getUint32(pointer + 42, true),
+    });
     pointer += 46 + nameLength + extraLength + commentLength;
   }
 
-  return names;
+  return entries;
+}
+
+const LOCAL_SIGNATURE = 0x04034b50;
+
+/** Текст одного небольшого файла архива — без чтения остального архива. */
+async function readEntryText(file: Blob, entry: ZipEntry): Promise<string> {
+  const header = await readSlice(file, entry.offset, entry.offset + 30);
+  if (header.getUint32(0, true) !== LOCAL_SIGNATURE) return '';
+  const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true);
+  const raw = new Uint8Array(await file.slice(start, start + entry.compressedSize).arrayBuffer());
+
+  let bytes = raw;
+  if (entry.method === 8) {
+    const stream = new Blob([raw as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  return new TextDecoder('utf-8').decode(bytes).trim();
+}
+
+/** Короткие ответы читаем, файлы решений — нет: для проверки хватает их наличия. */
+const ANSWER_MAX_BYTES = 256;
+
+/**
+ * Все посылки архива: кто, по какой задаче, с каким вердиктом и под каким
+ * сквозным номером. Для задач с ответом числом — и сам ответ.
+ */
+export async function readContestSubmissions(file: Blob): Promise<ContestSubmission[]> {
+  const submissions: ContestSubmission[] = [];
+
+  for (const entry of await readZipDirectory(file)) {
+    const [folder, fileName] = entry.name.split('/');
+    const match = FOLDER_RE.exec(folder ?? '');
+    if (!match || !fileName) continue;
+
+    const parts = fileName.split('-');
+    if (parts.length < 4 || !/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) continue;
+
+    const last = parts[parts.length - 1];
+    const extension = (/\.([a-z0-9]+)$/i.exec(last)?.[1] ?? '').toLowerCase();
+    const answer = !extension && entry.size <= ANSWER_MAX_BYTES
+      ? await readEntryText(file, entry)
+      : null;
+
+    submissions.push({
+      who: match[1],
+      participantId: match[2],
+      task: Number(parts[0]),
+      submissionId: Number(parts[1]),
+      verdict: last.replace(/\.[a-z0-9]+$/i, ''),
+      extension,
+      size: entry.size,
+      answer,
+    });
+  }
+
+  return submissions;
 }
 
 const FOLDER_RE = /^(.+)-(\d{6,})$/;
@@ -135,6 +211,7 @@ function loginLike(who: string): string {
 
 export const CONTEST_HEADERS = [
   'user_name', 'Логин', 'ID в Контесте', 'Посылок', 'Задач сдано', 'Балл по монитору',
+  'Проверка', 'Комментарий проверки',
 ];
 
 /**
@@ -145,6 +222,7 @@ export const CONTEST_HEADERS = [
 export function mergeContest(
   archive: ContestParticipant[],
   monitor: TableData | null,
+  reviews: Map<string, ContestReview> = new Map(),
 ): TableData {
   const headers = monitor?.headers.map((h) => h.trim().toLowerCase()) ?? [];
   const at = (name: string) => headers.indexOf(name);
@@ -168,6 +246,7 @@ export function mergeContest(
   const rows = archive.map((p) => {
     const known = fromMonitor.get(p.who.trim().toLowerCase());
     fromMonitor.delete(p.who.trim().toLowerCase());
+    const review = reviews.get(p.participantId);
     return [
       p.who,
       known?.login || loginLike(p.who),
@@ -175,12 +254,14 @@ export function mergeContest(
       String(p.submissions),
       String(p.solved.size),
       known?.score ?? '',
+      review ? REVIEW_LEVEL_LABELS[review.level] : '',
+      review?.comment ?? '',
     ];
   });
 
   // В мониторе есть, в архиве нет — редкость, но выкидывать человека незачем.
   for (const rest of fromMonitor.values()) {
-    rows.push([rest.who, rest.login || loginLike(rest.who), '', '', '', rest.score]);
+    rows.push([rest.who, rest.login || loginLike(rest.who), '', '', '', rest.score, '', '']);
   }
 
   return { headers: [...CONTEST_HEADERS], rows };

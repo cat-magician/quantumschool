@@ -26,6 +26,7 @@ await build({
   stdin: {
     contents: `
       export * from '../src/lib/contestArchive';
+      export * from '../src/lib/contestReview';
       export * from '../src/lib/tableImport';
     `,
     resolveDir: path.join(root, 'scripts'),
@@ -66,7 +67,9 @@ if (!lib.looksLikeContestArchive(names)) {
 
 const people = lib.readContestArchive(names);
 const monitor = monitorPath ? await lib.readTableFile(asFile(monitorPath)) : null;
-const table = lib.mergeContest(people, monitor);
+// Та же проверка честности, что на сайте: предположение с доводами.
+const reviews = lib.reviewContest(await lib.readContestSubmissions(asFile(archivePath)));
+const table = lib.mergeContest(people, monitor, reviews);
 
 const escapeCell = (value) => (/[;"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
 const csv = [table.headers, ...table.rows]
@@ -79,4 +82,7 @@ fs.writeFileSync(out, String.fromCharCode(0xfeff) + csv, 'utf8');
 console.log(`архив: ${path.basename(archivePath)}, участников: ${people.length}`);
 console.log(monitor ? `монитор: ${path.basename(monitorPath)}` : 'монитора нет — логины только у тех, кто ими подписан');
 console.log(`с логином: ${table.rows.filter((r) => r[1]).length} из ${table.rows.length}`);
+const doubtful = [...reviews.values()].filter((r) => r.level !== 'clean');
+console.log(`проверка честности: вопросы или подозрения у ${doubtful.length} из ${reviews.size}`);
+for (const r of doubtful) console.log(`  [${lib.REVIEW_LEVEL_LABELS[r.level]}] ${r.who}`);
 console.log(`готово: ${path.relative(root, out)}`);

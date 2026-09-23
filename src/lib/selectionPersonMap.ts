@@ -53,6 +53,8 @@ export type PersonFormCell = SiteStage & {
   workUrl: string | null;
   /** Сколько отправок этой формы у человека: повторы не выбрасываются. */
   versions: number;
+  /** Итог проверки честности (контест): предположение с доводами. */
+  reviewNote: string | null;
   signals: MatchSignal[];
   /** Балл сопоставления, а не оценка за работу. */
   score: number | null;
@@ -85,6 +87,8 @@ export type PendingMatch = {
   entry: FormEntry;
   signals: MatchSignal[];
   score: number | null;
+  /** Итог проверки честности — у контеста. */
+  note?: string;
 };
 
 export type PendingState = {
@@ -172,6 +176,7 @@ export function buildPersonMap(
           at: link.form_submitted_at,
           workUrl: link.work_url || null,
           versions: ofKind.length,
+          reviewNote: link.review_note ?? null,
           signals: (link.match_signals ?? []) as MatchSignal[],
           score: link.match_score,
           sourceFile: link.source_file || null,
@@ -188,6 +193,7 @@ export function buildPersonMap(
           at: draft.entry.submittedAt ? new Date(draft.entry.submittedAt).toISOString() : null,
           workUrl: draft.entry.workUrl || null,
           versions: 1,
+          reviewNote: draft.note ?? null,
           signals: draft.signals,
           score: draft.score,
           sourceFile: byKind.get(kind)?.sourceFile ?? null,
@@ -202,6 +208,7 @@ export function buildPersonMap(
         at: site.markedAt,
         workUrl: null,
         versions: 0,
+        reviewNote: null,
         signals: [],
         score: null,
         sourceFile: null,
@@ -405,6 +412,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
       `${FORM_KIND_LABELS[k]}: балл`,
       `${FORM_KIND_LABELS[k]}: на чём сошлось`,
       `${FORM_KIND_LABELS[k]}: источник`,
+      `${FORM_KIND_LABELS[k]}: проверка`,
     ]),
     'Форм связано', 'Решение', 'Регистрация',
   ];
@@ -431,6 +439,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
         cell.stageScore === null ? '' : String(cell.stageScore),
         describeSignals(cell.signals),
         source,
+        cell.reviewNote ?? '',
       ];
     }),
     `${row.linkedCount} из ${FORM_KINDS.length}`,

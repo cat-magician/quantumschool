@@ -49,9 +49,17 @@ import {
   looksLikeContestMonitor,
   mergeContest,
   readContestArchive,
+  readContestSubmissions,
   readZipNames,
   type ContestParticipant,
 } from '../../lib/contestArchive';
+import {
+  REVIEW_LEVEL_LABELS,
+  reviewContest,
+  type ContestReview,
+  type ContestSubmission,
+  type ReviewLevel,
+} from '../../lib/contestReview';
 import {
   applySelectionFormLinks,
   clearAllSelectionFormLinks,
@@ -74,24 +82,37 @@ type Source = {
   contest?: ContestParts;
   /** Пояснение под именем файла: из чего собрана таблица. */
   note?: string;
+  /** Итоги проверки честности контеста по ID участника. */
+  reviews?: Map<string, ContestReview>;
 };
 
 type ContestParts = {
   archive: ContestParticipant[] | null;
   archiveName: string | null;
+  /** Посылки архива с ответами — по ним считается проверка честности. */
+  submissions: ContestSubmission[] | null;
   monitor: TableData | null;
   monitorName: string | null;
 };
 
-const NO_CONTEST: ContestParts = { archive: null, archiveName: null, monitor: null, monitorName: null };
+const NO_CONTEST: ContestParts = {
+  archive: null, archiveName: null, submissions: null, monitor: null, monitorName: null,
+};
+
+const REVIEW_TONES: Record<ReviewLevel, string> = {
+  clean: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25',
+  questions: 'text-amber-300 bg-amber-500/10 border-amber-500/25',
+  suspicious: 'text-rose-300 bg-rose-500/10 border-rose-500/30',
+};
 
 /**
  * Архив и монитор складываются в один источник, в каком бы порядке их ни
  * загрузили: архив даёт всех, кто слал посылки, монитор — логины и баллы.
  */
 function contestSource(parts: ContestParts, id: string): Source {
+  const reviews = parts.submissions ? reviewContest(parts.submissions) : undefined;
   const table = parts.archive
-    ? mergeContest(parts.archive, parts.monitor)
+    ? mergeContest(parts.archive, parts.monitor, reviews)
     : parts.monitor ?? { headers: [], rows: [] };
   const fileName = [
     parts.archiveName && `архив посылок: ${parts.archiveName}`,
@@ -99,8 +120,15 @@ function contestSource(parts: ContestParts, id: string): Source {
   ].filter(Boolean).join(' + ');
 
   let note: string;
+  const doubtful = reviews
+    ? [...reviews.values()].filter((r) => r.level !== 'clean').length
+    : 0;
+  const reviewNote = reviews
+    ? ` · проверка честности: вопросы или подозрения у ${doubtful} из ${reviews.size}`
+    : '';
+
   if (parts.archive && parts.monitor) {
-    note = `Склеено: ${parts.archive.length} участников из архива, логины и баллы — из монитора`;
+    note = `Склеено: ${parts.archive.length} участников из архива, логины и баллы — из монитора${reviewNote}`;
   } else if (parts.archive) {
     note = 'Только архив: логины есть лишь у тех, кто подписан логином. Добавьте монитор — подтянутся остальные';
   } else {
@@ -116,6 +144,7 @@ function contestSource(parts: ContestParts, id: string): Source {
     offsetHours: 0,
     contest: parts,
     note,
+    reviews,
   };
 }
 
@@ -317,6 +346,7 @@ export default function SelectionMatchingTab() {
           }
           contest.archive = readContestArchive(names);
           contest.archiveName = file.name;
+          contest.submissions = await readContestSubmissions(file);
           continue;
         }
 
@@ -428,6 +458,17 @@ export default function SelectionMatchingTab() {
       row,
     }))
   )), [parsed, matched]);
+
+  /** Итог проверки честности у строки контеста — по ID участника в ключе ответа. */
+  const contestReviews = useMemo(() => {
+    const byKey = new Map<string, ContestReview>();
+    for (const source of sources) {
+      for (const [participantId, review] of source.reviews ?? []) {
+        byKey.set(`id:${participantId}`, review);
+      }
+    }
+    return byKey;
+  }, [sources]);
 
   const overridesFor = useCallback(
     (sourceId: string): MatchOverrides => overrides[sourceId] ?? {},
@@ -569,13 +610,14 @@ export default function SelectionMatchingTab() {
           ? null
           : new Date(version.submittedAt).toISOString(),
         work_url: version.workUrl || null,
+        review_note: contestReviews.get(version.answerKey)?.comment ?? null,
         source_file: source.fileName,
         source_row: version.rowNumber,
         match_score: candidate?.score ?? null,
         match_signals: candidate?.signals ?? [],
       }));
     })
-  ), [items, overridesFor, takenByKind]);
+  ), [items, overridesFor, takenByKind, contestReviews]);
 
   /**
    * Ответы загруженных выгрузок для ручной привязки из карты. Уже
@@ -745,6 +787,7 @@ export default function SelectionMatchingTab() {
           entry: row.entry,
           signals: candidate?.signals ?? [],
           score: candidate?.score ?? null,
+          note: contestReviews.get(row.entry.answerKey)?.comment,
         });
       } else {
         orphans.push(row.entry);
@@ -752,7 +795,7 @@ export default function SelectionMatchingTab() {
     }
 
     return { kind: source.kind, sourceFile: source.fileName, matches, orphans };
-  }), [parsed, matched, overridesFor]);
+  }), [parsed, matched, overridesFor, contestReviews]);
 
   const personMap = useMemo(
     () => buildPersonMap(profiles, links, pending),
@@ -955,6 +998,18 @@ export default function SelectionMatchingTab() {
                 // У аккаунта уже есть ответы этой формы, а строка — не один из них.
                 const addsTo = existing && !row.savedFor ? existing : undefined;
                 const earlier = row.versions.slice(1);
+                const review = kind === 'contest' ? contestReviews.get(row.entry.answerKey) : undefined;
+                // Подозрение на второй аккаунт: куда ушла строка «первого» участника.
+                const twins = (review?.linkedTo ?? []).map((participantId) => {
+                  const twin = items.find((other) => other.row.entry.answerKey === `id:${participantId}`);
+                  const twinOwner = twin
+                    ? (twin.row.savedFor ?? resolveMatch(twin.row, overridesFor(twin.source.id)).profileId)
+                    : null;
+                  return {
+                    who: contestReviews.get(`id:${participantId}`)?.who ?? participantId,
+                    owner: twinOwner ? profilesById.get(twinOwner) ?? null : null,
+                  };
+                });
                 const conflicting = profileId ? !!conflicts.get(kind)?.has(profileId) : false;
                 const picking = pickerKey === key;
                 const fileLabel = row.entry.workUrl
@@ -1082,6 +1137,36 @@ export default function SelectionMatchingTab() {
                         У этого аккаунта уже есть ответы этой формы ({addsTo.length}). Эта строка
                         добавится к ним ещё одной версией — сохранённое не заменяется.
                       </p>
+                    )}
+
+                    {review && (
+                      <div className={`rounded-xl border px-3 py-2 text-xs space-y-1.5 ${REVIEW_TONES[review.level]}`}>
+                        <p className="font-semibold">
+                          Проверка честности: {REVIEW_LEVEL_LABELS[review.level]}
+                        </p>
+                        {review.findings.length > 0 ? (
+                          <ul className="list-disc pl-4 space-y-0.5 text-slate-300">
+                            {review.findings.map((finding) => <li key={finding}>{finding}</li>)}
+                          </ul>
+                        ) : (
+                          <p className="text-slate-300">{review.comment}</p>
+                        )}
+                        <p className="text-[11px] text-slate-500">
+                          Это предположение по поведению в Контесте, а не доказательство —
+                          сверьтесь с загруженными решениями.
+                        </p>
+                        {!row.savedFor && twins.filter((t) => t.owner).map((twin) => (
+                          <button
+                            key={twin.who}
+                            type="button"
+                            onClick={() => setOverride(source.id, row.entry.rowNumber, twin.owner!.id)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 text-slate-200 border border-white/10 hover:bg-white/10 transition-colors"
+                          >
+                            <Check className="w-3 h-3" />
+                            Это тот же человек, что «{twin.who}» — привязать к {profileDisplayName(twin.owner!)}
+                          </button>
+                        ))}
+                      </div>
                     )}
 
                     {signedAsOther && (

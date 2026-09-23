@@ -136,6 +136,19 @@ function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void 
           работа
         </a>
       )}
+      {cell.reviewNote && (
+        // Итог проверки честности: коротко в клетке, полностью — в подсказке.
+        <div
+          className={`mt-1 text-[10px] leading-tight line-clamp-2 ${
+            /подозрительно/.test(cell.reviewNote)
+              ? 'text-rose-300'
+              : /есть вопросы/.test(cell.reviewNote) ? 'text-amber-300' : 'text-emerald-300/80'
+          }`}
+          title={cell.reviewNote}
+        >
+          {cell.reviewNote.replace(/^Предположение:\s*/, '')}
+        </div>
+      )}
       {reasons && (
         // Причин бывает много; полный список — в подсказке, иначе одна ячейка
         // растягивает всю строку и таблица становится нечитаемой.

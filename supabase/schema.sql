@@ -3300,6 +3300,8 @@ CREATE TABLE IF NOT EXISTS public.selection_form_links (
   -- Номер ответа в выгрузке: колонка ID у Форм, ID участника у Контеста.
   -- По нему узнаём тот же ответ при повторной загрузке файла.
   answer_key text,
+  -- Итог быстрой проверки честности (для контеста): предположение с доводами.
+  review_note text,
   contact_email text,
   form_name text NOT NULL DEFAULT '',
   form_submitted_at timestamptz,
@@ -3325,6 +3327,12 @@ CREATE INDEX IF NOT EXISTS selection_form_links_kind_idx
 -- ограничение снимаем.
 ALTER TABLE public.selection_form_links
   ADD COLUMN IF NOT EXISTS answer_key text;
+
+-- Проверка честности контеста: сайт пишет предположение с доводами при
+-- разборе архива посылок, а хранится оно рядом со связью — чтобы было видно в
+-- карте участников и после перезагрузки.
+ALTER TABLE public.selection_form_links
+  ADD COLUMN IF NOT EXISTS review_note text;
 
 ALTER TABLE public.selection_form_links
   DROP CONSTRAINT IF EXISTS selection_form_links_user_id_form_kind_key;
@@ -3376,6 +3384,7 @@ BEGIN
     COALESCE(NULLIF(trim(item->>'form_name'), ''), '') AS form_name,
     NULLIF(item->>'form_submitted_at', '')::timestamptz AS form_submitted_at,
     NULLIF(trim(item->>'work_url'), '') AS work_url,
+    NULLIF(trim(item->>'review_note'), '') AS review_note,
     COALESCE(NULLIF(trim(item->>'source_file'), ''), '') AS source_file,
     NULLIF(item->>'source_row', '')::integer AS source_row,
     NULLIF(item->>'match_score', '')::integer AS match_score,
@@ -3404,11 +3413,11 @@ BEGIN
 
   INSERT INTO public.selection_form_links (
     user_id, form_kind, answer_key, contact_email, form_name, form_submitted_at, work_url,
-    source_file, source_row, match_score, match_signals, confirmed_by, updated_at
+    review_note, source_file, source_row, match_score, match_signals, confirmed_by, updated_at
   )
   SELECT
     user_id, form_kind, answer_key, contact_email, form_name, form_submitted_at, work_url,
-    source_file, source_row, match_score, match_signals, auth.uid(), now()
+    review_note, source_file, source_row, match_score, match_signals, auth.uid(), now()
   FROM incoming
   ON CONFLICT (form_kind, answer_key) DO UPDATE SET
     -- Ответ передали другому человеку — он переезжает целиком.
@@ -3419,6 +3428,7 @@ BEGIN
     -- Пустую ссылку не пишем поверх найденной: повторный разбор файла без
     -- колонки с работой не должен стирать уже известную работу.
     work_url = COALESCE(EXCLUDED.work_url, public.selection_form_links.work_url),
+    review_note = COALESCE(EXCLUDED.review_note, public.selection_form_links.review_note),
     source_file = EXCLUDED.source_file,
     source_row = EXCLUDED.source_row,
     match_score = EXCLUDED.match_score,

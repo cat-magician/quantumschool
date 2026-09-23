@@ -235,6 +235,8 @@ export interface SelectionFormLink {
   work_url: string | null;
   /** Номер ответа в выгрузке; у связей, сохранённых до версий, — пусто. */
   answer_key: string | null;
+  /** Итог быстрой проверки честности (контест): предположение с доводами. */
+  review_note?: string | null;
   source_file: string;
   source_row: number | null;
   match_score: number | null;
