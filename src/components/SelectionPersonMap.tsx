@@ -102,6 +102,8 @@ export type MapAnswerOption = {
   subtitle: string;
   /** Кому ответ отдан сейчас; пусто — никому. */
   ownerName: string | null;
+  /** Ответ уже сохранён за этим человеком в базе — выбор перенесёт его. */
+  ownerSaved?: boolean;
   workUrl: string | null;
   /** Чем ответ похож на этого человека — если похож. */
   hint?: string;
@@ -207,8 +209,13 @@ function LinkDialog({
     subtitle: [option.hint && `похоже: ${option.hint}`, option.subtitle].filter(Boolean).join(' · ') || null,
     searchText: `${option.title} ${option.subtitle} ${option.ownerName ?? ''}`,
     trailing: option.ownerName ? (
-      <span className="text-[11px] text-amber-400 shrink-0 max-w-[10rem] truncate">
-        сейчас → {option.ownerName}
+      <span
+        className={`text-[11px] shrink-0 max-w-[12rem] truncate ${option.ownerSaved ? 'text-rose-300' : 'text-amber-400'}`}
+        title={option.ownerSaved
+          ? `Сохранён за «${option.ownerName}». Выбор перенесёт ответ к этому человеку.`
+          : `В разборе отдан «${option.ownerName}», ещё не сохранено.`}
+      >
+        {option.ownerSaved ? 'сохранён за' : 'сейчас →'} {option.ownerName}
       </span>
     ) : (
       <span className="text-[11px] text-emerald-300 shrink-0">свободен</span>
@@ -235,8 +242,9 @@ function LinkDialog({
             </p>
             <h3 className="text-base font-semibold text-white truncate">{personName}</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Какой ответ его? Сверху — свободные и похожие на него. Выбранный ответ уйдёт
-              этому человеку, сохранить можно кнопкой внизу карты.
+              Какой ответ его? Сверху — свободные и похожие на него, ниже — уже отданные
+              другим: если ответ привязан не к тому, выберите его — он перенесётся сюда.
+              Сохранить можно кнопкой внизу карты.
             </p>
           </div>
           <button

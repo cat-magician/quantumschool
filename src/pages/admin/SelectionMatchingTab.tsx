@@ -508,7 +508,7 @@ export default function SelectionMatchingTab() {
     let saved = 0;
 
     for (const item of items) {
-      if (item.row.savedFor) {
+      if (item.row.savedFor && overridesFor(item.source.id)[item.row.entry.rowNumber] === undefined) {
         saved++;
         linked.add(item.row.savedFor);
         continue;
@@ -586,7 +586,8 @@ export default function SelectionMatchingTab() {
   const bucketed = useMemo(() => {
     const result: Record<Basket, ReviewItem[]> = { review: [], ready: [], unmatched: [], saved: [] };
     for (const item of items) {
-      if (item.row.savedFor) {
+      // Сохранённую строку, которую вручную передали другому, решают заново.
+      if (item.row.savedFor && overridesFor(item.source.id)[item.row.entry.rowNumber] === undefined) {
         result.saved.push(item);
         continue;
       }
@@ -609,7 +610,8 @@ export default function SelectionMatchingTab() {
       let profileId: string;
       let versions = row.versions;
 
-      if (row.savedFor) {
+      const reassigned = overridesFor(source.id)[row.entry.rowNumber] !== undefined;
+      if (row.savedFor && !reassigned) {
         const saved = takenByKind.get(source.kind)?.get(row.savedFor) ?? [];
         versions = row.versions.filter((version) => {
           const same = saved.find((answer) => sameAnswer(version, answer));
@@ -652,9 +654,10 @@ export default function SelectionMatchingTab() {
     const byKind: Partial<Record<FormKind, (MapAnswerOption & { item: ReviewItem })[]>> = {};
     for (const item of items) {
       const { key, source, row } = item;
-      if (row.savedFor) continue;
       const { profileId } = resolveMatch(row, overridesFor(source.id));
       const owner = profileId ? profilesById.get(profileId) : undefined;
+      const savedHere = !!row.savedFor
+        && overridesFor(source.id)[row.entry.rowNumber] === undefined;
       const entry = row.entry;
       const file = entry.workUrl ? workAuthorHint(workFileName(entry.workUrl)) : '';
       const option: MapAnswerOption = {
@@ -669,6 +672,7 @@ export default function SelectionMatchingTab() {
           `строка ${entry.rowNumber}`,
         ].filter(Boolean).join(' · '),
         ownerName: owner ? profileDisplayName(owner) : null,
+        ownerSaved: savedHere,
         workUrl: entry.workUrl || null,
       };
       (byKind[source.kind] ??= []).push({ ...option, item });
@@ -684,6 +688,8 @@ export default function SelectionMatchingTab() {
     const profile = profilesById.get(profileId);
     const options = answerOptionsByKind[kind] ?? [];
     if (!profile) return options;
+    // Свободные — первыми, отданные в разборе — следом, сохранённые — в конце.
+    const rank = (option: MapAnswerOption) => (!option.ownerName ? 0 : option.ownerSaved ? 2 : 1);
 
     return options
       .map((option) => {
@@ -696,7 +702,7 @@ export default function SelectionMatchingTab() {
         return { option: { ...option, hint: hint || undefined }, score: best.score };
       })
       .sort((a, b) => (
-        Number(!!a.option.ownerName) - Number(!!b.option.ownerName)
+        rank(a.option) - rank(b.option)
         || b.score - a.score
         || a.option.title.localeCompare(b.option.title, 'ru')
       ))
