@@ -51,6 +51,8 @@ export type PersonFormCell = SiteStage & {
   at: string | null;
   /** Ссылка на присланную работу — то самое доказательство отправки. */
   workUrl: string | null;
+  /** Сколько отправок этой формы у человека: повторы не выбрасываются. */
+  versions: number;
   signals: MatchSignal[];
   /** Балл сопоставления, а не оценка за работу. */
   score: number | null;
@@ -129,6 +131,11 @@ function pendingByKind(pending: PendingInput): Map<FormKind, PendingState> {
   return new Map(list.map((state) => [state.kind, state]));
 }
 
+function stamp(link: SelectionFormLink): number {
+  const at = Date.parse(link.form_submitted_at ?? link.updated_at ?? '');
+  return Number.isNaN(at) ? 0 : at;
+}
+
 export function buildPersonMap(
   profiles: UserProfile[],
   links: SelectionFormLink[],
@@ -152,7 +159,11 @@ export function buildPersonMap(
 
     for (const kind of FORM_KINDS) {
       const site = siteStage(profile, kind);
-      const link = linksByUser.get(profile.id)?.find((l) => l.form_kind === kind);
+      // Отправок бывает несколько — в клетке последняя, остальные в счётчике.
+      const ofKind = (linksByUser.get(profile.id) ?? [])
+        .filter((l) => l.form_kind === kind)
+        .sort((a, b) => stamp(b) - stamp(a));
+      const link = ofKind[0];
 
       if (link) {
         cells[kind] = {
@@ -160,6 +171,7 @@ export function buildPersonMap(
           state: 'linked',
           at: link.form_submitted_at,
           workUrl: link.work_url || null,
+          versions: ofKind.length,
           signals: (link.match_signals ?? []) as MatchSignal[],
           score: link.match_score,
           sourceFile: link.source_file || null,
@@ -175,6 +187,7 @@ export function buildPersonMap(
           state: 'pending',
           at: draft.entry.submittedAt ? new Date(draft.entry.submittedAt).toISOString() : null,
           workUrl: draft.entry.workUrl || null,
+          versions: 1,
           signals: draft.signals,
           score: draft.score,
           sourceFile: byKind.get(kind)?.sourceFile ?? null,
@@ -188,6 +201,7 @@ export function buildPersonMap(
         state: site.marked ? 'marked_only' : 'missing',
         at: site.markedAt,
         workUrl: null,
+        versions: 0,
         signals: [],
         score: null,
         sourceFile: null,
@@ -408,7 +422,9 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
         ? `${cell.sourceFile}${cell.sourceRow ? `, строка ${cell.sourceRow}` : ''}`
         : '';
       return [
-        CELL_STATE_LABELS[cell.state],
+        cell.versions > 1
+          ? `${CELL_STATE_LABELS[cell.state]} (отправок: ${cell.versions})`
+          : CELL_STATE_LABELS[cell.state],
         formatMapStamp(cell.at),
         cell.workUrl ?? '',
         describeSiteStage(cell),

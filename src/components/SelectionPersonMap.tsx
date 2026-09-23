@@ -96,7 +96,12 @@ function FormCell({ cell }: { cell: PersonFormCell }) {
 
   return (
     <div className={`rounded-lg border px-2 py-1.5 ${style.box}`}>
-      <div className={`text-[11px] font-medium ${style.text}`}>{style.label}</div>
+      <div className={`text-[11px] font-medium ${style.text}`}>
+        {style.label}
+        {cell.versions > 1 && (
+          <span className="ml-1 text-slate-400 font-normal">· отправок: {cell.versions}</span>
+        )}
+      </div>
       {stamp && <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">{stamp}</div>}
       {cell.workUrl && (
         // Ссылка на саму работу: по ней видно, что человек действительно

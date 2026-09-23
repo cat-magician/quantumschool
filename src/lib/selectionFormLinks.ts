@@ -12,6 +12,8 @@ import type { SelectionFormKind, SelectionFormLink } from './types';
 export type FormLinkDraft = {
   user_id: string;
   form_kind: SelectionFormKind;
+  /** Номер ответа: связь хранится на ответ, у человека их может быть несколько. */
+  answer_key: string;
   contact_email: string | null;
   form_name: string;
   form_submitted_at: string | null;
@@ -30,6 +32,7 @@ function describeLinkError(message: string): string {
   const lower = message.toLowerCase();
   if (
     lower.includes('superadmin_apply_form_links')
+    || lower.includes('superadmin_clear_form_links')
     || lower.includes('superadmin_clear_form_link')
     || lower.includes('selection_form_links')
     || lower.includes('schema cache')
@@ -69,11 +72,57 @@ export async function applySelectionFormLinks(
   });
 
   if (error) {
+    // База без миграции версий держит одну связь на человека и форму и
+    // отвергает пачку с несколькими версиями. Не теряем разбор: сохраняем
+    // последнюю версию каждого, а про остальные честно говорим.
+    if (error.message.includes('duplicate_links')) {
+      const latest = latestPerPerson(drafts);
+      if (latest.length < drafts.length) {
+        const retry = await supabase.rpc('superadmin_apply_form_links', { p_links: latest });
+        if (!retry.error) {
+          return {
+            saved: typeof retry.data === 'number' ? retry.data : latest.length,
+            error: `Сохранена только последняя версия у ${drafts.length - latest.length} ответов: `
+              + 'примените supabase/schema.sql, чтобы хранились все версии.',
+          };
+        }
+      }
+    }
     console.error('Form links save error:', error.message);
     return { saved: 0, error: describeLinkError(error.message) };
   }
 
   return { saved: typeof data === 'number' ? data : drafts.length, error: null };
+}
+
+function latestPerPerson(drafts: FormLinkDraft[]): FormLinkDraft[] {
+  const latest = new Map<string, FormLinkDraft>();
+  for (const draft of drafts) {
+    const key = `${draft.user_id}:${draft.form_kind}`;
+    const current = latest.get(key);
+    const at = (d: FormLinkDraft) => (d.form_submitted_at ? Date.parse(d.form_submitted_at) : 0);
+    if (!current || at(draft) >= at(current)) latest.set(key, draft);
+  }
+  return [...latest.values()];
+}
+
+/**
+ * Начать заново: убрать все связи одной формы или всех сразу. Почта для связи
+ * в профилях пересчитывается на стороне базы.
+ */
+export async function clearAllSelectionFormLinks(
+  kind: SelectionFormKind | null,
+): Promise<{ cleared: number; error: string | null }> {
+  const { data, error } = await supabase.rpc('superadmin_clear_form_links', {
+    target_form_kind: kind,
+  });
+
+  if (error) {
+    console.error('Form links clear-all error:', error.message);
+    return { cleared: 0, error: describeLinkError(error.message) };
+  }
+
+  return { cleared: typeof data === 'number' ? data : 0, error: null };
 }
 
 export async function clearSelectionFormLink(

@@ -26,6 +26,11 @@ export function profileStageTimestamp(profile: UserProfile, kind: FormKind): str
 }
 
 export type ColumnMapping = {
+  /**
+   * Номер ответа в выгрузке: колонка ID у Форм, ID участника у Контеста. По
+   * нему тот же ответ узнаётся при повторной загрузке файла.
+   */
+  answerId: number | null;
   /** Код участника, подставленный сайтом в форму: точная привязка без угадывания. */
   code: number | null;
   name: number | null;
@@ -40,12 +45,14 @@ export type ColumnMapping = {
 };
 
 export const EMPTY_MAPPING: ColumnMapping = {
+  answerId: null,
   code: null,
   name: null, email: null, submittedAt: null, login: null, city: null, school: null, grade: null,
   work: null,
 };
 
 const HEADER_HINTS: Record<keyof ColumnMapping, RegExp[]> = {
+  answerId: [/^id$/i, /^id\s*в\s*контесте/i, /номер\s*ответа/i, /^id\s*ответа/i],
   code: [/код\s*участник/i, /^код$/i, /participant.*code/i],
   name: [/^ваше\s*фио/i, /фио/i, /^имя\s*и\s*фамилия/i, /user_?name/i, /полное\s*имя/i],
   email: [/ваша\s*почта/i, /почта/i, /эмейл/i, /e-?mail/i, /мейл/i],
@@ -65,6 +72,7 @@ const HEADER_HINTS: Record<keyof ColumnMapping, RegExp[]> = {
  * Для сопоставления нужен именно момент отправки, начало заполнения только мешает.
  */
 const HEADER_BLOCKLIST: Record<keyof ColumnMapping, RegExp[]> = {
+  answerId: [],
   code: [],
   name: [/^имя$/i, /^фамилия$/i],
   email: [],
@@ -144,6 +152,11 @@ export type FormEntry = {
   workUrl: string;
   /** Как назван присланный файл — иногда это и есть подпись автора. */
   workName: string;
+  /**
+   * Чем эта отправка отличается от любой другой: номер из выгрузки, а если
+   * его нет — файл работы, момент отправки, логин. По ключу связь и хранится.
+   */
+  answerKey: string;
   /** Адрес похож на почту. С опечаткой писать участнику некуда. */
   emailValid: boolean;
   /** Отброшена как повторная отправка того же человека. */
@@ -312,8 +325,13 @@ export function buildFormEntries(
       grade: cell(row, mapping.grade),
       workUrl: pickWork(cell(row, mapping.work), rawName),
       workName: workAuthorHint(workFileName(pickWork(cell(row, mapping.work), rawName))),
+      answerKey: '',
       emailValid: email !== '' && isLikelyEmail(email),
     };
+  });
+
+  table.rows.forEach((row, i) => {
+    entries[i].answerKey = answerKeyOf(entries[i], cell(row, mapping.answerId));
   });
 
   const latestByKey = new Map<string, FormEntry>();
@@ -334,6 +352,17 @@ export function buildFormEntries(
 
   collapseResentFiles(entries);
   return entries;
+}
+
+function answerKeyOf(entry: FormEntry, rawId: string): string {
+  if (rawId) return `id:${rawId}`;
+  if (entry.workUrl) return `file:${workFileName(entry.workUrl) || entry.workUrl}`;
+  if (entry.submittedAt !== null) {
+    return `at:${entry.submittedAt}|${entry.email || normalizeName(entry.name)}`;
+  }
+  if (entry.login) return `login:${entry.login}`;
+  if (entry.name) return `name:${normalizeName(entry.name)}`;
+  return `row:${entry.rowNumber}`;
 }
 
 /** Сколько времени между отправками одного и того же файла считаем повтором. */
@@ -673,19 +702,23 @@ export function scoreCandidate(
 export type MatchConfidence = 'confident' | 'likely' | 'unmatched';
 
 export type MatchRow = {
+  /** Последняя отправка человека — по ней строка и подписана. */
   entry: FormEntry;
+  /**
+   * Все отправки этого человека в файле, последняя первой. Сохраняются все:
+   * повтор не значит, что старая версия не нужна.
+   */
+  versions: FormEntry[];
   best: Candidate | null;
   alternatives: Candidate[];
   confidence: MatchConfidence;
-  /**
-   * Этот ответ уже сохранён за аккаунтом — тот же файл или та же отправка.
-   * Решать его заново не нужно: выгрузку просто скачали ещё раз.
-   */
+  /** Ответ уже сохранён за этим аккаунтом — решать заново нечего. */
   savedFor: string | null;
+  /** У аккаунта уже есть ответы этой формы — строка станет ещё одной версией. */
+  addsVersion: boolean;
   /**
-   * Похожие аккаунты, у которых эта форма уже занята другим ответом. Их не
-   * предлагаем, но показываем: высокий балл у занятого аккаунта чаще всего
-   * значит, что строка — его повторная отправка.
+   * Похожие аккаунты, у которых ответы этой формы уже есть, но доводы слабые
+   * (время, часть имени). Их не предлагаем, но показываем.
    */
   busy: Candidate[];
 };
@@ -750,6 +783,8 @@ function hasNameSignal(candidate: Candidate | null): boolean {
 /** Ответ, уже сохранённый за аккаунтом по этой форме. */
 export type SavedAnswer = {
   profileId: string;
+  /** Номер ответа из выгрузки; у связей, сохранённых до ключей, — пусто. */
+  answerKey: string | null;
   workUrl: string | null;
   submittedAt: number | null;
   name: string;
@@ -759,16 +794,16 @@ export type SavedAnswer = {
 };
 
 /**
- * Слоты формы: у каждого аккаунта на каждую форму — один ответ. Занятый
- * аккаунт свободным не считается: предлагать его другой строке значит
- * отнимать у человека уже подтверждённую работу.
+ * Что уже сохранено по форме: у человека может быть несколько ответов —
+ * переслал эссе, дважды заполнил анкету. Все они его.
  */
-export type TakenSlots = Map<string, SavedAnswer>;
+export type TakenSlots = Map<string, SavedAnswer[]>;
 
 export function takenSlotsFromLinks(
   links: {
     user_id: string;
     form_kind: string;
+    answer_key?: string | null;
     work_url?: string | null;
     form_submitted_at: string | null;
     form_name?: string | null;
@@ -782,30 +817,41 @@ export function takenSlotsFromLinks(
   for (const link of links) {
     if (link.form_kind !== kind) continue;
     const at = link.form_submitted_at ? Date.parse(link.form_submitted_at) : NaN;
-    slots.set(link.user_id, {
+    const answer: SavedAnswer = {
       profileId: link.user_id,
+      answerKey: link.answer_key && !link.answer_key.startsWith('legacy:') ? link.answer_key : null,
       workUrl: link.work_url ?? null,
       submittedAt: Number.isNaN(at) ? null : at,
       name: link.form_name ?? '',
       email: link.contact_email ?? null,
       sourceFile: link.source_file ?? '',
       sourceRow: link.source_row ?? null,
-    });
+    };
+    const list = slots.get(link.user_id);
+    if (list) list.push(answer);
+    else slots.set(link.user_id, [answer]);
   }
   return slots;
 }
 
 /**
- * Та же ли это отправка, что уже сохранена. Лучший признак — файл работы;
- * без него — момент отправки с точностью до минуты плюс почта или имя.
+ * Та же ли это отправка, что уже сохранена. Надёжнее всего номер ответа из
+ * выгрузки; у связей, сохранённых до него, — файл работы, момент отправки с
+ * почтой или именем, а у контеста, где времени нет вовсе, — подпись.
  */
 export function sameAnswer(entry: FormEntry, saved: SavedAnswer): boolean {
+  if (saved.answerKey) return saved.answerKey === entry.answerKey;
+
   if (entry.workUrl && saved.workUrl) {
     return (workFileName(entry.workUrl) || entry.workUrl) === (workFileName(saved.workUrl) || saved.workUrl);
   }
   // Работа есть только с одной стороны — это разные отправки.
   if (entry.workUrl || saved.workUrl) return false;
 
+  if (entry.submittedAt === null && saved.submittedAt === null) {
+    // Контест: времени нет, отправка одна на человека — узнаём по подписи.
+    return !!entry.name && !!saved.name && normalizeName(entry.name) === normalizeName(saved.name);
+  }
   if (entry.submittedAt === null || saved.submittedAt === null) return false;
   const apart = Math.abs(entry.submittedAt - saved.submittedAt);
 
@@ -821,10 +867,57 @@ export function sameAnswer(entry: FormEntry, saved: SavedAnswer): boolean {
 }
 
 /**
- * Один аккаунт — одна строка формы. Сначала узнаём уже сохранённые ответы,
- * потом раздаём остальные строки свободным аккаунтам по убыванию балла:
- * сильные совпадения занимают аккаунт раньше слабых, а занятые сохранёнными
- * ответами аккаунты не достаются никому.
+ * Доводы, которых хватает, чтобы признать строку ещё одной отправкой
+ * человека, у которого ответы этой формы уже есть. Время и частичное имя —
+ * не такие: из-за них строки и уезжали к чужим людям.
+ */
+const STRONG_SIGNALS: MatchSignal[] = ['code', 'email', 'login', 'name_exact'];
+
+function isStrong(candidate: Candidate): boolean {
+  return STRONG_SIGNALS.some((s) => candidate.signals.includes(s));
+}
+
+/** Все отправки одного человека в файле: последняя первой. */
+function groupVersions(entries: FormEntry[]): Map<number, FormEntry[]> {
+  const byRow = new Map(entries.map((e) => [e.rowNumber, e]));
+  const leadOf = (entry: FormEntry): FormEntry => {
+    let current = entry;
+    const seen = new Set<number>();
+    while (current.supersededBy && !seen.has(current.rowNumber)) {
+      seen.add(current.rowNumber);
+      const next = byRow.get(current.supersededBy);
+      if (!next) break;
+      current = next;
+    }
+    return current;
+  };
+
+  const groups = new Map<number, FormEntry[]>();
+  for (const entry of entries) {
+    const lead = leadOf(entry);
+    const list = groups.get(lead.rowNumber);
+    if (list) list.push(entry);
+    else groups.set(lead.rowNumber, [entry]);
+  }
+
+  for (const [leadRow, list] of groups) {
+    list.sort((a, b) => (
+      a.rowNumber === leadRow ? -1 : b.rowNumber === leadRow ? 1 : (b.submittedAt ?? 0) - (a.submittedAt ?? 0)
+    ));
+  }
+  return groups;
+}
+
+/**
+ * Сопоставление одной выгрузки.
+ *
+ * Строки одного человека (повторные отправки) собираются в группу и
+ * сопоставляются вместе: доводы берутся из любой версии, а сохраняются все.
+ * Уже сохранённые ответы узнаются сразу. Остальные группы раздаются по
+ * убыванию балла: один аккаунт — одна группа в файле. Аккаунт, у которого
+ * ответы этой формы уже есть, получает новую группу только при твёрдых
+ * доводах — тогда это ещё одна его версия; по времени или части имени чужой
+ * ответ к нему не приедет.
  */
 export function matchFormEntries(
   entries: FormEntry[],
@@ -833,31 +926,41 @@ export function matchFormEntries(
   aliases?: ProfileAliases,
   taken: TakenSlots = new Map(),
 ): MatchRow[] {
-  const active = entries.filter((e) => !e.supersededBy);
+  const groups = groupVersions(entries);
+  const leads = entries.filter((e) => !e.supersededBy);
   const profilesById = new Map(profiles.map((p) => [p.id, p]));
 
-  // Один сохранённый ответ узнаёт только одна строка: две строки не могут
-  // быть одной и той же отправкой.
+  // Уже сохранённые: группа принадлежит тому, за кем сохранена любая её версия.
   const savedBy = new Map<number, string>();
-  const recognised = new Set<string>();
-  for (const entry of active) {
-    for (const [profileId, saved] of taken) {
-      if (recognised.has(profileId) || !sameAnswer(entry, saved)) continue;
-      savedBy.set(entry.rowNumber, profileId);
-      recognised.add(profileId);
-      break;
+  const recognised = new Set<SavedAnswer>();
+  for (const lead of leads) {
+    const versions = groups.get(lead.rowNumber) ?? [lead];
+    search: for (const version of versions) {
+      for (const [profileId, answers] of taken) {
+        for (const answer of answers) {
+          if (recognised.has(answer) || !sameAnswer(version, answer)) continue;
+          savedBy.set(lead.rowNumber, profileId);
+          recognised.add(answer);
+          break search;
+        }
+      }
     }
   }
 
-  const scored = active.map((entry) => {
+  // Балл группы — по лучшей из её версий: имя могло быть только в одной.
+  const scored = leads.map((lead) => {
+    const versions = groups.get(lead.rowNumber) ?? [lead];
     const candidates = profiles
-      .map((profile) => scoreCandidate(entry, profile, kind, aliases?.get(profile.id)))
+      .map((profile) => versions
+        .map((version) => scoreCandidate(version, profile, kind, aliases?.get(profile.id)))
+        .reduce((best, c) => (c.score > best.score ? c : best)))
       .filter((c) => c.score >= LIKELY_THRESHOLD)
       .sort((a, b) => b.score - a.score);
-    return { entry, candidates };
+    return { entry: lead, versions, candidates };
   });
 
   const assigned = new Map<number, Candidate>();
+  const claimed = new Set<string>();
   for (const { entry } of scored) {
     const owner = savedBy.get(entry.rowNumber);
     if (!owner) continue;
@@ -865,9 +968,9 @@ export function matchFormEntries(
     assigned.set(entry.rowNumber, profile
       ? scoreCandidate(entry, profile, kind, aliases?.get(owner))
       : { profileId: owner, score: 0, signals: [] });
+    claimed.add(owner);
   }
 
-  const occupied = new Set(taken.keys());
   const pairs = scored
     .filter(({ entry }) => !savedBy.has(entry.rowNumber))
     .flatMap(({ entry, candidates }) => candidates.map((candidate) => ({ entry, candidate })));
@@ -875,24 +978,35 @@ export function matchFormEntries(
 
   for (const { entry, candidate } of pairs) {
     if (assigned.has(entry.rowNumber)) continue;
-    if (occupied.has(candidate.profileId)) continue;
+    if (claimed.has(candidate.profileId)) continue;
+    if (taken.has(candidate.profileId) && !isStrong(candidate)) continue;
     assigned.set(entry.rowNumber, candidate);
-    occupied.add(candidate.profileId);
+    claimed.add(candidate.profileId);
   }
 
-  const rows: MatchRow[] = scored.map(({ entry, candidates }) => {
+  const rows: MatchRow[] = scored.map(({ entry, versions, candidates }) => {
     const savedFor = savedBy.get(entry.rowNumber) ?? null;
     const best = assigned.get(entry.rowNumber) ?? null;
     const others = candidates.filter((c) => c.profileId !== best?.profileId);
-    const free = others.filter((c) => !taken.has(c.profileId));
+    const free = others.filter((c) => !taken.has(c.profileId) || isStrong(c));
     const busy = savedFor
       ? []
-      : others.filter((c) => taken.has(c.profileId) && c.score >= (best?.score ?? LIKELY_THRESHOLD));
+      : others.filter((c) => taken.has(c.profileId) && !isStrong(c)
+        && c.score >= (best?.score ?? LIKELY_THRESHOLD));
 
     // Соперник для оценки уверенности — любой, в том числе занятый: если
     // занятый аккаунт похож не меньше, строка может быть его повтором.
     const confidence: MatchConfidence = savedFor ? 'confident' : classify(best, others[0] ?? null);
-    return { entry, best, alternatives: free.slice(0, 4), confidence, savedFor, busy: busy.slice(0, 2) };
+    return {
+      entry,
+      versions,
+      best,
+      alternatives: free.slice(0, 4),
+      confidence,
+      savedFor,
+      addsVersion: !savedFor && !!best && taken.has(best.profileId),
+      busy: busy.slice(0, 2),
+    };
   });
 
   // Сначала то, что требует внимания.
@@ -951,7 +1065,9 @@ export function matchFormSources(
         // Учимся только на бесспорном: догадка, принятая за факт, потащит за
         // собой следующие формы и размножит одну ошибку на три.
         if (row.confidence !== 'confident' || !row.best) continue;
-        if (rememberIdentity(known, row.best.profileId, row.entry)) learned++;
+        for (const version of row.versions) {
+          if (rememberIdentity(known, row.best.profileId, version)) learned++;
+        }
       }
     }
 

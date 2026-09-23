@@ -3297,6 +3297,9 @@ CREATE TABLE IF NOT EXISTS public.selection_form_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   form_kind text NOT NULL CHECK (form_kind IN ('questionnaire', 'essay', 'contest')),
+  -- Номер ответа в выгрузке: колонка ID у Форм, ID участника у Контеста.
+  -- По нему узнаём тот же ответ при повторной загрузке файла.
+  answer_key text,
   contact_email text,
   form_name text NOT NULL DEFAULT '',
   form_submitted_at timestamptz,
@@ -3309,12 +3312,28 @@ CREATE TABLE IF NOT EXISTS public.selection_form_links (
   match_signals text[] NOT NULL DEFAULT '{}',
   confirmed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, form_kind)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS selection_form_links_kind_idx
   ON public.selection_form_links (form_kind);
+
+-- У человека бывает несколько отправок одной формы: переслал эссе, заполнил
+-- анкету дважды. Все они — его, и выбрасывать ни одну нельзя. Поэтому связь
+-- хранится на ответ: ответ принадлежит одному человеку, у человека ответов
+-- сколько угодно. Раньше было «одна связь на человека и форму» — это
+-- ограничение снимаем.
+ALTER TABLE public.selection_form_links
+  ADD COLUMN IF NOT EXISTS answer_key text;
+
+ALTER TABLE public.selection_form_links
+  DROP CONSTRAINT IF EXISTS selection_form_links_user_id_form_kind_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS selection_form_links_answer_idx
+  ON public.selection_form_links (form_kind, answer_key);
+
+CREATE INDEX IF NOT EXISTS selection_form_links_user_kind_idx
+  ON public.selection_form_links (user_id, form_kind);
 
 ALTER TABLE public.selection_form_links ENABLE ROW LEVEL SECURITY;
 
@@ -3344,39 +3363,56 @@ BEGIN
     RAISE EXCEPTION 'links_not_an_array';
   END IF;
 
-  -- Один аккаунт дважды в одной пачке — ON CONFLICT на это отвечает невнятно,
-  -- а интерфейс такие строки и так не отдаёт: значит, что-то разошлось.
+  -- Ключ ответа: номер отправки из выгрузки (колонка ID у Форм, ID участника
+  -- у Контеста). Клиент, собранный до этой правки, ключа не шлёт — тогда
+  -- ведём себя по-старому: одна связь на человека и форму.
+  DROP TABLE IF EXISTS pg_temp.incoming;
+  CREATE TEMP TABLE incoming ON COMMIT DROP AS
+  SELECT
+    (item->>'user_id')::uuid AS user_id,
+    item->>'form_kind' AS form_kind,
+    COALESCE(NULLIF(trim(item->>'answer_key'), ''), 'legacy:' || (item->>'user_id')) AS answer_key,
+    lower(NULLIF(trim(item->>'contact_email'), '')) AS contact_email,
+    COALESCE(NULLIF(trim(item->>'form_name'), ''), '') AS form_name,
+    NULLIF(item->>'form_submitted_at', '')::timestamptz AS form_submitted_at,
+    NULLIF(trim(item->>'work_url'), '') AS work_url,
+    COALESCE(NULLIF(trim(item->>'source_file'), ''), '') AS source_file,
+    NULLIF(item->>'source_row', '')::integer AS source_row,
+    NULLIF(item->>'match_score', '')::integer AS match_score,
+    COALESCE(
+      ARRAY(SELECT jsonb_array_elements_text(item->'match_signals')),
+      '{}'::text[]
+    ) AS match_signals
+  FROM jsonb_array_elements(p_links) AS item;
+
+  -- Один и тот же ответ дважды в пачке — значит, где-то разошлось: ответ
+  -- принадлежит одному человеку. А вот у человека ответов может быть много.
   IF EXISTS (
-    SELECT 1
-    FROM jsonb_array_elements(p_links) AS item
-    GROUP BY item->>'user_id', item->>'form_kind'
-    HAVING count(*) > 1
+    SELECT 1 FROM incoming GROUP BY form_kind, answer_key HAVING count(*) > 1
   ) THEN
     RAISE EXCEPTION 'duplicate_links';
   END IF;
 
+  -- Связи, сохранённые до появления ключей, — по одной на человека и форму.
+  -- Как только тот же человек приходит с ответами по ключам, старая
+  -- безымянная связь больше не нужна: её заменяют версии.
+  DELETE FROM public.selection_form_links l
+  USING (SELECT DISTINCT user_id, form_kind FROM incoming WHERE answer_key NOT LIKE 'legacy:%') AS fresh
+  WHERE l.user_id = fresh.user_id
+    AND l.form_kind = fresh.form_kind
+    AND (l.answer_key IS NULL OR l.answer_key LIKE 'legacy:%');
+
   INSERT INTO public.selection_form_links (
-    user_id, form_kind, contact_email, form_name, form_submitted_at, work_url,
+    user_id, form_kind, answer_key, contact_email, form_name, form_submitted_at, work_url,
     source_file, source_row, match_score, match_signals, confirmed_by, updated_at
   )
   SELECT
-    (item->>'user_id')::uuid,
-    item->>'form_kind',
-    lower(NULLIF(trim(item->>'contact_email'), '')),
-    COALESCE(NULLIF(trim(item->>'form_name'), ''), ''),
-    NULLIF(item->>'form_submitted_at', '')::timestamptz,
-    NULLIF(trim(item->>'work_url'), ''),
-    COALESCE(NULLIF(trim(item->>'source_file'), ''), ''),
-    NULLIF(item->>'source_row', '')::integer,
-    NULLIF(item->>'match_score', '')::integer,
-    COALESCE(
-      ARRAY(SELECT jsonb_array_elements_text(item->'match_signals')),
-      '{}'::text[]
-    ),
-    auth.uid(),
-    now()
-  FROM jsonb_array_elements(p_links) AS item
-  ON CONFLICT (user_id, form_kind) DO UPDATE SET
+    user_id, form_kind, answer_key, contact_email, form_name, form_submitted_at, work_url,
+    source_file, source_row, match_score, match_signals, auth.uid(), now()
+  FROM incoming
+  ON CONFLICT (form_kind, answer_key) DO UPDATE SET
+    -- Ответ передали другому человеку — он переезжает целиком.
+    user_id = EXCLUDED.user_id,
     contact_email = EXCLUDED.contact_email,
     form_name = EXCLUDED.form_name,
     form_submitted_at = EXCLUDED.form_submitted_at,
@@ -3395,8 +3431,7 @@ BEGIN
   -- Адрес берём из анкеты: в остальных формах поля почты просто нет, а если
   -- когда-нибудь появится — анкета всё равно свежее и полнее.
   WITH touched AS (
-    SELECT DISTINCT (item->>'user_id')::uuid AS user_id
-    FROM jsonb_array_elements(p_links) AS item
+    SELECT DISTINCT user_id FROM incoming
   ),
   best AS (
     SELECT DISTINCT ON (l.user_id) l.user_id, l.contact_email
@@ -3453,6 +3488,57 @@ $$;
 
 REVOKE ALL ON FUNCTION public.superadmin_clear_form_link(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_link(uuid, text) TO authenticated;
+
+-- Сбросить сопоставление и начать заново: все связи одной формы или всех
+-- сразу. Почта для связи в профилях берётся из связей, поэтому у затронутых
+-- людей она пересчитывается — остаётся из уцелевших связей или пропадает.
+CREATE OR REPLACE FUNCTION public.superadmin_clear_form_links(target_form_kind text DEFAULT NULL)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count integer := 0;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  IF target_form_kind IS NOT NULL
+    AND target_form_kind NOT IN ('questionnaire', 'essay', 'contest') THEN
+    RAISE EXCEPTION 'unknown_form_kind';
+  END IF;
+
+  DROP TABLE IF EXISTS pg_temp.cleared_users;
+  CREATE TEMP TABLE cleared_users ON COMMIT DROP AS
+  SELECT DISTINCT user_id
+  FROM public.selection_form_links
+  WHERE target_form_kind IS NULL OR form_kind = target_form_kind;
+
+  DELETE FROM public.selection_form_links
+  WHERE target_form_kind IS NULL OR form_kind = target_form_kind;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+
+  UPDATE public.user_profiles p
+  SET
+    contact_email = (
+      SELECT l.contact_email
+      FROM public.selection_form_links l
+      WHERE l.user_id = p.id AND l.contact_email IS NOT NULL
+      ORDER BY (l.form_kind = 'questionnaire') DESC, l.updated_at DESC
+      LIMIT 1
+    ),
+    updated_at = now()
+  WHERE p.id IN (SELECT user_id FROM cleared_users);
+
+  RETURN v_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_clear_form_links(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_links(text) TO authenticated;
 
 -- ══════════════════════════════════════════════════════════════
 -- Предзаполнение форм: чтобы археология больше не понадобилась

@@ -1224,5 +1224,103 @@ check('та же отправка узнаётся и без файла — по
   assert.equal(lib.sameAnswer(other, saved), false, 'в ту же секунду мог отправить и другой');
 });
 
+// ── Версии: у человека бывает несколько отправок, и все они его ──────
+check('номер ответа из колонки ID — ключ отправки', () => {
+  const mapping = lib.autoDetectColumns(['ID', 'Время создания', 'Ваше ФИО'], [['2490001234', '', '']]);
+  assert.equal(mapping.answerId, 0);
+  const [entry] = lib.buildFormEntries(
+    table(['ID', 'Ваше ФИО'], [['2490001234', 'Иванов Иван']]),
+    { ...lib.EMPTY_MAPPING, answerId: 0, name: 1 },
+  );
+  assert.equal(entry.answerKey, 'id:2490001234');
+
+  // Склейка архива с монитором размечается сама: ID участника — тоже ключ.
+  const contest = lib.autoDetectColumns(lib.CONTEST_HEADERS, [['vbourlak', 'vbourlak', '134162172', '9', '5', '42']]);
+  assert.equal(lib.CONTEST_HEADERS[contest.answerId], 'ID в Контесте');
+});
+
+check('повторные отправки собираются в одну строку со всеми версиями', () => {
+  const p = profile({ id: 'p1', display_name: 'Иванов Иван', email: 'ivanov@yandex.ru' });
+  const entries = lib.buildFormEntries(
+    table(['ID', 'Ваша почта', 'Время создания'], [
+      ['1', 'ivanov@yandex.ru', '2026-09-01 10:00:00'],
+      ['2', 'ivanov@yandex.ru', '2026-09-03 12:00:00'],
+    ]),
+    { ...lib.EMPTY_MAPPING, answerId: 0, email: 1, submittedAt: 2 },
+  );
+  const [row] = lib.matchFormEntries(entries, [p], 'questionnaire');
+
+  assert.equal(row.best.profileId, 'p1');
+  assert.deepEqual(row.versions.map((v) => v.answerKey), ['id:2', 'id:1'], 'последняя первой, старая не выброшена');
+});
+
+check('контест без времени узнаётся по подписи при повторной загрузке', () => {
+  const burlak = profile({ id: 'p1', display_name: 'Вячеслав Бурлак', yandex_login: 'vbourlak' });
+  // Связь сохранена раньше, ещё без ключа — так было до версий.
+  const taken = lib.takenSlotsFromLinks([{
+    user_id: 'p1', form_kind: 'contest', form_submitted_at: null, form_name: 'vbourlak',
+    source_file: 'monitor.csv', source_row: 3,
+  }], 'contest');
+
+  const entry = mkEntry({ name: 'vbourlak', login: 'vbourlak', answerKey: 'id:134162172' });
+  const [row] = lib.matchFormEntries([entry], [burlak], 'contest', undefined, taken);
+
+  assert.equal(row.savedFor, 'p1', 'это тот же ответ, а не «не найден»');
+  assert.equal(row.busy.length, 0);
+});
+
+check('твёрдый довод добавляет версию к уже сохранённому человеку', () => {
+  const smolin = profile({ id: 'p1', display_name: 'Nickolay Smolin', yandex_login: 'tattybel' });
+  const taken = lib.takenSlotsFromLinks([{
+    user_id: 'p1', form_kind: 'contest', answer_key: 'id:111', form_submitted_at: null,
+    form_name: 'tattybel', source_file: 'old.csv', source_row: 1,
+  }], 'contest');
+
+  // Другая отправка того же человека: ключ другой, но логин совпал.
+  const entry = mkEntry({ name: 'Смолин Николай Игоревич', login: 'tattybel', answerKey: 'id:222' });
+  const [row] = lib.matchFormEntries([entry], [smolin], 'contest', undefined, taken);
+
+  assert.equal(row.savedFor, null);
+  assert.equal(row.best.profileId, 'p1');
+  assert.equal(row.addsVersion, true, 'добавится ещё одной версией, сохранённое не трогаем');
+  assert.equal(row.confidence, 'confident');
+});
+
+check('слабый довод к занятому аккаунту не ведёт, но виден', () => {
+  const owner = profile({
+    id: 'p1', display_name: 'Райвид Денис', stage1_submitted_at: '2026-08-20T11:45:00Z',
+  });
+  const taken = lib.takenSlotsFromLinks([{
+    user_id: 'p1', form_kind: 'essay', answer_key: 'id:1', form_submitted_at: '2026-08-20T11:45:31Z',
+    form_name: '', source_file: 'essay.xlsx', source_row: 1,
+  }], 'essay');
+
+  const stranger = mkEntry({ answerKey: 'id:5', submittedAt: Date.parse('2026-08-20T11:46:10Z') });
+  const [row] = lib.matchFormEntries([stranger], [owner], 'essay', undefined, taken);
+
+  assert.equal(row.best, null, 'по одному времени чужую работу к занятому не везём');
+  assert.equal(row.busy[0].profileId, 'p1', 'но показываем, на кого похоже');
+});
+
+check('новая отправка сохранённого человека попадает в его строку', () => {
+  const p = profile({ id: 'p1', display_name: 'Брызгалов Ярослав', email: 'b@mail.ru' });
+  const taken = lib.takenSlotsFromLinks([{
+    user_id: 'p1', form_kind: 'questionnaire', answer_key: 'id:1', form_submitted_at: '2026-09-01T10:00:00Z',
+    form_name: 'Брызгалов Ярослав', contact_email: 'b@mail.ru', source_file: 'a.xlsx', source_row: 1,
+  }], 'questionnaire');
+
+  const entries = lib.buildFormEntries(
+    table(['ID', 'Ваша почта', 'Время создания'], [
+      ['1', 'b@mail.ru', '2026-09-01 13:00:00'],
+      ['7', 'b@mail.ru', '2026-09-05 13:00:00'],
+    ]),
+    { ...lib.EMPTY_MAPPING, answerId: 0, email: 1, submittedAt: 2 },
+  );
+  const [row] = lib.matchFormEntries(entries, [p], 'questionnaire', undefined, taken);
+
+  assert.equal(row.savedFor, 'p1', 'группа узнана по сохранённой версии');
+  assert.equal(row.versions.length, 2, 'и новая отправка в ней же — сохранится версией');
+});
+
 await Promise.all(pending);
 console.log(`ок: ${checks} проверок`);

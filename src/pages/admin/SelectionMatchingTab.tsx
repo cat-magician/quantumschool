@@ -3,6 +3,8 @@ import {
   AlertTriangle, Check, ExternalLink, Link2Off, Loader2, Save, Search, UserX,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
+import { FormSelect } from '../../components/FormControls';
+import { useAppDialog } from '../../lib/AppDialogContext';
 import SelectionPersonMap from '../../components/SelectionPersonMap';
 import {
   buildOrphanAnswers,
@@ -29,6 +31,7 @@ import {
   matchFormSources,
   profileStageTimestamp,
   resolveMatch,
+  sameAnswer,
   takenSlotsFromLinks,
   workAuthorHint,
   workFileName,
@@ -50,6 +53,7 @@ import {
 } from '../../lib/contestArchive';
 import {
   applySelectionFormLinks,
+  clearAllSelectionFormLinks,
   clearSelectionFormLink,
   fetchSelectionFormLinks,
   type FormLinkDraft,
@@ -216,6 +220,8 @@ export default function SelectionMatchingTab() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [clearKind, setClearKind] = useState<FormKind | 'all'>('all');
+  const { confirm } = useAppDialog();
 
   const snapshotRef = useRef<SiteSnapshot>({ profiles: [], links: [] });
   const savingRef = useRef(false);
@@ -492,15 +498,22 @@ export default function SelectionMatchingTab() {
     [profiles],
   );
 
+  /** Сохранённые ответы по форме и человеку: у одного человека их бывает несколько. */
   const linksByKind = useMemo(() => {
-    const index = new Map<FormKind, Map<string, SelectionFormLink>>();
+    const index = new Map<FormKind, Map<string, SelectionFormLink[]>>();
     for (const link of links) {
       const kind = link.form_kind as FormKind;
-      const forKind = index.get(kind) ?? new Map<string, SelectionFormLink>();
-      forKind.set(link.user_id, link);
+      const forKind = index.get(kind) ?? new Map<string, SelectionFormLink[]>();
+      forKind.set(link.user_id, [...(forKind.get(link.user_id) ?? []), link]);
       index.set(kind, forKind);
     }
     return index;
+  }, [links]);
+
+  const savedCounts = useMemo(() => {
+    const counts: Record<FormKind, number> = { questionnaire: 0, essay: 0, contest: 0 };
+    for (const link of links) counts[link.form_kind as FormKind]++;
+    return counts;
   }, [links]);
 
   const bucketed = useMemo(() => {
@@ -518,14 +531,25 @@ export default function SelectionMatchingTab() {
     return result;
   }, [items, overridesFor]);
 
+  /**
+   * Что уходит в базу. Сохраняются все отправки человека, а не только
+   * последняя: повтор не значит, что старая версия не нужна. У уже
+   * сохранённых — только то, чего в базе нет: новые версии и ссылки на
+   * работы, которых раньше не знали.
+   */
   const drafts: FormLinkDraft[] = useMemo(() => (
     items.flatMap(({ source, row }) => {
       let profileId: string;
+      let versions = row.versions;
+
       if (row.savedFor) {
-        // Уже сохранено: перезаписывать незачем — разве что дописать ссылку
-        // на работу, которой в старой связи ещё не было.
-        const link = linksByKind.get(source.kind)?.get(row.savedFor);
-        if (!row.entry.workUrl || link?.work_url) return [];
+        const saved = takenByKind.get(source.kind)?.get(row.savedFor) ?? [];
+        versions = row.versions.filter((version) => {
+          const same = saved.find((answer) => sameAnswer(version, answer));
+          // Новая версия, старая связь без ключа или без ссылки на работу.
+          return !same || !same.answerKey || (!same.workUrl && !!version.workUrl);
+        });
+        if (versions.length === 0) return [];
         profileId = row.savedFor;
       } else {
         const resolved = resolveMatch(row, overridesFor(source.id));
@@ -535,22 +559,47 @@ export default function SelectionMatchingTab() {
       }
 
       const candidate = candidateFor(row, profileId);
-      return [{
+      return versions.map((version) => ({
         user_id: profileId,
         form_kind: source.kind,
-        contact_email: row.entry.emailValid ? row.entry.email : null,
-        form_name: row.entry.name,
-        form_submitted_at: row.entry.submittedAt === null
+        answer_key: version.answerKey,
+        contact_email: version.emailValid ? version.email : null,
+        form_name: version.name,
+        form_submitted_at: version.submittedAt === null
           ? null
-          : new Date(row.entry.submittedAt).toISOString(),
-        work_url: row.entry.workUrl || null,
+          : new Date(version.submittedAt).toISOString(),
+        work_url: version.workUrl || null,
         source_file: source.fileName,
-        source_row: row.entry.rowNumber,
+        source_row: version.rowNumber,
         match_score: candidate?.score ?? null,
         match_signals: candidate?.signals ?? [],
-      }];
+      }));
     })
-  ), [items, overridesFor, conflicts, linksByKind]);
+  ), [items, overridesFor, conflicts, takenByKind]);
+
+  const clearAll = async () => {
+    const label = clearKind === 'all' ? 'по всем формам' : `формы «${FORM_KIND_LABELS[clearKind]}»`;
+    const count = clearKind === 'all' ? links.length : savedCounts[clearKind];
+    const ok = await confirm({
+      title: `Удалить все связи ${label}?`,
+      message: `Будет удалено связей: ${count}. Почта для связи, взятая из них, пропадёт из профилей. `
+        + 'Разобранные файлы останутся на экране — их можно сразу сохранить заново. Отменить удаление нельзя.',
+      confirmLabel: 'Удалить связи',
+      danger: true,
+    });
+    if (!ok) return;
+
+    setSaving(true);
+    savingRef.current = true;
+    const { error } = await clearAllSelectionFormLinks(clearKind === 'all' ? null : clearKind);
+    if (error) setSaveError(error);
+    else {
+      setSavedCount(null);
+      await load({ silent: true });
+    }
+    savingRef.current = false;
+    setSaving(false);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -599,7 +648,7 @@ export default function SelectionMatchingTab() {
           id: profile.id,
           title: profileDisplayName(profile),
           subtitle: busy
-            ? `уже сохранено: ${busy.sourceFile || 'без файла'}${busy.sourceRow ? `, строка ${busy.sourceRow}` : ''}`
+            ? `уже есть ответов этой формы: ${busy.length} — выбор добавит ещё одну версию`
             : [account, profile.city, profile.school].filter(Boolean).join(' · ') || null,
           searchText: [
             profile.display_name, profile.email, profile.login, profile.yandex_login,
@@ -609,7 +658,7 @@ export default function SelectionMatchingTab() {
             <UserAvatar displayName={profileDisplayName(profile)} avatarUrl={profile.avatar_url} size="xs" />
           ),
           trailing: busy ? (
-            <span className="text-[11px] text-amber-400 shrink-0">занят</span>
+            <span className="text-[11px] text-amber-400 shrink-0">есть ответ</span>
           ) : candidate ? (
             <span className="text-[11px] text-slate-500 shrink-0">{candidate.score}</span>
           ) : undefined,
@@ -706,6 +755,35 @@ export default function SelectionMatchingTab() {
 
       {view === 'review' && (
         <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-slate-900/40 border border-white/5">
+            <p className="text-xs text-slate-400">
+              Сохранено связей: анкета {savedCounts.questionnaire} · эссе {savedCounts.essay}
+              {' '}· контест {savedCounts.contest}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <FormSelect
+                value={clearKind}
+                onChange={(value) => setClearKind(value as FormKind | 'all')}
+                options={[
+                  { value: 'all', label: 'Все формы' },
+                  { value: 'questionnaire', label: 'Только анкета' },
+                  { value: 'essay', label: 'Только эссе' },
+                  { value: 'contest', label: 'Только контест' },
+                ]}
+                className="min-w-[11rem]"
+              />
+              <button
+                type="button"
+                onClick={() => { void clearAll(); }}
+                disabled={saving || (clearKind === 'all' ? links.length === 0 : savedCounts[clearKind] === 0)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/25 hover:bg-rose-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Link2Off className="w-3.5 h-3.5" />
+                Очистить связи и начать заново
+              </button>
+            </div>
+          </div>
+
           <FormDropzone
             parsing={parsing}
             error={parseError}
@@ -756,7 +834,8 @@ export default function SelectionMatchingTab() {
 
           {summary.duplicates > 0 && (
             <p className="text-xs text-slate-500">
-              Повторных отправок: {summary.duplicates} — у человека осталась последняя по времени.
+              Повторных отправок: {summary.duplicates}. Они собраны в карточку своего человека и
+              сохраняются все — ни одна версия не выбрасывается.
             </p>
           )}
 
@@ -800,8 +879,9 @@ export default function SelectionMatchingTab() {
                 const profile = profileId ? profilesById.get(profileId) ?? null : null;
                 const candidate = candidateFor(row, profileId);
                 const existing = profileId ? linksByKind.get(kind)?.get(profileId) : undefined;
-                // Занят другим ответом: у аккаунта сохранено не это, а что-то ещё.
-                const replaces = existing && !row.savedFor ? existing : undefined;
+                // У аккаунта уже есть ответы этой формы, а строка — не один из них.
+                const addsTo = existing && !row.savedFor ? existing : undefined;
+                const earlier = row.versions.slice(1);
                 const conflicting = profileId ? !!conflicts.get(kind)?.has(profileId) : false;
                 const picking = pickerKey === key;
                 const fileLabel = row.entry.workUrl
@@ -836,8 +916,10 @@ export default function SelectionMatchingTab() {
                           )}
                         </p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          отправлено {formatStamp(row.entry.submittedAt)}
-                          {row.entry.login ? ` · ${row.entry.login}` : ''}
+                          {row.entry.submittedAt !== null
+                            ? `отправлено ${formatStamp(row.entry.submittedAt)}`
+                            : 'время отправки в выгрузке не указано'}
+                          {row.entry.login ? ` · логин ${row.entry.login}` : ''}
                           {row.entry.code ? ' · с кодом участника' : ''}
                         </p>
                         {row.entry.workUrl && (
@@ -851,6 +933,30 @@ export default function SelectionMatchingTab() {
                             <ExternalLink className="w-3 h-3 shrink-0" />
                             <span className="truncate">работа: {fileLabel}</span>
                           </a>
+                        )}
+                        {earlier.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
+                            <p className="text-[11px] text-slate-500">
+                              Ещё отправки этого же человека — сохранятся вместе:
+                            </p>
+                            {earlier.map((version) => (
+                              <p key={version.rowNumber} className="text-xs text-slate-400 truncate">
+                                строка {version.rowNumber}
+                                {version.submittedAt !== null ? ` · ${formatStamp(version.submittedAt)}` : ''}
+                                {version.name && version.name !== row.entry.name ? ` · «${version.name}»` : ''}
+                                {version.workUrl && (
+                                  <a
+                                    href={version.workUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-1.5 text-blue-300 hover:text-blue-200 underline decoration-blue-400/40"
+                                  >
+                                    работа
+                                  </a>
+                                )}
+                              </p>
+                            ))}
+                          </div>
                         )}
                       </div>
 
@@ -890,18 +996,18 @@ export default function SelectionMatchingTab() {
 
                     {row.savedFor && (
                       <p className="text-xs text-emerald-300/90">
-                        Этот ответ уже сохранён за аккаунтом
-                        {existing ? ` (строка ${existing.source_row ?? '—'} из «${existing.source_file || 'без файла'}»)` : ''}
-                        {' '}— решать нечего.
+                        Уже сохранено за этим аккаунтом — решать нечего.
+                        {row.versions.length > (existing?.length ?? 0)
+                          ? ' Новые отправки этого человека добавятся при сохранении.'
+                          : ''}
                       </p>
                     )}
 
-                    {replaces && (
-                      <p className="flex items-start gap-2 text-xs text-amber-400">
+                    {addsTo && (
+                      <p className="flex items-start gap-2 text-xs text-sky-300">
                         <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        У этого аккаунта уже сохранён другой ответ этой формы: строка
-                        {' '}{replaces.source_row ?? '—'} из «{replaces.source_file || 'без файла'}».
-                        Подтверждение заменит его.
+                        У этого аккаунта уже есть ответы этой формы ({addsTo.length}). Эта строка
+                        добавится к ним ещё одной версией — сохранённое не заменяется.
                       </p>
                     )}
 
@@ -917,10 +1023,11 @@ export default function SelectionMatchingTab() {
                       <p className="flex items-start gap-2 text-xs text-slate-400">
                         <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
                         <span>
-                          Похоже и на{' '}
+                          Похоже на{' '}
                           {row.busy.map((c) => profileDisplayName(profilesById.get(c.profileId) ?? { display_name: '' })).join(', ')}
-                          , но у них эта форма уже сохранена — возможно, это повторная отправка.
-                          Им строка не предлагается.
+                          {' '}— у них уже есть ответ этой формы, но довод слабый (время или часть
+                          имени), поэтому сами не предлагаем. Если это он — выберите аккаунт вручную,
+                          строка добавится ещё одной версией.
                         </span>
                       </p>
                     )}
@@ -970,12 +1077,12 @@ export default function SelectionMatchingTab() {
                     {existing && (
                       <button
                         type="button"
-                        onClick={() => { void unlink(existing.user_id, kind); }}
+                        onClick={() => { void unlink(existing[0].user_id, kind); }}
                         disabled={saving}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-rose-300 transition-colors disabled:opacity-50"
                       >
                         <Link2Off className="w-3.5 h-3.5" />
-                        {row.savedFor ? 'Снять сохранённую связь' : 'Снять связь, которая сейчас у аккаунта'}
+                        Снять все связи этого человека по форме «{FORM_KIND_LABELS[kind]}»
                       </button>
                     )}
 

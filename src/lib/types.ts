@@ -233,6 +233,8 @@ export interface SelectionFormLink {
   form_submitted_at: string | null;
   /** Ссылка на присланную работу: доказательство, что этап действительно сдан. */
   work_url: string | null;
+  /** Номер ответа в выгрузке; у связей, сохранённых до версий, — пусто. */
+  answer_key: string | null;
   source_file: string;
   source_row: number | null;
   match_score: number | null;
