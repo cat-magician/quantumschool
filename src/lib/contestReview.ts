@@ -34,6 +34,11 @@ export type ContestSubmission = {
   size: number;
   /** Текст короткого ответа; у файлов решений — null. */
   answer: string | null;
+  /**
+   * Когда сделан загруженный файл — по его собственным метаданным: PDF помнит,
+   * когда его собрали, фото — когда сняли. Посылка не раньше этого момента.
+   */
+  madeAt?: number | null;
 };
 
 export type ReviewLevel = 'clean' | 'questions' | 'suspicious' | 'staff';

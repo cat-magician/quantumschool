@@ -10,6 +10,7 @@ import {
   type FormKind,
   type MatchSignal,
 } from './identityMatching';
+import type { TimeWindow } from './contestClock';
 
 /**
  * Полная карта участника: что известно из аккаунта, что сайт отследил сам и
@@ -348,6 +349,21 @@ export function formatMapDay(iso: string | null): string {
   if (!iso) return '';
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? '' : dayFmt.format(date);
+}
+
+const shortDayFmt = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' });
+const clockFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Оценённое окно словами. Шире суток минуты — ложная точность, тогда только
+ * дни: «между 31.08 и 08.09».
+ */
+export function formatTimeWindow(window: TimeWindow): string {
+  const fromDay = shortDayFmt.format(window.from);
+  const toDay = shortDayFmt.format(window.to);
+  if (window.to - window.from > 24 * 3600_000) return `между ${fromDay} и ${toDay}`;
+  if (fromDay === toDay) return `${fromDay} ${clockFmt.format(window.from)}–${clockFmt.format(window.to)}`;
+  return `${fromDay} ${clockFmt.format(window.from)} – ${toDay} ${clockFmt.format(window.to)}`;
 }
 
 export function describeSignals(signals: MatchSignal[]): string {

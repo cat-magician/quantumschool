@@ -12,6 +12,7 @@ import {
   buildOrphanAnswers,
   buildPersonMap,
   diffSiteData,
+  formatTimeWindow,
   siteDataDiffTotal,
   type PendingState,
   type SiteDataDiff,
@@ -23,7 +24,9 @@ import FormImportPanel, { FormDropzone } from '../../components/FormImportPanel'
 import { SearchableActionList, type PickerRow } from '../../components/SearchablePicker';
 import { supabase } from '../../lib/supabase';
 import type { SelectionFormLink, UserProfile } from '../../lib/types';
-import { profileAccountLabel, profileDisplayName } from '../../lib/profileUtils';
+import {
+  profileAccountLabel, profileDisplayName, profileEmail, profileLogin,
+} from '../../lib/profileUtils';
 import {
   FORM_KIND_LABELS,
   SIGNAL_LABELS,
@@ -40,6 +43,7 @@ import {
   workFileName,
   type Candidate,
   type ColumnMapping,
+  type FormEntry,
   type FormKind,
   type MatchOverrides,
   type MatchRow,
@@ -50,11 +54,20 @@ import {
   looksLikeContestArchive,
   looksLikeContestMonitor,
   mergeContest,
+  readArchiveBuiltAt,
   readContestArchive,
   readContestSubmissions,
   readZipNames,
   type ContestParticipant,
 } from '../../lib/contestArchive';
+import {
+  contestTimings,
+  describeMarkMiss,
+  markMiss,
+  type ClockSummary,
+  type ContestTiming,
+  type KnownParticipant,
+} from '../../lib/contestClock';
 import {
   REVIEW_LEVEL_LABELS,
   reviewContest,
@@ -93,13 +106,28 @@ type ContestParts = {
   archiveName: string | null;
   /** Посылки архива с ответами — по ним считается проверка честности. */
   submissions: ContestSubmission[] | null;
+  /** Когда Контест собрал архив: позже этого посылок нет. */
+  builtAt: number | null;
   monitor: TableData | null;
   monitorName: string | null;
 };
 
 const NO_CONTEST: ContestParts = {
-  archive: null, archiveName: null, submissions: null, monitor: null, monitorName: null,
+  archive: null, archiveName: null, submissions: null, builtAt: null, monitor: null, monitorName: null,
 };
+
+/** Как оценено время посылок — одной строкой под карточкой файла. */
+function describeClock(summary: ClockSummary | null): string {
+  if (!summary) {
+    return 'Время посылок оценить не по чему: в решениях нет дат, а узнанных участников с отметкой «я отправил» пока нет';
+  }
+  const parts = [
+    summary.files > 0 && `дат внутри решений — ${summary.files}`,
+    summary.marks > 0 && `отметок «я отправил» узнанных участников — ${summary.marks}`,
+  ].filter(Boolean).join(', ');
+  const dropped = summary.rejected > 0 ? `; не сошлись с соседями и отброшены — ${summary.rejected}` : '';
+  return `Время посылок Контест не отдаёт — оно оценено по сквозным номерам посылок. Опоры: ${parts}${dropped}`;
+}
 
 const REVIEW_TONES: Record<ReviewLevel, string> = {
   clean: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25',
@@ -365,6 +393,7 @@ export default function SelectionMatchingTab() {
           contest.archive = readContestArchive(names);
           contest.archiveName = file.name;
           contest.submissions = await readContestSubmissions(file);
+          contest.builtAt = await readArchiveBuiltAt(file);
           continue;
         }
 
@@ -448,10 +477,84 @@ export default function SelectionMatchingTab() {
    */
   const known = useMemo(() => aliasesFromLinks(links), [links]);
 
-  const parsed = useMemo(() => sources.map((source) => ({
+  const baseParsed = useMemo(() => sources.map((source) => ({
     source,
     entries: buildFormEntries(source.table, source.mapping, source.offsetHours),
   })), [sources]);
+
+  const profilesById = useMemo(
+    () => new Map(profiles.map((p) => [p.id, p])),
+    [profiles],
+  );
+
+  /**
+   * Кто из участников контеста узнан наверняка: связь сохранена или логин
+   * совпал с аккаунтом. Их отметки «я отправил» — опоры для оценки времени
+   * посылок всех остальных.
+   */
+  const contestKnown = useMemo(() => {
+    const byLogin = new Map<string, string | null>();
+    for (const profile of profiles) {
+      for (const value of [profile.yandex_login, profileLogin(profile), profileEmail(profile)]) {
+        if (!value) continue;
+        const login = value.toLowerCase();
+        // Один логин у двух аккаунтов — никого не узнаём.
+        byLogin.set(login, byLogin.has(login) && byLogin.get(login) !== profile.id ? null : profile.id);
+      }
+    }
+
+    const owners = new Map<string, string>();
+    for (const link of links) {
+      if (link.form_kind === 'contest' && link.answer_key?.startsWith('id:')) {
+        owners.set(link.answer_key.slice(3), link.user_id);
+      }
+    }
+    for (const { source, entries } of baseParsed) {
+      if (source.kind !== 'contest') continue;
+      for (const entry of entries) {
+        const participantId = entry.answerKey.startsWith('id:') ? entry.answerKey.slice(3) : '';
+        const owner = entry.login ? byLogin.get(entry.login.toLowerCase()) : null;
+        if (participantId && owner && !owners.has(participantId)) owners.set(participantId, owner);
+      }
+    }
+
+    const known: KnownParticipant[] = [];
+    for (const [participantId, personId] of owners) {
+      const markedAt = Date.parse(profilesById.get(personId)?.stage2_submitted_at ?? '');
+      if (!Number.isNaN(markedAt)) known.push({ participantId, personId, markedAt });
+    }
+    return known;
+  }, [profiles, links, baseParsed, profilesById]);
+
+  /** Когда участники решали контест — оценка по номерам посылок, по файлам. */
+  const contestClocks = useMemo(() => {
+    const bySource = new Map<string, ReturnType<typeof contestTimings>>();
+    for (const source of sources) {
+      if (!source.contest?.submissions) continue;
+      bySource.set(source.id, contestTimings(source.contest.submissions, contestKnown, source.contest.builtAt));
+    }
+    return bySource;
+  }, [sources, contestKnown]);
+
+  /** Оценка времени у строки контеста — по ID участника в ключе ответа. */
+  const contestTimingByKey = useMemo(() => {
+    const byKey = new Map<string, ContestTiming>();
+    for (const { timings } of contestClocks.values()) {
+      for (const [participantId, timing] of timings) byKey.set(`id:${participantId}`, timing);
+    }
+    return byKey;
+  }, [contestClocks]);
+
+  // Строкам контеста — оценённое окно: с ним отметку на сайте есть с чем сверить.
+  const parsed = useMemo(() => baseParsed.map(({ source, entries }) => (
+    source.kind !== 'contest' ? { source, entries } : {
+      source,
+      entries: entries.map((entry) => {
+        const timing = contestTimingByKey.get(entry.answerKey);
+        return timing ? { ...entry, estimatedWindow: { from: timing.from, to: timing.to } } : entry;
+      }),
+    }
+  )), [baseParsed, contestTimingByKey]);
 
   /**
    * Кто какую форму уже сдал: у каждого аккаунта на каждую форму один ответ.
@@ -560,11 +663,6 @@ export default function SelectionMatchingTab() {
     [conflicts],
   );
 
-  const profilesById = useMemo(
-    () => new Map(profiles.map((p) => [p.id, p])),
-    [profiles],
-  );
-
   /** Сохранённые ответы по форме и человеку: у одного человека их бывает несколько. */
   const linksByKind = useMemo(() => {
     const index = new Map<FormKind, Map<string, SelectionFormLink[]>>();
@@ -667,6 +765,9 @@ export default function SelectionMatchingTab() {
         subtitle: [
           entry.email,
           entry.submittedAt !== null ? formatStamp(entry.submittedAt) : '',
+          entry.submittedAt === null && entry.estimatedWindow
+            ? `решал ≈ ${formatTimeWindow(entry.estimatedWindow)}`
+            : '',
           entry.login && entry.login !== entry.name ? `логин ${entry.login}` : '',
           file ? `файл «${file}»` : '',
           `строка ${entry.rowNumber}`,
@@ -690,6 +791,13 @@ export default function SelectionMatchingTab() {
     if (!profile) return options;
     // Свободные — первыми, отданные в разборе — следом, сохранённые — в конце.
     const rank = (option: MapAnswerOption) => (!option.ownerName ? 0 : option.ownerSaved ? 2 : 1);
+    // У контеста при равенстве выше те, чьё оценённое время ближе к отметке.
+    const markedAt = Date.parse(profileStageTimestamp(profile, kind) ?? '');
+    const distance = (entry: FormEntry) => (
+      entry.estimatedWindow && !Number.isNaN(markedAt)
+        ? Math.abs(markMiss(markedAt, entry.estimatedWindow))
+        : Infinity
+    );
 
     return options
       .map((option) => {
@@ -699,11 +807,16 @@ export default function SelectionMatchingTab() {
         const hint = best.score > 0
           ? best.signals.filter((signal) => signal !== 'name_conflict').map((signal) => SIGNAL_LABELS[signal]).join(', ')
           : '';
-        return { option: { ...option, hint: hint || undefined }, score: best.score };
+        return {
+          option: { ...option, hint: hint || undefined },
+          score: best.score,
+          distance: distance(option.item.row.entry),
+        };
       })
       .sort((a, b) => (
         rank(a.option) - rank(b.option)
         || b.score - a.score
+        || a.distance - b.distance
         || a.option.title.localeCompare(b.option.title, 'ru')
       ))
       .map(({ option }) => option);
@@ -776,19 +889,33 @@ export default function SelectionMatchingTab() {
       if (candidateFor(row, id)) return 0;
       return taken?.has(id) ? 2 : 1;
     };
+    // У контеста времени нет, есть оценка: чья отметка в неё попала — выше.
+    const window = row.entry.submittedAt === null ? row.entry.estimatedWindow : null;
+    const markCheck = (profile: UserProfile) => {
+      const markedAt = Date.parse(profileStageTimestamp(profile, kind) ?? '');
+      return window && !Number.isNaN(markedAt) ? describeMarkMiss(markedAt, window) : null;
+    };
+    const fits = (profile: UserProfile) => markCheck(profile)?.fits ?? false;
 
     return [...profiles]
-      .sort((a, b) => rank(a.id) - rank(b.id))
+      .sort((a, b) => rank(a.id) - rank(b.id) || Number(fits(b)) - Number(fits(a)))
       .map((profile) => {
         const candidate = candidateFor(row, profile.id);
         const busy = taken?.get(profile.id);
         const account = profileAccountLabel(profile);
+        const check = markCheck(profile);
+        const mark = check
+          ? `отметка ${formatStamp(profileStageTimestamp(profile, kind))} — ${check.text}`
+          : '';
         return {
           id: profile.id,
           title: profileDisplayName(profile),
-          subtitle: busy
-            ? `уже есть ответов этой формы: ${busy.length} — выбор добавит ещё одну версию`
-            : [account, profile.city, profile.school].filter(Boolean).join(' · ') || null,
+          subtitle: [
+            busy
+              ? `уже есть ответов этой формы: ${busy.length} — выбор добавит ещё одну версию`
+              : [account, profile.city, profile.school].filter(Boolean).join(' · '),
+            mark,
+          ].filter(Boolean).join(' · ') || null,
           searchText: [
             profile.display_name, profile.email, profile.login, profile.yandex_login,
             profile.recovery_email, profile.contact_email, profile.city, profile.school,
@@ -950,7 +1077,10 @@ export default function SelectionMatchingTab() {
               offsetHours={source.offsetHours}
               onOffsetChange={(next) => patchSource(source.id, { offsetHours: next })}
               onRemove={() => removeSource(source.id)}
-              note={source.note}
+              note={[
+                source.note,
+                contestClocks.has(source.id) ? describeClock(contestClocks.get(source.id)!.summary) : null,
+              ].filter(Boolean).join('. ')}
             />
           ))}
 
@@ -1037,6 +1167,9 @@ export default function SelectionMatchingTab() {
                 const addsTo = existing && !row.savedFor ? existing : undefined;
                 const earlier = row.versions.slice(1);
                 const review = kind === 'contest' ? contestReviews.get(row.entry.answerKey) : undefined;
+                const timing = kind === 'contest' ? contestTimingByKey.get(row.entry.answerKey) : undefined;
+                const markedAt = profile ? Date.parse(profileStageTimestamp(profile, kind) ?? '') : NaN;
+                const markCheck = timing && !Number.isNaN(markedAt) ? describeMarkMiss(markedAt, timing) : null;
                 // Подозрение на второй аккаунт: куда ушла строка «первого» участника.
                 const twins = (review?.linkedTo ?? []).map((participantId) => {
                   const twin = items.find((other) => other.row.entry.answerKey === `id:${participantId}`);
@@ -1084,10 +1217,20 @@ export default function SelectionMatchingTab() {
                         <p className="text-xs text-slate-500 mt-0.5">
                           {row.entry.submittedAt !== null
                             ? `отправлено ${formatStamp(row.entry.submittedAt)}`
-                            : 'время отправки в выгрузке не указано'}
+                            : timing
+                              ? `решал ≈ ${formatTimeWindow(timing)}`
+                              : 'время отправки в выгрузке не указано'}
                           {row.entry.login ? ` · логин ${row.entry.login}` : ''}
                           {row.entry.code ? ' · с кодом участника' : ''}
                         </p>
+                        {timing && (
+                          <p className="text-[11px] text-slate-500">
+                            {timing.madeAt !== null
+                              ? `Дата внутри загруженного решения — ${formatStamp(timing.madeAt)}: посылка не раньше. `
+                              : ''}
+                            Окно — оценка по сквозным номерам посылок, не время из Контеста.
+                          </p>
+                        )}
                         {row.entry.workUrl && (
                           // Работа под рукой: без неё проверить предложение нечем.
                           <a
@@ -1147,6 +1290,11 @@ export default function SelectionMatchingTab() {
                             </div>
                             <p className="text-xs text-slate-500 mt-1">
                               наша отметка {formatStamp(profileStageTimestamp(profile, kind))}
+                              {markCheck && (
+                                <span className={markCheck.fits ? 'text-emerald-300' : 'text-amber-300'}>
+                                  {' '}· {markCheck.text}
+                                </span>
+                              )}
                             </p>
                             {candidate && candidate.signals.length > 0 && (
                               <div className="mt-1.5">

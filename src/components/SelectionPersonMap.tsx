@@ -5,6 +5,7 @@ import {
 import { SearchableActionList, type PickerRow } from './SearchablePicker';
 import {
   FORM_KIND_LABELS,
+  profileStageTimestamp,
   workAuthorHint,
   workFileName,
   type FormKind,
@@ -184,6 +185,7 @@ function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void 
  */
 function LinkDialog({
   personName,
+  personMark,
   kind,
   options,
   onPick,
@@ -191,6 +193,8 @@ function LinkDialog({
   onOpenReview,
 }: {
   personName: string;
+  /** Отметка человека на сайте по этой форме — с ней сверяют время ответов. */
+  personMark: string | null;
   kind: FormKind;
   options: MapAnswerOption[];
   onPick: (key: string) => void;
@@ -241,6 +245,11 @@ function LinkDialog({
               {FORM_KIND_LABELS[kind]}
             </p>
             <h3 className="text-base font-semibold text-white truncate">{personName}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {personMark
+                ? `Отметка на сайте: ${formatMapStamp(personMark)} — сверьте со временем ответов ниже`
+                : 'Отметки на сайте по этой форме нет'}
+            </p>
             <p className="text-xs text-slate-500 mt-0.5">
               Какой ответ его? Сверху — свободные и похожие на него, ниже — уже отданные
               другим: если ответ привязан не к тому, выберите его — он перенесётся сюда.
@@ -320,7 +329,12 @@ export default function SelectionPersonMap({
   onOpenReview?: () => void;
 }) {
   const [query, setQuery] = useState<PersonMapQuery>(EMPTY_PERSON_MAP_QUERY);
-  const [linking, setLinking] = useState<{ profileId: string; name: string; kind: FormKind } | null>(null);
+  const [linking, setLinking] = useState<{
+    profileId: string;
+    name: string;
+    kind: FormKind;
+    mark: string | null;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -528,6 +542,7 @@ export default function SelectionPersonMap({
                               profileId: row.profile.id,
                               name: row.profile.display_name?.trim() || 'Участник',
                               kind,
+                              mark: profileStageTimestamp(row.profile, kind) ?? null,
                             }) : undefined}
                           />
                         </td>
@@ -558,6 +573,7 @@ export default function SelectionPersonMap({
       {linking && onAssign && (
         <LinkDialog
           personName={linking.name}
+          personMark={linking.mark}
           kind={linking.kind}
           options={answerOptions?.(linking.profileId, linking.kind) ?? []}
           onPick={(key) => {

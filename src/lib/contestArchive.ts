@@ -14,7 +14,9 @@ import { REVIEW_LEVEL_LABELS } from './contestReview';
  *
  * Время отправки Контест в архив не кладёт: все файлы проштампованы моментом
  * сборки архива. Поэтому колонки времени в итоге нет вовсе — лучше без неё,
- * чем с одной и той же неверной минутой у всех.
+ * чем с одной и той же неверной минутой у всех. Когда человек решал, можно
+ * только оценить — по датам внутри загруженных решений и сквозным номерам
+ * посылок (см. contestClock.ts).
  */
 
 export type ContestParticipant = {
@@ -43,7 +45,21 @@ type ZipEntry = {
   offset: number;
   compressedSize: number;
   size: number;
+  /** Штамп файла в архиве — у Контеста это момент сборки архива, по Москве. */
+  modified: number | null;
 };
+
+const MSK_OFFSET_MS = 3 * 3600_000;
+
+/** Дата и время из записи zip: формат MS-DOS, без часового пояса. */
+function dosTime(date: number, time: number): number | null {
+  const year = 1980 + (date >> 9);
+  const month = (date >> 5) & 0xf;
+  const day = date & 0x1f;
+  if (month < 1 || month > 12 || day < 1) return null;
+  const local = Date.UTC(year, month - 1, day, time >> 11, (time >> 5) & 0x3f, (time & 0x1f) * 2);
+  return local - MSK_OFFSET_MS;
+}
 
 /**
  * Имена файлов из оглавления zip. Оглавление лежит в конце архива, поэтому
@@ -92,6 +108,7 @@ async function readZipDirectory(file: Blob): Promise<ZipEntry[]> {
       compressedSize: directory.getUint32(pointer + 20, true),
       size: directory.getUint32(pointer + 24, true),
       offset: directory.getUint32(pointer + 42, true),
+      modified: dosTime(directory.getUint16(pointer + 14, true), directory.getUint16(pointer + 12, true)),
     });
     pointer += 46 + nameLength + extraLength + commentLength;
   }
@@ -101,27 +118,154 @@ async function readZipDirectory(file: Blob): Promise<ZipEntry[]> {
 
 const LOCAL_SIGNATURE = 0x04034b50;
 
-/** Текст одного небольшого файла архива — без чтения остального архива. */
-async function readEntryText(file: Blob, entry: ZipEntry): Promise<string> {
+/** Распакованный поток одного файла архива — без чтения остального архива. */
+async function openEntry(file: Blob, entry: ZipEntry): Promise<ReadableStream<Uint8Array> | null> {
   const header = await readSlice(file, entry.offset, entry.offset + 30);
-  if (header.getUint32(0, true) !== LOCAL_SIGNATURE) return '';
+  if (header.getUint32(0, true) !== LOCAL_SIGNATURE) return null;
   const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true);
-  const raw = new Uint8Array(await file.slice(start, start + entry.compressedSize).arrayBuffer());
-
-  let bytes = raw;
-  if (entry.method === 8) {
-    const stream = new Blob([raw as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-    bytes = new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-  return new TextDecoder('utf-8').decode(bytes).trim();
+  const stream = file.slice(start, start + entry.compressedSize).stream();
+  return entry.method === 8 ? stream.pipeThrough(new DecompressionStream('deflate-raw')) : stream;
 }
 
-/** Короткие ответы читаем, файлы решений — нет: для проверки хватает их наличия. */
+async function readEntryBytes(file: Blob, entry: ZipEntry): Promise<Uint8Array> {
+  const stream = await openEntry(file, entry);
+  return stream ? new Uint8Array(await new Response(stream).arrayBuffer()) : new Uint8Array();
+}
+
+/** Текст одного небольшого файла архива. */
+async function readEntryText(file: Blob, entry: ZipEntry): Promise<string> {
+  return new TextDecoder('utf-8').decode(await readEntryBytes(file, entry)).trim();
+}
+
+/**
+ * Прогоняет файл архива через `visit` кусками текста, не держа весь файл в
+ * памяти: решения весят мегабайты, а дата в них — пара десятков байт. Хвост
+ * прошлого куска приклеивается к следующему (`overlap` символов), чтобы
+ * запись на стыке не потерялась; `overlap: Infinity` копит текст целиком.
+ */
+async function scanEntry(
+  file: Blob,
+  entry: ZipEntry,
+  visit: (text: string) => void,
+  { overlap, maxBytes = Infinity }: { overlap: number; maxBytes?: number },
+): Promise<void> {
+  const stream = await openEntry(file, entry);
+  if (!stream) return;
+  // Байты один в один: даты в PDF и EXIF записаны латиницей.
+  const decoder = new TextDecoder('latin1');
+  const reader = stream.getReader();
+  let carry = '';
+  let read = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = carry + decoder.decode(value);
+    visit(text);
+    carry = text.slice(-overlap);
+    read += value.length;
+    if (read >= maxBytes) {
+      await reader.cancel();
+      break;
+    }
+  }
+}
+
+/** Смещение «+03'00'», «+03:00», «Z» — в миллисекундах; без пояса — null. */
+function zoneOffset(zone: string | undefined): number | null {
+  if (!zone) return null;
+  if (zone.startsWith('Z')) return 0;
+  const match = /^([+-])(\d{2})'?:?(\d{2})?/.exec(zone);
+  if (!match) return null;
+  const minutes = Number(match[2]) * 60 + Number(match[3] ?? 0);
+  return (match[1] === '-' ? -1 : 1) * minutes * 60_000;
+}
+
+/**
+ * Дата из PDF: «D:20260916121217Z» в словаре документа или ISO-дата в XMP.
+ * Без часового пояса не берём: неизвестно, чьё это местное время.
+ */
+export function pdfMadeAt(text: string): number | null {
+  const found: number[] = [];
+
+  const PDF_DATE = /\/(?:ModDate|CreationDate)\s*\(\s*D:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(Z|[+-]\d{2}'?\d{2}'?)?/g;
+  for (const m of text.matchAll(PDF_DATE)) {
+    const offset = zoneOffset(m[7]);
+    if (offset === null) continue;
+    found.push(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0)) - offset);
+  }
+
+  const XMP_DATE = /xmp:(?:ModifyDate|CreateDate|MetadataDate)\s*(?:=\s*"|>)\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))/g;
+  for (const m of text.matchAll(XMP_DATE)) {
+    const at = Date.parse(m[1]);
+    if (!Number.isNaN(at)) found.push(at);
+  }
+
+  return found.length ? Math.max(...found) : null;
+}
+
+/**
+ * Момент съёмки из EXIF: «2026:09:18 14:54:10» и рядом смещение «+03:00».
+ * Без смещения камера пишет своё местное время — такое не берём.
+ */
+export function photoMadeAt(text: string): number | null {
+  const offset = zoneOffset(/([+-]\d{2}:\d{2})\0/.exec(text)?.[1]);
+  if (offset === null) return null;
+
+  const found: number[] = [];
+  for (const m of text.matchAll(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/g)) {
+    found.push(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - offset);
+  }
+  return found.length ? Math.max(...found) : null;
+}
+
+/** EXIF лежит в самом начале фото. */
+const PHOTO_HEAD_BYTES = 128 * 1024;
+/** Запись с датой в PDF короче — на стыке кусков она не потеряется. */
+const PDF_OVERLAP = 256;
+
+/**
+ * Когда сделан загруженный файл решения — если он это помнит. Из нескольких
+ * дат берём позднюю: посылка не раньше последней правки файла.
+ */
+async function solutionMadeAt(file: Blob, entry: ZipEntry, extension: string): Promise<number | null> {
+  let latest: number | null = null;
+  const note = (at: number | null) => {
+    if (at !== null && (latest === null || at > latest)) latest = at;
+  };
+
+  try {
+    if (extension === 'pdf') {
+      await scanEntry(file, entry, (text) => note(pdfMadeAt(text)), { overlap: PDF_OVERLAP });
+    } else if (extension === 'jpg' || extension === 'jpeg') {
+      await scanEntry(file, entry, (text) => note(photoMadeAt(text)), {
+        overlap: Infinity, maxBytes: PHOTO_HEAD_BYTES,
+      });
+    } else if (extension === 'docx') {
+      // docx — сам zip: даты создания и правки лежат в docProps/core.xml.
+      const inner = new Blob([await readEntryBytes(file, entry) as BlobPart]);
+      const core = (await readZipDirectory(inner)).find((e) => e.name === 'docProps/core.xml');
+      if (core) {
+        const xml = await readEntryText(inner, core);
+        for (const m of xml.matchAll(/<dcterms:(?:created|modified)[^>]*>([^<]+)</g)) {
+          const at = Date.parse(m[1]);
+          note(Number.isNaN(at) ? null : at);
+        }
+      }
+    }
+  } catch {
+    // Битый файл — просто без даты.
+  }
+  return latest;
+}
+
+/** Короткие ответы читаем целиком, у файлов решений — только дату внутри. */
 const ANSWER_MAX_BYTES = 256;
 
 /**
  * Все посылки архива: кто, по какой задаче, с каким вердиктом и под каким
- * сквозным номером. Для задач с ответом числом — и сам ответ.
+ * сквозным номером. Для задач с ответом числом — и сам ответ, для файлов
+ * решений — когда файл сделан, если он это помнит.
  */
 export async function readContestSubmissions(file: Blob): Promise<ContestSubmission[]> {
   const submissions: ContestSubmission[] = [];
@@ -149,10 +293,22 @@ export async function readContestSubmissions(file: Blob): Promise<ContestSubmiss
       extension,
       size: entry.size,
       answer,
+      madeAt: extension ? await solutionMadeAt(file, entry, extension) : null,
     });
   }
 
   return submissions;
+}
+
+/**
+ * Когда Контест собрал архив: этим моментом проштампованы все его файлы.
+ * Позже него посылок в архиве быть не может.
+ */
+export async function readArchiveBuiltAt(file: Blob): Promise<number | null> {
+  const stamps = (await readZipDirectory(file))
+    .map((entry) => entry.modified)
+    .filter((at): at is number => at !== null);
+  return stamps.length ? Math.max(...stamps) : null;
 }
 
 const FOLDER_RE = /^(.+)-(\d{6,})$/;

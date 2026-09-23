@@ -1,6 +1,7 @@
 import type { UserProfile } from './types';
 import { profileEmail, profileLogin } from './profileUtils';
 import type { TableData } from './tableImport';
+import { markMiss, type TimeWindow } from './contestClock';
 
 /**
  * Сопоставление ответов Яндекс.Форм с аккаунтами сайта.
@@ -161,6 +162,11 @@ export type FormEntry = {
   emailValid: boolean;
   /** Отброшена как повторная отправка того же человека. */
   supersededBy?: number;
+  /**
+   * Когда, по оценке, это делалось, — если точного времени в выгрузке нет, как
+   * у контеста (см. contestClock.ts). Подсказка, а не факт.
+   */
+  estimatedWindow?: TimeWindow | null;
 };
 
 const URL_RE = /^https?:\/\//i;
@@ -418,6 +424,8 @@ export type MatchSignal =
   | 'time_close'
   | 'time_near'
   | 'time_loose'
+  | 'time_window'
+  | 'day_window'
   | 'city'
   | 'school'
   | 'grade';
@@ -436,6 +444,8 @@ export const SIGNAL_LABELS: Record<MatchSignal, string> = {
   time_close: 'время ±5 мин',
   time_near: 'время ±30 мин',
   time_loose: 'время ±3 ч',
+  time_window: 'время ≈ по номерам посылок',
+  day_window: 'день ≈ по номерам посылок',
   city: 'город',
   school: 'школа',
   grade: 'класс',
@@ -460,6 +470,10 @@ const SIGNAL_WEIGHTS: Record<MatchSignal, number> = {
   time_close: 40,
   time_near: 25,
   time_loose: 10,
+  // Оценка, а не время из выгрузки: на подсказку хватает, решить не может —
+  // см. classify.
+  time_window: 25,
+  day_window: 10,
   city: 5,
   school: 8,
   grade: 3,
@@ -581,6 +595,21 @@ function timeSignal(entryAt: number | null, profileAt: string | null | undefined
   return null;
 }
 
+/** Окно уже трёх часов называет время, уже суток — хотя бы день. */
+const NARROW_WINDOW = 3 * 60 * MINUTE;
+const DAY_WINDOW = 24 * 60 * MINUTE;
+
+/** Попала ли отметка на сайте в оценённое окно — и насколько оно узкое. */
+function windowSignal(window: TimeWindow | null | undefined, profileAt: string | null | undefined): MatchSignal | null {
+  if (!window || !profileAt) return null;
+  const stamp = new Date(profileAt).getTime();
+  if (Number.isNaN(stamp) || markMiss(stamp, window) !== 0) return null;
+
+  const width = window.to - window.from;
+  if (width <= NARROW_WINDOW) return 'time_window';
+  return width <= DAY_WINDOW ? 'day_window' : null;
+}
+
 function sameText(a: string, b: string | null | undefined): boolean {
   if (!a || !b) return false;
   return normalizeName(a) === normalizeName(b);
@@ -688,7 +717,10 @@ export function scoreCandidate(
   // Ответ подписан другим человеком — время и школа такое не перевесят.
   if (!byName && namesContradict(entry.name, knownNames)) signals.push('name_conflict');
 
-  const byTime = timeSignal(entry.submittedAt, profileStageTimestamp(profile, kind));
+  const stageAt = profileStageTimestamp(profile, kind);
+  const byTime = entry.submittedAt !== null
+    ? timeSignal(entry.submittedAt, stageAt)
+    : windowSignal(entry.estimatedWindow, stageAt);
   if (byTime) signals.push(byTime);
 
   if (sameText(entry.city, profile.city)) signals.push('city');
@@ -769,10 +801,17 @@ function classify(best: Candidate | null, runnerUp: Candidate | null): MatchConf
     return 'confident';
   }
 
-  // Иначе нужен и высокий балл, и заметный отрыв от второго кандидата.
-  if (best.score >= CONFIDENT_THRESHOLD && gap >= 25) return 'confident';
+  // Иначе нужен и высокий балл, и заметный отрыв от второго кандидата. Время,
+  // оценённое по номерам посылок, в этот балл не идёт: подсказать оно может,
+  // а вытянуть связь без человека — нет.
+  const firm = best.score - best.signals
+    .filter((s) => ESTIMATED_SIGNALS.includes(s))
+    .reduce((sum, s) => sum + SIGNAL_WEIGHTS[s], 0);
+  if (firm >= CONFIDENT_THRESHOLD && gap >= 25) return 'confident';
   return 'likely';
 }
+
+const ESTIMATED_SIGNALS: MatchSignal[] = ['time_window', 'day_window'];
 
 const NAME_SIGNALS: MatchSignal[] = ['name_exact', 'name_partial', 'file_name_exact', 'file_name_partial'];
 

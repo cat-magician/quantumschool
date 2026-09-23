@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import zlib from 'node:zlib';
 
 const root = path.resolve(import.meta.dirname, '..');
 const bundlePath = path.join(os.tmpdir(), `matching-test-${Date.now()}.mjs`);
@@ -49,6 +50,7 @@ await build({
       export * from '../src/lib/selectionStageStats';
       export * from '../src/lib/contestArchive';
       export * from '../src/lib/contestReview';
+      export * from '../src/lib/contestClock';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -1405,6 +1407,226 @@ check('служебные аккаунты не участвуют в прове
 
   // Без пометки тот же организатор выглядел бы вторым аккаунтом.
   assert.notEqual(lib.reviewContest(subs).get('100').level, 'clean');
+});
+
+// ── Время посылок контеста: даты внутри решений и сквозные номера ────
+/**
+ * Настоящий zip: локальные заголовки, данные, оглавление. Штамп файлов —
+ * по Москве, как у Контеста; `deflate` сжимает запись, как это делает он.
+ */
+function realZip(files, builtAt = Date.UTC(2026, 8, 22, 19, 31, 20)) {
+  const msk = new Date(builtAt + 3 * 3600_000);
+  const time = (msk.getUTCHours() << 11) | (msk.getUTCMinutes() << 5) | (msk.getUTCSeconds() >> 1);
+  const date = ((msk.getUTCFullYear() - 1980) << 9) | ((msk.getUTCMonth() + 1) << 5) | msk.getUTCDate();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+
+  for (const { name, data, deflate = false } of files) {
+    const nameBytes = new TextEncoder().encode(name);
+    const raw = typeof data === 'string' ? Buffer.from(data, 'latin1') : data;
+    const body = deflate ? zlib.deflateRawSync(raw) : raw;
+
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(6, 0x800, true);
+    local.setUint16(8, deflate ? 8 : 0, true);
+    local.setUint32(18, body.length, true);
+    local.setUint32(22, raw.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    parts.push(new Uint8Array(local.buffer), nameBytes, body);
+
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 0x02014b50, true);
+    entry.setUint16(8, 0x800, true);
+    entry.setUint16(10, deflate ? 8 : 0, true);
+    entry.setUint16(12, time, true);
+    entry.setUint16(14, date, true);
+    entry.setUint32(20, body.length, true);
+    entry.setUint32(24, raw.length, true);
+    entry.setUint16(28, nameBytes.length, true);
+    entry.setUint32(42, offset, true);
+    central.push(new Uint8Array(entry.buffer), nameBytes);
+    offset += 30 + nameBytes.length + body.length;
+  }
+
+  const size = central.reduce((n, part) => n + part.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
+}
+
+check('даты внутри PDF и фото читаются только с часовым поясом', () => {
+  assert.equal(lib.pdfMadeAt('<< /ModDate (D:20260916121217Z) >>'), Date.UTC(2026, 8, 16, 12, 12, 17));
+  assert.equal(
+    lib.pdfMadeAt("/CreationDate (D:20260916151217+03'00')"),
+    Date.UTC(2026, 8, 16, 12, 12, 17),
+    'московское время приводится к UTC',
+  );
+  assert.equal(lib.pdfMadeAt('/ModDate (D:20260916121217)'), null, 'без пояса неизвестно, чьё это время');
+  assert.equal(
+    lib.pdfMadeAt('<xmp:ModifyDate>2026-09-16T15:12:17+03:00</xmp:ModifyDate>'),
+    Date.UTC(2026, 8, 16, 12, 12, 17),
+  );
+  // Из нескольких дат — поздняя: посылка не раньше последней правки.
+  assert.equal(
+    lib.pdfMadeAt('/CreationDate (D:20260920185552Z) /ModDate (D:20260920190424Z)'),
+    Date.UTC(2026, 8, 20, 19, 4, 24),
+  );
+
+  assert.equal(
+    lib.photoMadeAt('Exif\0\0...2026:09:18 14:54:10\0...+03:00\0'),
+    Date.UTC(2026, 8, 18, 11, 54, 10),
+  );
+  assert.equal(lib.photoMadeAt('Exif\0\0...2026:09:18 14:54:10\0'), null, 'часы камеры без пояса — не опора');
+});
+
+check('архив отдаёт даты решений и момент сборки', async () => {
+  const folder = 'Иванов Иван-134000001';
+  // Дата в самом конце большого PDF: распаковка кусками её не теряет.
+  const pdf = `%PDF-1.4\n${'x'.repeat(300_000)}\n1 0 obj << /Producer (iLovePDF) /ModDate (D:20260916121217Z) >>\n%%EOF`;
+  const photo = `\xFF\xD8\xFF\xE1Exif\0\0MM${'\0'.repeat(40)}2026:09:18 14:54:10\0+03:00\0${'\x55'.repeat(200_000)}`;
+  const inner = new Uint8Array(await realZip([{
+    name: 'docProps/core.xml',
+    data: '<cp:coreProperties><dcterms:created xsi:type="dcterms:W3CDTF">2026-09-16T19:00:00Z</dcterms:created>'
+      + '<dcterms:modified xsi:type="dcterms:W3CDTF">2026-09-16T19:10:00Z</dcterms:modified></cp:coreProperties>',
+    deflate: true,
+  }]).arrayBuffer());
+
+  const archive = realZip([
+    { name: `${folder}/`, data: '' },
+    { name: `${folder}/1-165784500-No-compiler-OK`, data: '42', deflate: true },
+    { name: `${folder}/9-165784583-No-compiler-PresentationError.pdf`, data: pdf, deflate: true },
+    { name: `${folder}/10-165784598-No-compiler-PresentationError.jpg`, data: photo },
+    { name: `${folder}/11-165816107-No-compiler-PresentationError.docx`, data: inner, deflate: true },
+  ]);
+
+  const subs = await lib.readContestSubmissions(archive);
+  const byTask = new Map(subs.map((s) => [s.task, s]));
+  assert.equal(byTask.get(1).answer, '42');
+  assert.equal(byTask.get(1).madeAt, null, 'у ответа числом даты нет');
+  assert.equal(byTask.get(9).madeAt, Date.UTC(2026, 8, 16, 12, 12, 17), 'PDF');
+  assert.equal(byTask.get(10).madeAt, Date.UTC(2026, 8, 18, 11, 54, 10), 'фото');
+  assert.equal(byTask.get(11).madeAt, Date.UTC(2026, 8, 16, 19, 10, 0), 'docx — по последней правке');
+
+  assert.equal(await lib.readArchiveBuiltAt(archive), Date.UTC(2026, 8, 22, 19, 31, 20), 'штамп архива — по Москве');
+});
+
+const MIN = 60_000;
+/** 10:00 по Москве: днём весь час весит одинаково, и шкала линейна. */
+const T0 = Date.UTC(2026, 8, 16, 7, 0, 0);
+const anchor = (submissionId, at, kind = 'file', participantId = String(submissionId)) => ({
+  submissionId, at, kind, participantId,
+});
+
+check('шкала читает время между опорами и не ведётся на плохие', () => {
+  const good = [anchor(1000, T0), anchor(2000, T0 + 60 * MIN), anchor(3000, T0 + 120 * MIN), anchor(4000, T0 + 180 * MIN)];
+  const clock = lib.fitContestClock(good);
+  assert.ok(Math.abs(clock.read(1500).at - (T0 + 30 * MIN)) < 1000, 'середина между опорами');
+
+  // Фото сняли за три часа до отправки, «я отправил» нажали назавтра.
+  const stale = anchor(2990, T0 - 60 * MIN, 'file', 'photo');
+  const late = anchor(2500, T0 + 20 * 60 * MIN, 'mark', 'late');
+  const noisy = lib.fitContestClock([...good, stale, late]);
+  assert.equal(noisy.rejected, 2);
+  assert.ok(noisy.anchors.every((a) => a.participantId !== 'photo' && a.participantId !== 'late'));
+  assert.ok(Math.abs(noisy.read(2500).at - (T0 + 90 * MIN)) < 1000, 'шкала та же, что без них');
+
+  // За краями — экстраполяция, и ошибка там честно больше.
+  assert.ok(noisy.read(6000).error > noisy.read(2500).error);
+  assert.ok(noisy.read(6000).at <= T0 + 180 * MIN + 2 * 60 * MIN + 1000);
+  assert.equal(lib.fitContestClock([anchor(1000, T0)]), null, 'по одной опоре шкалы нет');
+});
+
+check('ночью шкала идёт медленнее, чем по прямой', () => {
+  // Опоры: 20:00 и 12:00 назавтра по Москве. Прямая поставила бы четверть
+  // посылок на полночь, а три четверти — на 8 утра. Но ночью по всему Контесту
+  // посылок мало: четверть набирается ещё вечером, три четверти — к 10 утра.
+  const evening = Date.UTC(2026, 8, 16, 17, 0, 0);
+  const noon = Date.UTC(2026, 8, 17, 9, 0, 0);
+  const clock = lib.fitContestClock([anchor(1000, evening), anchor(2000, noon)]);
+  const mskHour = (id) => {
+    const at = new Date(clock.read(id).at + 3 * 3600_000);
+    return at.getUTCHours() + at.getUTCMinutes() / 60;
+  };
+  assert.ok(mskHour(1250) > 22 && mskHour(1250) < 23, `четверть — вечером: ${mskHour(1250)}`);
+  assert.ok(mskHour(1750) > 9.5 && mskHour(1750) < 10.5, `три четверти — утром: ${mskHour(1750)}`);
+});
+
+check('окно участника: своя отметка в оценку не входит', () => {
+  const subs = [
+    sub('Опора 1', 'a', 9, 1000, 'PresentationError', '', 'pdf'),
+    sub('Опора 2', 'b', 9, 3000, 'PresentationError', '', 'pdf'),
+    sub('Опора 3', 'c', 9, 5000, 'PresentationError', '', 'pdf'),
+    sub('Решал', 'x', 1, 3900), sub('Решал', 'x', 2, 4000),
+  ];
+  subs[0].madeAt = T0;
+  subs[1].madeAt = T0 + 60 * MIN;
+  subs[2].madeAt = T0 + 120 * MIN;
+
+  // Узнанный участник нажал «я отправил» через сутки: на его окно это не влияет.
+  const { timings, summary } = lib.contestTimings(subs, [
+    { participantId: 'x', personId: 'p-x', markedAt: T0 + 26 * 60 * MIN },
+  ], T0 + 30 * 60 * MIN);
+
+  const x = timings.get('x');
+  assert.ok(x.from < T0 + 87 * MIN && x.to > T0 + 90 * MIN && x.to < T0 + 120 * MIN, 'окно около 11:30');
+  assert.equal(summary.files, 3);
+  assert.equal(summary.marks, 0, 'поздняя отметка отброшена как противоречащая соседям');
+
+  const miss = lib.describeMarkMiss(T0 + 26 * 60 * MIN, x);
+  assert.equal(miss.fits, false);
+  assert.match(miss.text, /через \d+ ч после последней посылки/);
+  assert.equal(lib.describeMarkMiss(x.to + 10 * MIN, x).fits, true, 'нажал вскоре после — сходится');
+
+  assert.equal(timings.get('a').madeAt, T0, 'дата внутри решения — факт, он в окне остаётся');
+});
+
+check('оценённое время подсказывает, но не решает', () => {
+  const window = { from: T0, to: T0 + 60 * MIN };
+  const fits = profile({
+    id: 'p1', display_name: 'Кто-то Другой', email: 'other@mail.ru',
+    stage2_submitted_at: new Date(T0 + 70 * MIN).toISOString(),
+  });
+  const far = profile({
+    id: 'p2', display_name: 'Совсем Никто', email: 'nobody@mail.ru',
+    stage2_submitted_at: new Date(T0 + 30 * 60 * MIN).toISOString(),
+  });
+
+  const entry = mkEntry({ name: 'geparu', answerKey: 'id:1', estimatedWindow: window });
+  assert.ok(lib.scoreCandidate(entry, fits, 'contest').signals.includes('time_window'));
+  assert.ok(!lib.scoreCandidate(entry, far, 'contest').signals.some((s) => s.endsWith('_window')));
+
+  const [row] = lib.matchFormEntries([entry], [fits, far], 'contest');
+  assert.equal(row.best.profileId, 'p1', 'предложен тот, чья отметка в окне');
+  assert.equal(row.confidence, 'likely', 'но решает человек');
+
+  // Даже вместе с частью имени и похожим логином оценка не дотягивает до «само».
+  const petrov = profile({
+    id: 'p3', display_name: 'Петров Пётр Сергеевич', email: 'petrov.ps@mail.ru',
+    stage2_submitted_at: new Date(T0 + 30 * MIN).toISOString(),
+  });
+  const signed = mkEntry({ name: 'Петров Пётр', login: 'petrov.ps', answerKey: 'id:2', estimatedWindow: window });
+  const [petrovRow] = lib.matchFormEntries([signed], [petrov], 'contest');
+  assert.ok(petrovRow.best.score >= 75, 'балл высокий');
+  assert.equal(petrovRow.confidence, 'likely', 'но без оценки времени его не хватило бы');
+
+  // Широкое окно называет только день, шире суток — ничего.
+  const day = { from: T0, to: T0 + 10 * 60 * MIN };
+  assert.ok(lib.scoreCandidate(mkEntry({ estimatedWindow: day }), fits, 'contest').signals.includes('day_window'));
+  const week = { from: T0 - 3 * 24 * 60 * MIN, to: T0 + 60 * MIN };
+  assert.ok(!lib.scoreCandidate(mkEntry({ estimatedWindow: week }), fits, 'contest').signals.some((s) => s.endsWith('_window')));
+});
+
+check('окно словами: минуты — только когда окно узкое', () => {
+  const day = lib.formatTimeWindow({ from: T0, to: T0 + 90 * MIN });
+  assert.match(day, /^\d{2}\.\d{2} \d{2}:\d{2}–\d{2}:\d{2}$/);
+  const wide = lib.formatTimeWindow({ from: T0, to: T0 + 5 * 24 * 60 * MIN });
+  assert.match(wide, /^между \d{2}\.\d{2} и \d{2}\.\d{2}$/);
 });
 
 await Promise.all(pending);
