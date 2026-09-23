@@ -5,7 +5,6 @@
  */
 
 import { build } from 'esbuild';
-import { buildCsv, readArchive } from './contest-archive-to-csv.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,6 +47,7 @@ await build({
       export * from '../src/lib/profileUtils';
       export * from '../src/lib/selectionPersonMap';
       export * from '../src/lib/selectionStageStats';
+      export * from '../src/lib/contestArchive';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -62,8 +62,12 @@ await build({
 const lib = await import(pathToFileURL(bundlePath).href);
 
 let checks = 0;
+const pending = [];
 function check(name, fn) {
-  fn();
+  // Асинхронные проверки дожидаемся в конце: иначе упавшая проверка
+  // вылетела бы уже после итогового «ок».
+  const result = fn();
+  if (result && typeof result.then === 'function') pending.push(result);
   checks++;
   void name;
 }
@@ -917,7 +921,7 @@ check('подпись в имени файла опознаёт безымянн
 
 // ── Архив посылок Контеста ────────────────────────────────────
 check('архив посылок превращается в список участников', () => {
-  const people = readArchive([
+  const people = lib.readContestArchive([
     'ivanov.ii-134068138/',
     'ivanov.ii-134068138/1-165188004-No-compiler-OK',
     'ivanov.ii-134068138/1-165188001-No-compiler-WrongAnswer',
@@ -939,21 +943,76 @@ check('архив посылок превращается в список уча
 });
 
 check('монитор добавляет к архиву логин и балл', () => {
-  const people = readArchive([
+  const people = lib.readContestArchive([
     'Петров Пётр-134186110/', 'Петров Пётр-134186110/1-1-No-compiler-OK',
     'vasya.p-134186111/', 'vasya.p-134186111/1-2-No-compiler-OK',
   ]);
-  const monitor = new Map([['петров пётр', { login: 'petrov.pp', score: '42' }]]);
+  const monitor = table(
+    ['place', 'user_name', 'login', '1(Встреча)', 'Score'],
+    [
+      ['1', 'Петров Пётр', 'petrov.pp', 'OK', '42'],
+      // В мониторе есть, в архиве нет — не теряем.
+      ['2', 'Сидоров', 'sidorov', '', '0'],
+    ],
+  );
+  assert.ok(lib.looksLikeContestMonitor(monitor));
 
-  const lines = buildCsv(people, monitor).trim().split(/\r?\n/);
-  const rows = lines.slice(1).map((line) => line.split(';'));
-  const byName = new Map(rows.map((cells) => [cells[0], cells]));
+  const merged = lib.mergeContest(people, monitor);
+  const byName = new Map(merged.rows.map((cells) => [cells[0], cells]));
 
-  assert.deepEqual(lines[0].split(';').slice(0, 2), ['user_name', 'Логин']);
+  assert.deepEqual(merged.headers.slice(0, 2), ['user_name', 'Логин']);
   assert.equal(byName.get('Петров Пётр')[1], 'petrov.pp', 'логин пришёл из монитора');
   assert.equal(byName.get('Петров Пётр')[5], '42');
   assert.equal(byName.get('vasya.p')[1], 'vasya.p', 'подпись-логин сгодится и без монитора');
   assert.equal(byName.get('vasya.p')[5], '', 'вне монитора балла нет — и выдумывать его нечего');
+  assert.equal(byName.get('Сидоров')[1], 'sidorov');
+
+  // Сайт размечает склейку сам: подпись — в ФИО, логин — в логин.
+  const mapping = lib.autoDetectColumns(merged.headers, merged.rows);
+  assert.equal(merged.headers[mapping.name], 'user_name');
+  assert.equal(merged.headers[mapping.login], 'Логин');
+});
+
+/** Оглавление zip без самих файлов: для чтения имён больше ничего не нужно. */
+function fakeZip(names, { utf8 = false } = {}) {
+  // cp866: кириллица без флага UTF-8, как её пишет Контест.
+  const cp866 = (text) => Uint8Array.from([...text].map((ch) => {
+    const code = ch.charCodeAt(0);
+    if (code < 0x80) return code;
+    if (ch >= 'А' && ch <= 'П') return 0x80 + code - 0x410;
+    if (ch >= 'Р' && ch <= 'Я') return 0x90 + code - 0x420;
+    if (ch >= 'а' && ch <= 'п') return 0xa0 + code - 0x430;
+    if (ch >= 'р' && ch <= 'я') return 0xe0 + code - 0x440;
+    if (ch === 'Ё') return 0xf0;
+    if (ch === 'ё') return 0xf1;
+    throw new Error(`нет в cp866: ${ch}`);
+  }));
+
+  const records = names.map((name) => {
+    const raw = utf8 ? new TextEncoder().encode(name) : cp866(name);
+    const header = new DataView(new ArrayBuffer(46));
+    header.setUint32(0, 0x02014b50, true);
+    header.setUint16(8, utf8 ? 0x800 : 0, true);
+    header.setUint16(28, raw.length, true);
+    return [new Uint8Array(header.buffer), raw];
+  }).flat();
+
+  const size = records.reduce((n, part) => n + part.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(10, names.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, 0, true);
+
+  return new Blob([...records, new Uint8Array(end.buffer)]);
+}
+
+check('имена из архива читаются и в cp866, и в UTF-8', async () => {
+  const names = ['Петров Пётр-134186110/', 'Петров Пётр-134186110/1-1-No-compiler-OK'];
+  assert.deepEqual(await lib.readZipNames(fakeZip(names)), names, 'Контест пишет кириллицу в cp866');
+  assert.deepEqual(await lib.readZipNames(fakeZip(names, { utf8: true })), names);
+  assert.ok(lib.looksLikeContestArchive(names));
+  assert.ok(!lib.looksLikeContestArchive(['xl/workbook.xml', 'xl/worksheets/sheet1.xml']), 'xlsx — не архив посылок');
 });
 
 // ── Совместный разбор нескольких выгрузок ─────────────────────
@@ -1165,4 +1224,5 @@ check('та же отправка узнаётся и без файла — по
   assert.equal(lib.sameAnswer(other, saved), false, 'в ту же секунду мог отправить и другой');
 });
 
+await Promise.all(pending);
 console.log(`ок: ${checks} проверок`);

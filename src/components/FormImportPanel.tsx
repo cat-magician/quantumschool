@@ -92,15 +92,16 @@ export function FormDropzone({
           </span>
           {!compact && (
             <span className="text-xs text-slate-500">
-              .xlsx или .csv — можно сразу все три формы. Файлы разбираются в браузере
-              и никуда не уходят
+              Анкета, эссе, монитор Контеста и zip-архив посылок — можно всё сразу:
+              архив с монитором склеятся сами. Файлы разбираются в браузере и никуда
+              не уходят
             </span>
           )}
         </label>
         <input
           id={inputId}
           type="file"
-          accept=".csv,.xlsx"
+          accept=".csv,.xlsx,.zip"
           multiple
           className="sr-only"
           onChange={(e) => {
@@ -126,6 +127,7 @@ export default function FormImportPanel({
   offsetHours,
   onOffsetChange,
   onRemove,
+  note,
 }: {
   kind: FormKind;
   onKindChange: (kind: FormKind) => void;
@@ -136,6 +138,8 @@ export default function FormImportPanel({
   offsetHours: number;
   onOffsetChange: (hours: number) => void;
   onRemove: () => void;
+  /** Из чего собрана таблица, если она не один файл. */
+  note?: string;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -149,6 +153,7 @@ export default function FormImportPanel({
           <p className="text-xs text-slate-500">
             {table.rows.length} строк, {table.headers.length} колонок
           </p>
+          {note && <p className="text-xs text-blue-300/80 mt-0.5">{note}</p>}
         </div>
         <button
           type="button"

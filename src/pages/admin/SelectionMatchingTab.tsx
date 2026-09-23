@@ -41,6 +41,14 @@ import {
 } from '../../lib/identityMatching';
 import { readTableFile, type TableData } from '../../lib/tableImport';
 import {
+  looksLikeContestArchive,
+  looksLikeContestMonitor,
+  mergeContest,
+  readContestArchive,
+  readZipNames,
+  type ContestParticipant,
+} from '../../lib/contestArchive';
+import {
   applySelectionFormLinks,
   clearSelectionFormLink,
   fetchSelectionFormLinks,
@@ -57,7 +65,54 @@ type Source = {
   table: TableData;
   mapping: ColumnMapping;
   offsetHours: number;
+  /** Контест собирается из двух файлов — архива посылок и монитора. */
+  contest?: ContestParts;
+  /** Пояснение под именем файла: из чего собрана таблица. */
+  note?: string;
 };
+
+type ContestParts = {
+  archive: ContestParticipant[] | null;
+  archiveName: string | null;
+  monitor: TableData | null;
+  monitorName: string | null;
+};
+
+const NO_CONTEST: ContestParts = { archive: null, archiveName: null, monitor: null, monitorName: null };
+
+/**
+ * Архив и монитор складываются в один источник, в каком бы порядке их ни
+ * загрузили: архив даёт всех, кто слал посылки, монитор — логины и баллы.
+ */
+function contestSource(parts: ContestParts, id: string): Source {
+  const table = parts.archive
+    ? mergeContest(parts.archive, parts.monitor)
+    : parts.monitor ?? { headers: [], rows: [] };
+  const fileName = [
+    parts.archiveName && `архив посылок: ${parts.archiveName}`,
+    parts.monitorName && `монитор: ${parts.monitorName}`,
+  ].filter(Boolean).join(' + ');
+
+  let note: string;
+  if (parts.archive && parts.monitor) {
+    note = `Склеено: ${parts.archive.length} участников из архива, логины и баллы — из монитора`;
+  } else if (parts.archive) {
+    note = 'Только архив: логины есть лишь у тех, кто подписан логином. Добавьте монитор — подтянутся остальные';
+  } else {
+    note = 'Только монитор: в нём нет тех, у кого ноль баллов. Добавьте архив посылок — появятся все';
+  }
+
+  return {
+    id,
+    kind: 'contest',
+    fileName,
+    table,
+    mapping: autoDetectColumns(table.headers, table.rows),
+    offsetHours: 0,
+    contest: parts,
+    note,
+  };
+}
 
 /** Строка разбора вместе с тем, из какого файла она приехала. */
 type ReviewItem = {
@@ -241,12 +296,31 @@ export default function SelectionMatchingTab() {
     setParseError(null);
     const added: Source[] = [];
     const failed: string[] = [];
+    const contest: Partial<ContestParts> = {};
 
     for (const file of files) {
       try {
+        // Архив посылок — zip с папками участников. Распаковывать не нужно:
+        // имена файлов лежат в оглавлении архива.
+        if (/\.zip$/i.test(file.name)) {
+          const names = await readZipNames(file);
+          if (!looksLikeContestArchive(names)) {
+            failed.push(`${file.name}: это не архив посылок Контеста`);
+            continue;
+          }
+          contest.archive = readContestArchive(names);
+          contest.archiveName = file.name;
+          continue;
+        }
+
         const parsed = await readTableFile(file);
         if (parsed.rows.length === 0) {
           failed.push(`${file.name}: нет строк с данными`);
+          continue;
+        }
+        if (looksLikeContestMonitor(parsed)) {
+          contest.monitor = parsed;
+          contest.monitorName = file.name;
           continue;
         }
         const mapping = autoDetectColumns(parsed.headers, parsed.rows);
@@ -263,8 +337,18 @@ export default function SelectionMatchingTab() {
       }
     }
 
-    if (added.length > 0) {
-      setSources((prev) => [...prev, ...added]);
+    const hasContest = contest.archive !== undefined || contest.monitor !== undefined;
+    if (added.length > 0 || hasContest) {
+      setSources((prev) => {
+        let next = [...prev, ...added];
+        if (hasContest) {
+          const existing = next.find((s) => s.contest);
+          const parts: ContestParts = { ...(existing?.contest ?? NO_CONTEST), ...contest };
+          const merged = contestSource(parts, existing?.id ?? `contest-${Date.now()}`);
+          next = existing ? next.map((s) => (s === existing ? merged : s)) : [...next, merged];
+        }
+        return next;
+      });
       setSavedCount(null);
     }
     setParseError(failed.length > 0 ? failed.join('; ') : null);
@@ -641,6 +725,7 @@ export default function SelectionMatchingTab() {
               offsetHours={source.offsetHours}
               onOffsetChange={(next) => patchSource(source.id, { offsetHours: next })}
               onRemove={() => removeSource(source.id)}
+              note={source.note}
             />
           ))}
 
