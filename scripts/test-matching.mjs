@@ -512,6 +512,17 @@ check('карта собирает человека из связей, отме�
     assert.equal(row.contactEmail, 'real@mail.ru');
     assert.equal(row.contactSource, 'questionnaire', 'почта из анкеты важнее почты аккаунта');
     assert.equal(row.linkedCount, 1);
+    assert.equal(row.cells.questionnaire.answerName, 'Иванов Иван', 'в клетке видно, кто подписал ответ');
+  }
+
+  // Контест: кто привязан — имя в Контесте, а без него хотя бы номер участника.
+  {
+    const [row] = lib.buildPersonMap([profile()], [
+      link({ id: 'l2', form_kind: 'contest', form_name: 'vbourlak', answer_key: 'id:134162172' }),
+    ], null);
+    assert.equal(row.cells.contest.answerName, 'vbourlak');
+    assert.equal(lib.answerLabel('', 'id:134162172'), '№134162172');
+    assert.equal(lib.answerLabel('  ', 'legacy:p1'), null, 'служебный ключ за подпись не выдаём');
   }
 
   // Отметил отправку на сайте, но ответ не сопоставлен — это не «нет».
@@ -584,9 +595,11 @@ check('карта собирает человека из связей, отме�
     assert.equal(lines[0].split(';')[0], 'Участник');
     assert.equal(
       lines[0].split(';').length,
-      6 + 3 * 8 + 3,
-      'колонок: базовые + 3 формы по 8 + готовность, решение, регистрация',
+      6 + 3 * 9 + 3,
+      'колонок: базовые + 3 формы по 9 + готовность, решение, регистрация',
     );
+    assert.ok(lines[0].includes('Анкета: кто в форме'));
+    assert.ok(lines[1].includes('Иванов Иван'), 'видно, чей ответ привязан');
     assert.ok(csv.includes('"Петров; Иван"'), 'точка с запятой экранируется');
     assert.ok(csv.includes('Ответы без аккаунта'));
     assert.ok(csv.includes('anketa.xlsx, строка 7'), 'видно, откуда взялась связь');

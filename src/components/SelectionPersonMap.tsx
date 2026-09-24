@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Download, ExternalLink, Link2, Loader2, RefreshCw, Save, X,
+  Download, ExternalLink, Link2, Loader2, Pencil, RefreshCw, Save,
 } from 'lucide-react';
 import { SearchableActionList, type PickerRow } from './SearchablePicker';
+import PersonMapAnswerDialog, {
+  MapDialogShell,
+  PersonMarkLine,
+  type MapLinkedAnswer,
+} from './PersonMapAnswerDialog';
 import {
   FORM_KIND_LABELS,
   profileStageTimestamp,
@@ -110,7 +115,17 @@ export type MapAnswerOption = {
   hint?: string;
 };
 
-function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void }) {
+function FormCell({
+  kind,
+  cell,
+  onLink,
+  onEdit,
+}: {
+  kind: FormKind;
+  cell: PersonFormCell;
+  onLink?: () => void;
+  onEdit?: () => void;
+}) {
   const style = CELL_STYLES[cell.state];
   const answered = cellHasAnswer(cell);
   const stamp = answered ? formatMapStamp(cell.at) : '';
@@ -124,6 +139,14 @@ function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void 
           <span className="ml-1 text-slate-400 font-normal">· отправок: {cell.versions}</span>
         )}
       </div>
+      {cell.answerName && (
+        // Кто привязан — прямо в клетке: у контеста нет ни времени, ни файла,
+        // и без подписи не понять, чей результат здесь стоит.
+        <div className="text-[11px] text-slate-400 mt-0.5 max-w-[13rem] truncate" title={cell.answerName}>
+          {kind === 'contest' ? 'в Контесте: ' : 'в форме: '}
+          <span className="text-slate-100">{cell.answerName}</span>
+        </div>
+      )}
       {stamp && <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">{stamp}</div>}
       {cell.workUrl && (
         // Ссылка на саму работу: по ней видно, что человек действительно
@@ -175,6 +198,16 @@ function FormCell({ cell, onLink }: { cell: PersonFormCell; onLink?: () => void 
           связать…
         </button>
       )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] text-violet-300 hover:text-violet-200 transition-colors"
+        >
+          <Pencil className="w-3 h-3" />
+          изменить связь…
+        </button>
+      )}
     </div>
   );
 }
@@ -201,12 +234,6 @@ function LinkDialog({
   onClose: () => void;
   onOpenReview?: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const rows: PickerRow[] = options.map((option) => ({
     id: option.key,
     title: option.title,
@@ -227,71 +254,47 @@ function LinkDialog({
   }));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-      role="presentation"
+    <MapDialogShell
+      label={`Связать ответ формы «${FORM_KIND_LABELS[kind]}» с ${personName}`}
+      kind={kind}
+      title={personName}
+      subtitle={(
+        <>
+          <PersonMarkLine mark={personMark} hint="сверьте со временем ответов ниже" />
+          <p className="text-xs text-slate-500 mt-0.5">
+            Какой ответ его? Сверху — свободные и похожие на него, ниже — уже отданные
+            другим: если ответ привязан не к тому, выберите его — он перенесётся сюда.
+            Сохранить можно кнопкой внизу карты.
+          </p>
+        </>
+      )}
+      onClose={onClose}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Связать ответ формы «${FORM_KIND_LABELS[kind]}» с ${personName}`}
-        className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-slate-900 border border-white/10 p-5 space-y-4 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              {FORM_KIND_LABELS[kind]}
-            </p>
-            <h3 className="text-base font-semibold text-white truncate">{personName}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {personMark
-                ? `Отметка на сайте: ${formatMapStamp(personMark)} — сверьте со временем ответов ниже`
-                : 'Отметки на сайте по этой форме нет'}
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Какой ответ его? Сверху — свободные и похожие на него, ниже — уже отданные
-              другим: если ответ привязан не к тому, выберите его — он перенесётся сюда.
-              Сохранить можно кнопкой внизу карты.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Закрыть"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+      {options.length === 0 ? (
+        <div className="text-sm text-slate-400 space-y-3">
+          <p>
+            Ответов этой формы пока не из чего выбирать: загрузите её выгрузку во вкладке
+            «Разбор выгрузок» — тогда они появятся здесь.
+          </p>
+          {onOpenReview && (
+            <button
+              type="button"
+              onClick={onOpenReview}
+              className="px-3.5 py-2 rounded-xl text-sm font-medium bg-violet-500/20 text-violet-200 border border-violet-500/40"
+            >
+              Открыть разбор выгрузок
+            </button>
+          )}
         </div>
-
-        {options.length === 0 ? (
-          <div className="text-sm text-slate-400 space-y-3">
-            <p>
-              Ответов этой формы пока не из чего выбирать: загрузите её выгрузку во вкладке
-              «Разбор выгрузок» — тогда они появятся здесь.
-            </p>
-            {onOpenReview && (
-              <button
-                type="button"
-                onClick={onOpenReview}
-                className="px-3.5 py-2 rounded-xl text-sm font-medium bg-violet-500/20 text-violet-200 border border-violet-500/40"
-              >
-                Открыть разбор выгрузок
-              </button>
-            )}
-          </div>
-        ) : (
-          <SearchableActionList
-            items={rows}
-            onPick={onPick}
-            searchPlaceholder="Имя, почта, логин, файл…"
-            emptyText="Ответов нет"
-          />
-        )}
-      </div>
-    </div>
+      ) : (
+        <SearchableActionList
+          items={rows}
+          onPick={onPick}
+          searchPlaceholder="Имя, почта, логин, файл…"
+          emptyText="Ответов нет"
+        />
+      )}
+    </MapDialogShell>
   );
 }
 
@@ -304,6 +307,11 @@ export default function SelectionPersonMap({
   diff,
   answerOptions,
   onAssign,
+  linkedAnswers,
+  accountOptions,
+  onMoveAnswer,
+  onUnlinkAnswer,
+  onConfirmAnswer,
   unsavedCount = 0,
   onSave,
   saving = false,
@@ -321,6 +329,14 @@ export default function SelectionPersonMap({
   /** Ответы загруженных выгрузок для человека и формы — похожие первыми. */
   answerOptions?: (profileId: string, kind: FormKind) => MapAnswerOption[];
   onAssign?: (profileId: string, kind: FormKind, optionKey: string) => void;
+  /** Что уже связано с человеком по форме: сохранённое и решения разбора. */
+  linkedAnswers?: (profileId: string, kind: FormKind) => MapLinkedAnswer[];
+  /** Кому можно отдать ответ — аккаунты сайта, похожие на ответ первыми. */
+  accountOptions?: (answerKey: string) => PickerRow[];
+  /** Возвращают текст ошибки или null. */
+  onMoveAnswer?: (answerKey: string, profileId: string) => Promise<string | null>;
+  onUnlinkAnswer?: (answerKey: string) => Promise<string | null>;
+  onConfirmAnswer?: (answerKey: string) => void;
   /** Сколько связей разобрано, но не сохранено. */
   unsavedCount?: number;
   onSave?: () => void;
@@ -329,12 +345,11 @@ export default function SelectionPersonMap({
   onOpenReview?: () => void;
 }) {
   const [query, setQuery] = useState<PersonMapQuery>(EMPTY_PERSON_MAP_QUERY);
-  const [linking, setLinking] = useState<{
-    profileId: string;
-    name: string;
-    kind: FormKind;
-    mark: string | null;
-  } | null>(null);
+  /** Человек и форма, для которых открыто окно: выбрать ответ или разобраться со связью. */
+  type Target = { profileId: string; name: string; kind: FormKind; mark: string | null };
+  const [linking, setLinking] = useState<Target | null>(null);
+  const [editing, setEditing] = useState<Target | null>(null);
+  const canEdit = !!(linkedAnswers && accountOptions && onMoveAnswer && onUnlinkAnswer);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -534,16 +549,19 @@ export default function SelectionPersonMap({
                     {FORM_KINDS.map((kind) => {
                       const cell = row.cells[kind];
                       const empty = cell.state === 'missing' || cell.state === 'marked_only';
+                      const target: Target = {
+                        profileId: row.profile.id,
+                        name: row.profile.display_name?.trim() || 'Участник',
+                        kind,
+                        mark: profileStageTimestamp(row.profile, kind) ?? null,
+                      };
                       return (
                         <td key={kind} className="px-2 py-2 bg-white/[0.015]">
                           <FormCell
+                            kind={kind}
                             cell={cell}
-                            onLink={onAssign && empty ? () => setLinking({
-                              profileId: row.profile.id,
-                              name: row.profile.display_name?.trim() || 'Участник',
-                              kind,
-                              mark: profileStageTimestamp(row.profile, kind) ?? null,
-                            }) : undefined}
+                            onLink={onAssign && empty ? () => setLinking(target) : undefined}
+                            onEdit={canEdit && !empty ? () => setEditing(target) : undefined}
                           />
                         </td>
                       );
@@ -582,6 +600,21 @@ export default function SelectionPersonMap({
           }}
           onClose={() => setLinking(null)}
           onOpenReview={onOpenReview ? () => { setLinking(null); onOpenReview(); } : undefined}
+        />
+      )}
+
+      {editing && canEdit && (
+        <PersonMapAnswerDialog
+          personName={editing.name}
+          personMark={editing.mark}
+          kind={editing.kind}
+          answers={linkedAnswers!(editing.profileId, editing.kind)}
+          accountOptions={accountOptions!}
+          onMove={onMoveAnswer!}
+          onUnlink={onUnlinkAnswer!}
+          onConfirm={onConfirmAnswer}
+          onPickAnother={onAssign ? () => { setLinking(editing); setEditing(null); } : undefined}
+          onClose={() => setEditing(null)}
         />
       )}
 

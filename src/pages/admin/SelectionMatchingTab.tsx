@@ -8,9 +8,12 @@ import { useAppDialog } from '../../lib/AppDialogContext';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchSelectionConfig, saveSelectionConfig } from '../../lib/selectionConfig';
 import SelectionPersonMap, { type MapAnswerOption } from '../../components/SelectionPersonMap';
+import type { MapLinkedAnswer } from '../../components/PersonMapAnswerDialog';
 import {
+  answerLabel,
   buildOrphanAnswers,
   buildPersonMap,
+  describeSignals,
   diffSiteData,
   formatTimeWindow,
   siteDataDiffTotal,
@@ -67,6 +70,7 @@ import {
   type ClockSummary,
   type ContestTiming,
   type KnownParticipant,
+  type TimeWindow,
 } from '../../lib/contestClock';
 import {
   REVIEW_LEVEL_LABELS,
@@ -79,7 +83,9 @@ import {
   applySelectionFormLinks,
   clearAllSelectionFormLinks,
   clearSelectionFormLink,
+  deleteSelectionFormLink,
   fetchSelectionFormLinks,
+  moveSelectionFormLink,
   type FormLinkDraft,
 } from '../../lib/selectionFormLinks';
 
@@ -580,6 +586,15 @@ export default function SelectionMatchingTab() {
     }))
   )), [parsed, matched]);
 
+  /** Строки загруженных выгрузок по ключу ответа — любой из версий. */
+  const itemsByAnswer = useMemo(() => {
+    const index = new Map<string, ReviewItem>();
+    for (const item of items) {
+      for (const version of item.row.versions) index.set(`${item.source.kind}|${version.answerKey}`, item);
+    }
+    return index;
+  }, [items]);
+
   /** Итог проверки честности у строки контеста — по ID участника в ключе ответа. */
   const contestReviews = useMemo(() => {
     const staff = new Set(contestStaff);
@@ -883,14 +898,20 @@ export default function SelectionMatchingTab() {
    * свободные, в самом низу — занятые: у них эта форма уже сохранена, и
    * выбрать их можно только осознанно, заменив сохранённый ответ.
    */
-  const pickerItems = (row: MatchRow, kind: FormKind): PickerRow[] => {
+  const pickerItems = (
+    row: MatchRow | null,
+    kind: FormKind,
+    windowHint: TimeWindow | null = null,
+  ): PickerRow[] => {
     const taken = takenByKind.get(kind);
+    const candidate = (id: string) => (row ? candidateFor(row, id) : null);
     const rank = (id: string) => {
-      if (candidateFor(row, id)) return 0;
+      if (candidate(id)) return 0;
       return taken?.has(id) ? 2 : 1;
     };
     // У контеста времени нет, есть оценка: чья отметка в неё попала — выше.
-    const window = row.entry.submittedAt === null ? row.entry.estimatedWindow : null;
+    const window = windowHint
+      ?? (row && row.entry.submittedAt === null ? row.entry.estimatedWindow ?? null : null);
     const markCheck = (profile: UserProfile) => {
       const markedAt = Date.parse(profileStageTimestamp(profile, kind) ?? '');
       return window && !Number.isNaN(markedAt) ? describeMarkMiss(markedAt, window) : null;
@@ -900,7 +921,7 @@ export default function SelectionMatchingTab() {
     return [...profiles]
       .sort((a, b) => rank(a.id) - rank(b.id) || Number(fits(b)) - Number(fits(a)))
       .map((profile) => {
-        const candidate = candidateFor(row, profile.id);
+        const suggested = candidate(profile.id);
         const busy = taken?.get(profile.id);
         const account = profileAccountLabel(profile);
         const check = markCheck(profile);
@@ -925,11 +946,205 @@ export default function SelectionMatchingTab() {
           ),
           trailing: busy ? (
             <span className="text-[11px] text-amber-400 shrink-0">есть ответ</span>
-          ) : candidate ? (
-            <span className="text-[11px] text-slate-500 shrink-0">{candidate.score}</span>
+          ) : suggested ? (
+            <span className="text-[11px] text-slate-500 shrink-0">{suggested.score}</span>
           ) : undefined,
         };
       });
+  };
+
+  /** Строки описания ответа для окна связи: кто в форме, когда, откуда. */
+  const answerDetails = (
+    kind: FormKind,
+    answer: {
+      answerKey: string | null;
+      login?: string;
+      email?: string | null;
+      submittedAt: number | null;
+      sourceFile: string;
+      sourceRow: number | null;
+    },
+  ): string[] => {
+    const lines: string[] = [];
+    if (kind === 'contest') {
+      const participantId = answer.answerKey?.startsWith('id:') ? answer.answerKey.slice(3) : '';
+      lines.push([
+        participantId && `участник Контеста №${participantId}`,
+        answer.login && `логин ${answer.login}`,
+      ].filter(Boolean).join(' · '));
+      const timing = answer.answerKey ? contestTimingByKey.get(answer.answerKey) : undefined;
+      if (timing) lines.push(`решал ≈ ${formatTimeWindow(timing)} — оценка по номерам посылок`);
+    } else {
+      lines.push([
+        answer.email,
+        answer.submittedAt !== null ? `отправлено ${formatStamp(answer.submittedAt)}` : '',
+      ].filter(Boolean).join(' · '));
+    }
+    if (answer.sourceFile) {
+      lines.push(`${answer.sourceFile}${answer.sourceRow ? `, строка ${answer.sourceRow}` : ''}`);
+    }
+    return lines.filter(Boolean);
+  };
+
+  /**
+   * Что связано с человеком по форме — для окна «изменить связь» в карте:
+   * сохранённые ответы и решения текущего разбора.
+   */
+  const linkedAnswers = (profileId: string, kind: FormKind): MapLinkedAnswer[] => {
+    const answers: MapLinkedAnswer[] = [];
+
+    for (const link of linksByKind.get(kind)?.get(profileId) ?? []) {
+      // База помнит не всё: логин, окно времени и проверку знает загруженный файл.
+      const item = link.answer_key ? itemsByAnswer.get(`${kind}|${link.answer_key}`) : undefined;
+      const entry = item?.row.versions.find((version) => version.answerKey === link.answer_key);
+      const decided = item ? overridesFor(item.source.id)[item.row.entry.rowNumber] : undefined;
+      const details = answerDetails(kind, {
+        answerKey: link.answer_key,
+        login: entry?.login,
+        email: link.contact_email,
+        submittedAt: link.form_submitted_at ? Date.parse(link.form_submitted_at) : null,
+        sourceFile: link.source_file,
+        sourceRow: link.source_row,
+      });
+      if (decided !== undefined && decided !== profileId) {
+        const next = decided ? profilesById.get(decided) : undefined;
+        details.push(next
+          ? `В разборе отдан «${profileDisplayName(next)}» — перенесётся при сохранении`
+          : 'В разборе помечен «не сопоставлять» — в базе пока остаётся');
+      }
+      answers.push({
+        key: `link:${link.id}`,
+        saved: true,
+        title: answerLabel(link.form_name, link.answer_key) ?? 'без подписи',
+        details,
+        workUrl: link.work_url || null,
+        reasons: describeSignals((link.match_signals ?? []) as MatchSignal[]),
+        note: link.review_note ?? null,
+      });
+    }
+
+    for (const item of items) {
+      if (item.source.kind !== kind) continue;
+      const overrides = overridesFor(item.source.id);
+      const decided = overrides[item.row.entry.rowNumber];
+      // Сохранённое и оставленное как есть уже показано выше.
+      if (item.row.savedFor && (decided === undefined || decided === item.row.savedFor)) continue;
+      const resolved = resolveMatch(item.row, overrides);
+      if (resolved.profileId !== profileId) continue;
+
+      const entry = item.row.entry;
+      answers.push({
+        key: `row:${item.key}`,
+        saved: false,
+        unconfirmed: !resolved.ready,
+        title: answerLabel(entry.name || entry.login, entry.answerKey) ?? 'без подписи',
+        details: answerDetails(kind, {
+          answerKey: entry.answerKey,
+          login: entry.login,
+          email: entry.email,
+          submittedAt: entry.submittedAt,
+          sourceFile: item.source.fileName,
+          sourceRow: entry.rowNumber,
+        }),
+        workUrl: entry.workUrl || null,
+        reasons: describeSignals(candidateFor(item.row, profileId)?.signals ?? []),
+        note: contestReviews.get(entry.answerKey)?.comment ?? null,
+      });
+    }
+
+    return answers;
+  };
+
+  /** Где ответ из окна связи: сохранённая связь в базе или строка разбора. */
+  const locateAnswer = (answerKey: string) => {
+    if (answerKey.startsWith('row:')) {
+      const item = items.find((candidate) => candidate.key === answerKey.slice(4));
+      if (!item) return null;
+      return {
+        kind: item.source.kind,
+        item,
+        link: null,
+        owner: resolveMatch(item.row, overridesFor(item.source.id)).profileId,
+        window: item.row.entry.estimatedWindow ?? null,
+      };
+    }
+
+    const link = links.find((candidate) => candidate.id === answerKey.slice(5));
+    if (!link) return null;
+    const kind = link.form_kind as FormKind;
+    const timing = link.answer_key ? contestTimingByKey.get(link.answer_key) : undefined;
+    return {
+      kind,
+      item: link.answer_key ? itemsByAnswer.get(`${kind}|${link.answer_key}`) ?? null : null,
+      link,
+      owner: link.user_id,
+      window: timing ? { from: timing.from, to: timing.to } : null,
+    };
+  };
+
+  /** Кому можно отдать ответ: те же аккаунты, что в разборе, без нынешнего хозяина. */
+  const accountOptions = (answerKey: string): PickerRow[] => {
+    const located = locateAnswer(answerKey);
+    if (!located) return [];
+    return pickerItems(located.item?.row ?? null, located.kind, located.window)
+      .filter((option) => option.id !== located.owner);
+  };
+
+  /**
+   * Сохранённую связь переносим в базе сразу; решение разбора — как и прочие,
+   * до кнопки «Сохранить связи».
+   */
+  const moveAnswer = async (answerKey: string, profileId: string): Promise<string | null> => {
+    const located = locateAnswer(answerKey);
+    if (!located) return 'Этого ответа уже нет — обновите карту.';
+    if (!located.link) {
+      if (located.item) setOverride(located.item.source.id, located.item.row.entry.rowNumber, profileId);
+      setSavedCount(null);
+      return null;
+    }
+
+    setSaving(true);
+    savingRef.current = true;
+    const { error } = await moveSelectionFormLink(located.link.id, profileId);
+    if (!error) {
+      // Ручное решение по этой строке устарело: ответ уже у нового хозяина.
+      if (located.item) clearOverride(located.item.source.id, located.item.row.entry.rowNumber);
+      await load({ silent: true });
+    }
+    savingRef.current = false;
+    setSaving(false);
+    return error;
+  };
+
+  const unlinkAnswer = async (answerKey: string): Promise<string | null> => {
+    const located = locateAnswer(answerKey);
+    if (!located) return 'Этого ответа уже нет — обновите карту.';
+    const row = located.item;
+    if (!located.link) {
+      if (row) setOverride(row.source.id, row.row.entry.rowNumber, null);
+      setSavedCount(null);
+      return null;
+    }
+
+    setSaving(true);
+    savingRef.current = true;
+    const { error } = await deleteSelectionFormLink(located.link.id);
+    if (!error) {
+      // Иначе загруженная выгрузка тут же сопоставит ответ заново — тем же доводом.
+      if (row) setOverride(row.source.id, row.row.entry.rowNumber, null);
+      await load({ silent: true });
+    }
+    savingRef.current = false;
+    setSaving(false);
+    return error;
+  };
+
+  /** Разбор предложил — человек подтвердил: связь уйдёт в сохранение. */
+  const confirmAnswer = (answerKey: string) => {
+    const located = locateAnswer(answerKey);
+    if (!located?.item || !located.owner) return;
+    setOverride(located.item.source.id, located.item.row.entry.rowNumber, located.owner);
+    setSavedCount(null);
   };
 
   const pending: PendingState[] = useMemo(() => parsed.map(({ source }, index) => {
@@ -1019,6 +1234,11 @@ export default function SelectionMatchingTab() {
           diff={freshDiff}
           answerOptions={answerOptions}
           onAssign={assignFromMap}
+          linkedAnswers={linkedAnswers}
+          accountOptions={accountOptions}
+          onMoveAnswer={moveAnswer}
+          onUnlinkAnswer={unlinkAnswer}
+          onConfirmAnswer={confirmAnswer}
           unsavedCount={drafts.length}
           onSave={() => { void save(); }}
           saving={saving}

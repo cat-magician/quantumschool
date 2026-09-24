@@ -3499,6 +3499,99 @@ $$;
 REVOKE ALL ON FUNCTION public.superadmin_clear_form_link(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_link(uuid, text) TO authenticated;
 
+-- Одна связь из карты участников: ответ привязан не к тому человеку —
+-- переносим его к другому, целиком, по id связи. Прежние доводы («логин
+-- совпал») к новому человеку отношения не имеют, поэтому стираются: связь
+-- теперь ручная. Почта для связи пересчитывается у обоих.
+CREATE OR REPLACE FUNCTION public.superadmin_move_form_link(
+  p_link_id uuid,
+  p_target_user_id uuid
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_from uuid;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT user_id INTO v_from FROM public.selection_form_links WHERE id = p_link_id;
+  IF v_from IS NULL THEN
+    RAISE EXCEPTION 'link_not_found';
+  END IF;
+
+  UPDATE public.selection_form_links
+  SET
+    user_id = p_target_user_id,
+    match_score = NULL,
+    match_signals = '{}',
+    confirmed_by = auth.uid(),
+    updated_at = now()
+  WHERE id = p_link_id;
+
+  UPDATE public.user_profiles p
+  SET
+    contact_email = (
+      SELECT l.contact_email
+      FROM public.selection_form_links l
+      WHERE l.user_id = p.id AND l.contact_email IS NOT NULL
+      ORDER BY (l.form_kind = 'questionnaire') DESC, l.updated_at DESC
+      LIMIT 1
+    ),
+    updated_at = now()
+  WHERE p.id IN (v_from, p_target_user_id);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_move_form_link(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_move_form_link(uuid, uuid) TO authenticated;
+
+-- Снять одну связь, а не все ответы формы у человека: у него их бывает
+-- несколько (второй аккаунт в Контесте, пересланное эссе), и ошибочным
+-- может быть только один.
+CREATE OR REPLACE FUNCTION public.superadmin_delete_form_link(p_link_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user uuid;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  DELETE FROM public.selection_form_links
+  WHERE id = p_link_id
+  RETURNING user_id INTO v_user;
+
+  -- Уже снята — например, из соседней вкладки: делать нечего.
+  IF v_user IS NULL THEN
+    RETURN;
+  END IF;
+
+  UPDATE public.user_profiles p
+  SET
+    contact_email = (
+      SELECT l.contact_email
+      FROM public.selection_form_links l
+      WHERE l.user_id = p.id AND l.contact_email IS NOT NULL
+      ORDER BY (l.form_kind = 'questionnaire') DESC, l.updated_at DESC
+      LIMIT 1
+    ),
+    updated_at = now()
+  WHERE p.id = v_user;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_delete_form_link(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.superadmin_delete_form_link(uuid) TO authenticated;
+
 -- Сбросить сопоставление и начать заново: все связи одной формы или всех
 -- сразу. Почта для связи в профилях берётся из связей, поэтому у затронутых
 -- людей она пересчитывается — остаётся из уцелевших связей или пропадает.

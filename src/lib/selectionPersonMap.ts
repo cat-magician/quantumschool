@@ -56,6 +56,11 @@ export type PersonFormCell = SiteStage & {
   versions: number;
   /** Итог проверки честности (контест): предположение с доводами. */
   reviewNote: string | null;
+  /**
+   * Кто в форме: как подписан ответ. У контеста это имя в Контесте — логин,
+   * почта или ФИО, — без него не понять, чей результат привязан.
+   */
+  answerName: string | null;
   signals: MatchSignal[];
   /** Балл сопоставления, а не оценка за работу. */
   score: number | null;
@@ -136,6 +141,14 @@ function pendingByKind(pending: PendingInput): Map<FormKind, PendingState> {
   return new Map(list.map((state) => [state.kind, state]));
 }
 
+/** Подпись ответа, а если её нет — его номер из выгрузки. */
+export function answerLabel(name: string | null | undefined, answerKey: string | null | undefined): string | null {
+  const signed = name?.trim();
+  if (signed) return signed;
+  const id = answerKey?.startsWith('id:') ? answerKey.slice(3) : '';
+  return id ? `№${id}` : null;
+}
+
 function stamp(link: SelectionFormLink): number {
   const at = Date.parse(link.form_submitted_at ?? link.updated_at ?? '');
   return Number.isNaN(at) ? 0 : at;
@@ -178,6 +191,7 @@ export function buildPersonMap(
           workUrl: link.work_url || null,
           versions: ofKind.length,
           reviewNote: link.review_note ?? null,
+          answerName: answerLabel(link.form_name, link.answer_key),
           signals: (link.match_signals ?? []) as MatchSignal[],
           score: link.match_score,
           sourceFile: link.source_file || null,
@@ -195,6 +209,7 @@ export function buildPersonMap(
           workUrl: draft.entry.workUrl || null,
           versions: 1,
           reviewNote: draft.note ?? null,
+          answerName: answerLabel(draft.entry.name || draft.entry.login, draft.entry.answerKey),
           signals: draft.signals,
           score: draft.score,
           sourceFile: byKind.get(kind)?.sourceFile ?? null,
@@ -210,6 +225,7 @@ export function buildPersonMap(
         workUrl: null,
         versions: 0,
         reviewNote: null,
+        answerName: null,
         signals: [],
         score: null,
         sourceFile: null,
@@ -422,6 +438,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
     'Почта для связи', 'Откуда почта',
     ...FORM_KINDS.flatMap((k) => [
       `${FORM_KIND_LABELS[k]}: статус`,
+      `${FORM_KIND_LABELS[k]}: кто в форме`,
       `${FORM_KIND_LABELS[k]}: время`,
       `${FORM_KIND_LABELS[k]}: работа`,
       `${FORM_KIND_LABELS[k]}: на сайте`,
@@ -449,6 +466,7 @@ export function buildPersonMapCsv(rows: PersonMapRow[], orphans: OrphanAnswer[])
         cell.versions > 1
           ? `${CELL_STATE_LABELS[cell.state]} (отправок: ${cell.versions})`
           : CELL_STATE_LABELS[cell.state],
+        cell.answerName ?? '',
         formatMapStamp(cell.at),
         cell.workUrl ?? '',
         describeSiteStage(cell),

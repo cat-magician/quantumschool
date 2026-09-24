@@ -32,6 +32,14 @@ export type FormLinkDraft = {
  */
 function describeLinkError(message: string): string {
   const lower = message.toLowerCase();
+  // Функции для одной связи появились позже остальных — база может знать
+  // сопоставление, но ещё не уметь переносить и снимать связь поштучно.
+  if (lower.includes('superadmin_move_form_link') || lower.includes('superadmin_delete_form_link')) {
+    return 'Перенос и снятие одной связи заработают после того, как применить supabase/schema.sql.';
+  }
+  if (lower.includes('link_not_found')) {
+    return 'Этой связи уже нет в базе — обновите карту.';
+  }
   if (
     lower.includes('superadmin_apply_form_links')
     || lower.includes('superadmin_clear_form_links')
@@ -141,6 +149,37 @@ export async function clearSelectionFormLink(
     return { error: describeLinkError(error.message) };
   }
 
+  return { error: null };
+}
+
+/**
+ * Ответ привязан не к тому человеку: переносим одну связь к другому. Доводы
+ * сопоставления при этом стираются — связь становится ручной.
+ */
+export async function moveSelectionFormLink(
+  linkId: string,
+  targetUserId: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('superadmin_move_form_link', {
+    p_link_id: linkId,
+    p_target_user_id: targetUserId,
+  });
+
+  if (error) {
+    console.error('Form link move error:', error.message);
+    return { error: describeLinkError(error.message) };
+  }
+  return { error: null };
+}
+
+/** Снять одну связь: остальные ответы этой формы у человека остаются. */
+export async function deleteSelectionFormLink(linkId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('superadmin_delete_form_link', { p_link_id: linkId });
+
+  if (error) {
+    console.error('Form link delete error:', error.message);
+    return { error: describeLinkError(error.message) };
+  }
   return { error: null };
 }
 
