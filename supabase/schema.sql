@@ -3287,8 +3287,8 @@ REVOKE ALL ON FUNCTION public.guard_user_profile_update() FROM PUBLIC, anon, aut
 -- остаются в интерфейсе и в базу не попадают.
 --
 -- source_file и source_row нужны, чтобы вернуться к исходной строке выгрузки
--- и перепроверить решение: сами файлы мы не храним, они разбираются в
--- браузере и никуда не отправляются.
+-- и перепроверить решение. Сами файлы разбираются в браузере; на сайте
+-- хранится только то, что из них прочитано, — см. selection_uploads ниже.
 --
 -- Таблица под суперадмином целиком: здесь настоящие контактные почты,
 -- собранные вне сайта, и ими же подписаны решения о зачислении.
@@ -3642,6 +3642,50 @@ $$;
 
 REVOKE ALL ON FUNCTION public.superadmin_clear_form_links(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.superadmin_clear_form_links(text) TO authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Загруженные выгрузки разбора
+-- ══════════════════════════════════════════════════════════════
+--
+-- Разбор выгрузок переживает перезагрузку страницы и виден всем
+-- суперадминам: здесь лежит то, что браузер прочитал из файлов. Таблица —
+-- целиком, чтобы колонки можно было переразметить; рядом разметка, сдвиг
+-- часового пояса и ручные решения по строкам («это он», «не сопоставлять»):
+-- без них после перезагрузки снятая связь тут же сопоставилась бы заново.
+--
+-- Сам zip Контеста не храним: из архива берутся только посылки — номера,
+-- вердикты, короткие ответы и даты внутри решений, а таблица участников
+-- склеивается из них и монитора заново.
+--
+-- Личные данные тех же людей, что и в selection_form_links, — и доступ тот
+-- же: только суперадмин.
+
+CREATE TABLE IF NOT EXISTS public.selection_uploads (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_kind text NOT NULL CHECK (form_kind IN ('questionnaire', 'essay', 'contest')),
+  file_name text NOT NULL DEFAULT '',
+  -- Прочитанная таблица: {"headers": [...], "rows": [[...], ...]}. У контеста
+  -- пустая — она собирается из архива и монитора.
+  table_data jsonb NOT NULL DEFAULT '{"headers": [], "rows": []}'::jsonb,
+  -- Разметка колонок; пусто — определить заново по заголовкам.
+  mapping jsonb,
+  offset_hours real NOT NULL DEFAULT 0,
+  -- Контест: участники и посылки архива, монитор, момент сборки архива.
+  contest jsonb,
+  -- Ручные решения по номеру строки: id аккаунта или null — «не сопоставлять».
+  overrides jsonb NOT NULL DEFAULT '{}'::jsonb,
+  uploaded_by uuid DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.selection_uploads ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Superadmin manage selection uploads" ON public.selection_uploads;
+CREATE POLICY "Superadmin manage selection uploads" ON public.selection_uploads
+  FOR ALL TO authenticated
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
 
 -- ══════════════════════════════════════════════════════════════
 -- Предзаполнение форм: чтобы археология больше не понадобилась

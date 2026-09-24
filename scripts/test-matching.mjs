@@ -51,6 +51,7 @@ await build({
       export * from '../src/lib/contestArchive';
       export * from '../src/lib/contestReview';
       export * from '../src/lib/contestClock';
+      export * from '../src/lib/selectionUploads';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -1640,6 +1641,45 @@ check('окно словами: минуты — только когда окн�
   assert.match(day, /^\d{2}\.\d{2} \d{2}:\d{2}–\d{2}:\d{2}$/);
   const wide = lib.formatTimeWindow({ from: T0, to: T0 + 5 * 24 * 60 * MIN });
   assert.match(wide, /^между \d{2}\.\d{2} и \d{2}\.\d{2}$/);
+});
+
+// ── Выгрузки на сайте ────────────────────────────────────────────────
+check('контест переживает запись на сайт и обратно', () => {
+  const parts = {
+    archive: [{ who: 'vbourlak', participantId: '134162172', submissions: 9, solved: new Set(['1', '2']) }],
+    archiveName: 'contest.zip',
+    submissions: [sub('vbourlak', '134162172', 1, 166041419, 'OK', '42')],
+    builtAt: Date.UTC(2026, 8, 22, 19, 31, 20),
+    monitor: table(['user_name', 'login', 'score'], [['vbourlak', 'vbourlak', '42']]),
+    monitorName: 'monitor.csv',
+  };
+
+  // Через JSON — ровно так, как запись ляжет в базу.
+  const stored = JSON.parse(JSON.stringify(lib.packContest(parts)));
+  assert.deepEqual(stored.archive[0].solved, ['1', '2'], 'решённые задачи — списком: множества JSON не знает');
+
+  const back = lib.unpackContest(stored);
+  assert.ok(back.archive[0].solved instanceof Set);
+  assert.equal(back.builtAt, parts.builtAt);
+  assert.deepEqual(back.submissions, parts.submissions);
+  assert.deepEqual(
+    lib.mergeContest(back.archive, back.monitor),
+    lib.mergeContest(parts.archive, parts.monitor),
+    'таблица склеивается та же, что из свежих файлов',
+  );
+
+  // Запись, сделанная до того, как появилось время сборки архива.
+  const old = lib.unpackContest({ archive: null, archiveName: 'a.zip', submissions: null, monitor: null, monitorName: null });
+  assert.equal(old.builtAt, null);
+});
+
+check('ручные решения переживают перезагрузку', () => {
+  // Номера строк в JSON становятся строками — разбор понимает и их.
+  const overrides = JSON.parse(JSON.stringify({ 12: 'p1', 13: null }));
+  const row = (rowNumber) => ({ entry: { rowNumber }, best: null, confidence: 'unmatched' });
+  assert.equal(lib.resolveMatch(row(12), overrides).profileId, 'p1');
+  assert.equal(lib.resolveMatch(row(13), overrides).manual, true, '«не сопоставлять» тоже помнится');
+  assert.equal(lib.resolveMatch(row(14), overrides).manual, false);
 });
 
 await Promise.all(pending);

@@ -61,7 +61,6 @@ import {
   readContestArchive,
   readContestSubmissions,
   readZipNames,
-  type ContestParticipant,
 } from '../../lib/contestArchive';
 import {
   contestTimings,
@@ -76,7 +75,6 @@ import {
   REVIEW_LEVEL_LABELS,
   reviewContest,
   type ContestReview,
-  type ContestSubmission,
   type ReviewLevel,
 } from '../../lib/contestReview';
 import {
@@ -88,6 +86,18 @@ import {
   moveSelectionFormLink,
   type FormLinkDraft,
 } from '../../lib/selectionFormLinks';
+import {
+  NO_CONTEST,
+  deleteSelectionUpload,
+  fetchSelectionUploads,
+  insertSelectionUpload,
+  packContest,
+  unpackContest,
+  updateSelectionUpload,
+  type ContestParts,
+  type SelectionUpload,
+  type SelectionUploadPatch,
+} from '../../lib/selectionUploads';
 
 type Basket = 'review' | 'ready' | 'unmatched' | 'saved';
 
@@ -105,21 +115,6 @@ type Source = {
   note?: string;
   /** Итоги проверки честности контеста по ID участника. */
   reviews?: Map<string, ContestReview>;
-};
-
-type ContestParts = {
-  archive: ContestParticipant[] | null;
-  archiveName: string | null;
-  /** Посылки архива с ответами — по ним считается проверка честности. */
-  submissions: ContestSubmission[] | null;
-  /** Когда Контест собрал архив: позже этого посылок нет. */
-  builtAt: number | null;
-  monitor: TableData | null;
-  monitorName: string | null;
-};
-
-const NO_CONTEST: ContestParts = {
-  archive: null, archiveName: null, submissions: null, builtAt: null, monitor: null, monitorName: null,
 };
 
 /** Как оценено время посылок — одной строкой под карточкой файла. */
@@ -177,6 +172,45 @@ function contestSource(parts: ContestParts, id: string): Source {
     note,
   };
 }
+
+/** Сохранённая разметка годится, только если все её колонки есть в таблице. */
+function mappingFits(mapping: ColumnMapping, headers: string[]): boolean {
+  return Object.values(mapping).every((index) => index === null || (index >= 0 && index < headers.length));
+}
+
+/** Выгрузка с сайта — снова источник разбора, с той же разметкой. */
+function sourceFromUpload(upload: SelectionUpload): Source {
+  const source: Source = upload.contest
+    ? contestSource(unpackContest(upload.contest), upload.id)
+    : {
+      id: upload.id,
+      kind: upload.form_kind,
+      fileName: upload.file_name,
+      table: upload.table_data,
+      mapping: autoDetectColumns(upload.table_data.headers, upload.table_data.rows),
+      offsetHours: upload.offset_hours ?? 0,
+    };
+  return upload.mapping && mappingFits(upload.mapping, source.table.headers)
+    ? { ...source, kind: upload.form_kind, mapping: upload.mapping }
+    : { ...source, kind: upload.form_kind };
+}
+
+/** Источник разбора — в запись для сайта. Таблицу контеста не храним: она склеивается заново. */
+function uploadFromSource(source: Source): SelectionUpload {
+  return {
+    id: source.id,
+    form_kind: source.kind,
+    file_name: source.fileName,
+    table_data: source.contest ? { headers: [], rows: [] } : source.table,
+    mapping: source.mapping,
+    offset_hours: source.offsetHours,
+    contest: source.contest ? packContest(source.contest) : null,
+    overrides: {},
+  };
+}
+
+/** Ручные решения пишем не на каждый клик, а когда админ на секунду остановился. */
+const OVERRIDES_SAVE_DELAY_MS = 800;
 
 /** Строка разбора вместе с тем, из какого файла она приехала. */
 type ReviewItem = {
@@ -269,6 +303,13 @@ export default function SelectionMatchingTab() {
   const [sources, setSources] = useState<Source[]>([]);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  /** Выгрузки хранятся на сайте: пока они не приехали из базы — loading. */
+  const [uploadsState, setUploadsState] = useState<'loading' | 'ready' | 'offline'>('loading');
+  const [uploadsError, setUploadsError] = useState<string | null>(null);
+  const sourcesRef = useRef(sources);
+  sourcesRef.current = sources;
+  /** Какие ручные решения по каждой выгрузке уже лежат на сайте — чтобы не писать то же. */
+  const savedOverridesRef = useRef<Record<string, string>>({});
 
   /** Решения админа — по одному набору на файл: номера строк у файлов свои. */
   const [overrides, setOverrides] = useState<Record<string, MatchOverrides>>({});
@@ -343,6 +384,53 @@ export default function SelectionMatchingTab() {
 
   useEffect(() => { void load(); }, []);
 
+  /** Запись выгрузки на сайт: ошибку показываем, удачная запись её снимает. */
+  const persist = useCallback(async (action: Promise<{ error: string | null }>) => {
+    const { error } = await action;
+    setUploadsError(error);
+  }, []);
+
+  /**
+   * Загруженные раньше выгрузки — с сайта, со своей разметкой и ручными
+   * решениями: разбор продолжается с того места, где его оставили.
+   */
+  useEffect(() => {
+    void fetchSelectionUploads().then(({ uploads, error }) => {
+      if (error) {
+        setUploadsError(error);
+        setUploadsState('offline');
+        return;
+      }
+      const restored = uploads.map(sourceFromUpload);
+      // Файл могли бросить в поле, пока шла загрузка, — его не теряем.
+      setSources((prev) => [...restored, ...prev.filter((s) => !restored.some((r) => r.id === s.id))]);
+      setOverrides((prev) => ({
+        ...Object.fromEntries(uploads.map((upload) => [upload.id, upload.overrides ?? {}])),
+        ...prev,
+      }));
+      for (const upload of uploads) {
+        savedOverridesRef.current[upload.id] = JSON.stringify(upload.overrides ?? {});
+      }
+      setUploadsState('ready');
+    });
+  }, []);
+
+  // Ручные решения живут вместе с выгрузкой: иначе после перезагрузки снятая
+  // связь тут же сопоставилась бы заново тем же доводом.
+  useEffect(() => {
+    if (uploadsState !== 'ready') return undefined;
+    const timer = window.setTimeout(() => {
+      for (const source of sourcesRef.current) {
+        const current = overrides[source.id] ?? {};
+        const json = JSON.stringify(current);
+        if (savedOverridesRef.current[source.id] === json) continue;
+        savedOverridesRef.current[source.id] = json;
+        void persist(updateSelectionUpload(source.id, { overrides: current }));
+      }
+    }, OVERRIDES_SAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [overrides, uploadsState, persist]);
+
   /**
    * Пока сотрудник разбирает файл, в базе появляются новые люди и новые
    * отметки — карта показывает их без перезагрузки страницы. Сам разбор при
@@ -415,7 +503,7 @@ export default function SelectionMatchingTab() {
         }
         const mapping = autoDetectColumns(parsed.headers, parsed.rows);
         added.push({
-          id: `${file.name}-${Date.now()}-${added.length}`,
+          id: crypto.randomUUID(),
           kind: guessKind(parsed, mapping),
           fileName: file.name,
           table: parsed,
@@ -427,19 +515,42 @@ export default function SelectionMatchingTab() {
       }
     }
 
+    // Архив и монитор — один источник: второй файл дописывается к первому,
+    // даже если его загрузили в другой день.
     const hasContest = contest.archive !== undefined || contest.monitor !== undefined;
-    if (added.length > 0 || hasContest) {
+    const existingContest = sourcesRef.current.find((s) => s.contest);
+    const contestNext = hasContest
+      ? contestSource(
+        { ...(existingContest?.contest ?? NO_CONTEST), ...contest },
+        existingContest?.id ?? crypto.randomUUID(),
+      )
+      : null;
+
+    if (added.length > 0 || contestNext) {
       setSources((prev) => {
-        let next = [...prev, ...added];
-        if (hasContest) {
-          const existing = next.find((s) => s.contest);
-          const parts: ContestParts = { ...(existing?.contest ?? NO_CONTEST), ...contest };
-          const merged = contestSource(parts, existing?.id ?? `contest-${Date.now()}`);
-          next = existing ? next.map((s) => (s === existing ? merged : s)) : [...next, merged];
-        }
-        return next;
+        const next = [...prev, ...added];
+        if (!contestNext) return next;
+        return next.some((s) => s.id === contestNext.id)
+          ? next.map((s) => (s.id === contestNext.id ? contestNext : s))
+          : [...next, contestNext];
       });
       setSavedCount(null);
+
+      for (const source of added) {
+        savedOverridesRef.current[source.id] = '{}';
+        void persist(insertSelectionUpload(uploadFromSource(source)));
+      }
+      if (contestNext && existingContest) {
+        const record = uploadFromSource(contestNext);
+        void persist(updateSelectionUpload(contestNext.id, {
+          file_name: record.file_name,
+          contest: record.contest,
+          mapping: record.mapping,
+        }));
+      } else if (contestNext) {
+        savedOverridesRef.current[contestNext.id] = '{}';
+        void persist(insertSelectionUpload(uploadFromSource(contestNext)));
+      }
     }
     setParseError(failed.length > 0 ? failed.join('; ') : null);
     setParsing(false);
@@ -448,17 +559,37 @@ export default function SelectionMatchingTab() {
   const patchSource = (id: string, patch: Partial<Source>) => {
     setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     setSavedCount(null);
+
+    const stored: SelectionUploadPatch = {};
+    if (patch.kind) stored.form_kind = patch.kind;
+    if (patch.mapping) stored.mapping = patch.mapping;
+    if (patch.offsetHours !== undefined) stored.offset_hours = patch.offsetHours;
+    void persist(updateSelectionUpload(id, stored));
   };
 
-  const removeSource = (id: string) => {
+  /** Выгрузка лежит на сайте для всех — убираем её только переспросив. */
+  const removeSource = async (id: string) => {
+    const source = sourcesRef.current.find((s) => s.id === id);
+    const ok = await confirm({
+      title: 'Убрать выгрузку с сайта?',
+      message: `«${source?.fileName || 'Файл'}» пропадёт из разбора у всех суперадминов, вместе с ручными `
+        + 'решениями по её строкам. Связи, которые уже сохранены из неё, останутся — в карте '
+        + 'участников они никуда не денутся.',
+      confirmLabel: 'Убрать',
+      danger: true,
+    });
+    if (!ok) return;
+
     setSources((prev) => prev.filter((s) => s.id !== id));
     setOverrides((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
+    delete savedOverridesRef.current[id];
     setPickerKey(null);
     setSavedCount(null);
+    void persist(deleteSelectionUpload(id));
   };
 
   const setOverride = (sourceId: string, rowNumber: number, value: string | null) => {
@@ -1285,6 +1416,17 @@ export default function SelectionMatchingTab() {
             onFilesSelected={(files) => { void addFiles(files); }}
           />
 
+          <p className={`text-xs ${uploadsError ? 'text-amber-300' : 'text-slate-500'}`}>
+            {uploadsError ?? (
+              uploadsState === 'loading'
+                ? 'Загружаю выгрузки, сохранённые на сайте…'
+                : sources.length > 0
+                  ? 'Выгрузки сохранены на сайте вместе с разметкой и ручными решениями: после '
+                    + 'перезагрузки страницы разбор на месте, и его видят все суперадмины.'
+                  : 'Загруженные выгрузки сохранятся на сайте — второй раз загружать их не придётся.'
+            )}
+          </p>
+
           {sources.map((source) => (
             <FormImportPanel
               key={source.id}
@@ -1296,7 +1438,7 @@ export default function SelectionMatchingTab() {
               onMappingChange={(next) => patchSource(source.id, { mapping: next })}
               offsetHours={source.offsetHours}
               onOffsetChange={(next) => patchSource(source.id, { offsetHours: next })}
-              onRemove={() => removeSource(source.id)}
+              onRemove={() => { void removeSource(source.id); }}
               note={[
                 source.note,
                 contestClocks.has(source.id) ? describeClock(contestClocks.get(source.id)!.summary) : null,
