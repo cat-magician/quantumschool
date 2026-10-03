@@ -101,9 +101,10 @@ async function loadStudentNotifications(
 ): Promise<AppNotification[]> {
   const items: AppNotification[] = [];
 
+  // Тексты ответов уведомлениям не нужны — только статус и оценка.
   const subsPromise = supabase
     .from('homework_page_submissions')
-    .select('*, page:homework_pages(id, title, due_at, max_score)')
+    .select('id, page_id, status, score, graded_at, page:homework_pages(id, title, max_score)')
     .eq('user_id', userId)
     .order('updated_at', { ascending: false });
 
@@ -123,9 +124,12 @@ async function loadStudentNotifications(
 
   const [subsRes, pagesRes, lessonsRes] = await Promise.all([subsPromise, pagesPromise, lessonsPromise]);
 
-  const subs = (subsRes.data ?? []) as (HomeworkPageSubmission & {
-    page?: { id: string; title: string; due_at: string | null };
-  })[];
+  // Без схемы базы supabase-js считает вложенную page массивом; на деле у сдачи
+  // одна страница, и PostgREST отдаёт объект.
+  const subs = (subsRes.data ?? []) as unknown as Pick<
+    HomeworkPageSubmission,
+    'id' | 'page_id' | 'status' | 'score' | 'graded_at' | 'page'
+  >[];
   const pages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'updated_at'>[];
   const lessons = (lessonsRes.data ?? []) as {
     id: string;

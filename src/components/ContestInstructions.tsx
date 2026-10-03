@@ -1,4 +1,4 @@
-import MarkdownContent from './MarkdownContent';
+import { MarkdownContent } from './LazyMarkdown';
 
 /**
  * Инструкция к контесту этапа 2. Стоит над кнопкой перехода: контест

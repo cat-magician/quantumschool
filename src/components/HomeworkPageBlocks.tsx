@@ -2,7 +2,7 @@ import type { HomeworkPageBlock } from '../lib/types';
 import { HOMEWORK_BLOCK_LABELS } from '../lib/homeworkPageUtils';
 import { parseYandexFormId, isContestLink } from '../lib/selectionConfig';
 import BlockPlaceholder from './BlockPlaceholder';
-import HomeworkMarkdown from './HomeworkMarkdown';
+import { HomeworkMarkdown } from './LazyMarkdown';
 import VideoEmbed from './VideoEmbed';
 import ContestLinkCard from './ContestLinkCard';
 import YandexFormEmbed from './YandexFormEmbed';

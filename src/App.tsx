@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { useAuth } from './lib/AuthContext';
 import { Instructor, LandingConfig } from './lib/types';
@@ -34,11 +34,14 @@ import {
   UserPlus,
   Handshake,
 } from 'lucide-react';
+// Не lazy: сам маршрут лёгкий, а тяжёлые кабинеты он догружает сам — и сразу,
+// без лишнего шага «сначала чанк маршрута, потом чанк кабинета».
+import Dashboard from './pages/Dashboard';
+import { lazyChunk } from './lib/lazyChunk';
 
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
-const TeacherJoin = lazy(() => import('./pages/TeacherJoin'));
+const ProfilePage = lazyChunk(() => import('./pages/ProfilePage'));
+const PrivacyPolicy = lazyChunk(() => import('./pages/PrivacyPolicy'));
+const TeacherJoin = lazyChunk(() => import('./pages/TeacherJoin'));
 
 function RouteFallback() {
   return (
@@ -49,15 +52,25 @@ function RouteFallback() {
 }
 
 
+/** Маршруты со своей страницей; всё остальное — главная. */
+const NON_LANDING_PATHS = ['/dashboard', '/profile', '/join/teacher', '/privacy'];
+
 function App() {
+  const { pathname } = useLocation();
+  const onLanding = !NON_LANDING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [landing, setLanding] = useState<LandingConfig>(DEFAULT_LANDING_CONFIG);
   const [loading, setLoading] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // Данные главной нужны только главной. Раньше они грузились и при входе
+  // прямо в кабинет — два лишних запроса на старте, на мобильной сети заметно.
+  const landingRequested = useRef(false);
   useEffect(() => {
+    if (!onLanding || landingRequested.current) return;
+    landingRequested.current = true;
     fetchData();
-  }, []);
+  }, [onLanding]);
 
   const fetchData = async () => {
     try {

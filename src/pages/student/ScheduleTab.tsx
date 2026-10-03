@@ -2,8 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calendar, Clock, Loader2 } from 'lucide-react';
 import MeetingLinkButton from '../../components/MeetingLinkButton';
 import MonthCalendar from '../../components/MonthCalendar';
+import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { ScheduleEvent } from '../../lib/types';
+import {
+  cachedStudentSchedule,
+  rememberStudentSchedule,
+  STUDENT_SCHEDULE_SELECT,
+} from '../../lib/scheduleCache';
 import {
   EVENT_TYPE_LABELS,
   eventMatchesScheduleFilter,
@@ -92,21 +98,32 @@ function ScheduleDateGroups({ groups, isPast }: { groups: DateGroup[]; isPast: b
 }
 
 export default function StudentScheduleTab() {
-  const [events, setEvents] = useState<ScheduleEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const userId = user?.id ?? '';
+  // Уже загруженное (той же главной) показываем сразу, свежее — следом.
+  const [events, setEvents] = useState<ScheduleEvent[]>(() => cachedStudentSchedule(userId) ?? []);
+  const [loading, setLoading] = useState(() => cachedStudentSchedule(userId) === null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     supabase
       .from('schedule_events')
-      .select('*, group:groups(id, name)')
+      .select(STUDENT_SCHEDULE_SELECT)
       .order('scheduled_at', { ascending: true })
       .then(({ data }) => {
-        if (data) setEvents(data as ScheduleEvent[]);
+        if (cancelled) return;
+        if (data) {
+          setEvents(data as ScheduleEvent[]);
+          rememberStudentSchedule(userId, data as ScheduleEvent[]);
+        }
         setLoading(false);
       });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const { upcomingGroups, pastGroups } = useMemo(() => {
     const list = events.filter((e) => eventMatchesScheduleFilter(e, 'all', selectedDate));

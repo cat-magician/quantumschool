@@ -1,14 +1,49 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AlertCircle, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { hasOAuthCallbackInUrl, hasOAuthCodeInUrl } from '../lib/oauthCallbackUtils';
-import StudentDashboard from './StudentDashboard';
-import AdminDashboard from './AdminDashboard';
 import TeacherApplicationGate from './TeacherApplicationGate';
 import PrivacyConsentGate from '../components/PrivacyConsentGate';
 import { profileNeedsPrivacyConsent } from '../lib/profileUtils';
 import { shouldShowTeacherApplicationGate } from '../lib/loginCorridor';
+import { lazyChunk } from '../lib/lazyChunk';
+
+// Кабинеты ученика и сотрудника — отдельные чанки: ученику незачем качать код
+// админки, а это больше трети прежнего общего чанка.
+const loadStudentDashboard = () => import('./StudentDashboard');
+const loadAdminDashboard = () => import('./AdminDashboard');
+const StudentDashboard = lazyChunk(loadStudentDashboard);
+const AdminDashboard = lazyChunk(loadAdminDashboard);
+
+/** Какой кабинет открывали на этом устройстве в прошлый раз. */
+const DASHBOARD_KIND_KEY = 'qc:dashboard-kind';
+
+type DashboardKind = 'staff' | 'student';
+
+function rememberedDashboardKind(): DashboardKind {
+  try {
+    return localStorage.getItem(DASHBOARD_KIND_KEY) === 'staff' ? 'staff' : 'student';
+  } catch {
+    return 'student';
+  }
+}
+
+function rememberDashboardKind(kind: DashboardKind) {
+  try {
+    localStorage.setItem(DASHBOARD_KIND_KEY, kind);
+  } catch {
+    // Хранилище недоступно — в следующий раз просто угадаем ученика.
+  }
+}
+
+function DashboardSpinner() {
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="w-10 h-10 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const {
@@ -17,6 +52,20 @@ export default function Dashboard() {
   } = useAuth();
   const navigate = useNavigate();
   const [retrying, setRetrying] = useState(false);
+
+  // Код кабинета качаем сразу, параллельно со входом и загрузкой профиля, —
+  // иначе он встал бы в очередь за ними. Какой именно, подсказывает прошлый
+  // визит; ошибётся подсказка — нужный чанк догрузится, когда придёт профиль.
+  useEffect(() => {
+    const load = rememberedDashboardKind() === 'staff' ? loadAdminDashboard : loadStudentDashboard;
+    // Сбой тут не страшен: при отрисовке lazy попробует ещё раз и покажет ошибку сам.
+    load().catch(() => {});
+  }, []);
+
+  const profileRole = profile?.role;
+  useEffect(() => {
+    if (profileRole) rememberDashboardKind(profileRole === 'student' ? 'student' : 'staff');
+  }, [profileRole]);
 
   useEffect(() => {
     if (loading) return;
@@ -27,11 +76,7 @@ export default function Dashboard() {
   }, [user, loading, oauthError, navigate]);
 
   if (loading || (!user && hasOAuthCodeInUrl())) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-10 h-10 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
-      </div>
-    );
+    return <DashboardSpinner />;
   }
 
   if (!user && oauthError) {
@@ -141,12 +186,20 @@ export default function Dashboard() {
   const role = profile.role ?? 'student';
 
   if (role === 'superadmin' || role === 'admin') {
-    return <AdminDashboard isSuperAdmin={role === 'superadmin'} />;
+    return (
+      <Suspense fallback={<DashboardSpinner />}>
+        <AdminDashboard isSuperAdmin={role === 'superadmin'} />
+      </Suspense>
+    );
   }
 
   if (shouldShowTeacherApplicationGate(profile, user.id)) {
     return <TeacherApplicationGate />;
   }
 
-  return <StudentDashboard />;
+  return (
+    <Suspense fallback={<DashboardSpinner />}>
+      <StudentDashboard />
+    </Suspense>
+  );
 }

@@ -14,6 +14,8 @@ import {
   type StudentNextAction,
 } from '../lib/studentHomeActions';
 import { selectionVerdict } from '../lib/selectionDisplayUtils';
+import { HOMEWORK_SUBMISSION_STATUS_COLUMNS } from '../lib/progressUtils';
+import { rememberStudentSchedule, STUDENT_SCHEDULE_SELECT } from '../lib/scheduleCache';
 import { HOME_GUIDE } from '../lib/dashboardHelpCopy';
 import { formatEventDate, formatEventTime } from '../lib/scheduleUtils';
 import type { LearningSubTab } from '../pages/student/LearningTab';
@@ -54,12 +56,14 @@ export default function StudentDashboardHome({
     setLoading(true);
 
     Promise.all([
-      supabase.from('schedule_events').select('*').order('scheduled_at'),
+      supabase.from('schedule_events').select(STUDENT_SCHEDULE_SELECT).order('scheduled_at'),
       supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true),
-      supabase.from('homework_page_submissions').select('*').eq('user_id', userId),
+      supabase.from('homework_page_submissions').select(HOMEWORK_SUBMISSION_STATUS_COLUMNS).eq('user_id', userId),
     ]).then(([eventsRes, pagesRes, subsRes]) => {
       if (cancelled) return;
-      setNextEvent(nextScheduleEvent((eventsRes.data ?? []) as ScheduleEvent[]));
+      const events = (eventsRes.data ?? []) as ScheduleEvent[];
+      if (eventsRes.data) rememberStudentSchedule(userId, events);
+      setNextEvent(nextScheduleEvent(events));
       setHwProgress(buildEnrolledHomeworkProgress(userId, pagesRes.data ?? [], subsRes.data ?? []));
       setLoading(false);
     });

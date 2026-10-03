@@ -27,10 +27,8 @@ export default function DashboardHeaderActions({
     setUnreadCount(countUnreadNotifications(userId, items));
   }, [profile, userId]);
 
-  useEffect(() => {
-    refreshUnread();
-  }, [refreshUnread]);
-
+  // Один эффект на всё: при открытии кабинета колокольчик закрыт, так что
+  // счётчик загрузится здесь же. Второй такой же эффект грузил всё дважды.
   useEffect(() => {
     if (!bellOpen) refreshUnread();
   }, [bellOpen, refreshUnread]);

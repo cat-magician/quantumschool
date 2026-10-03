@@ -2,8 +2,7 @@ import { useRef, useState } from 'react';
 import { Eye, ImagePlus, Loader2, Pencil } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { uploadContentImage } from '../lib/contentImageUtils';
-import MarkdownContent from './MarkdownContent';
-import HomeworkMarkdown from './HomeworkMarkdown';
+import { HomeworkMarkdown, MarkdownContent } from './LazyMarkdown';
 
 export default function MarkdownEditor({
   value,

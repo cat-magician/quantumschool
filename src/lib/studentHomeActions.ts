@@ -1,7 +1,11 @@
-import { buildHomeworkPageProgress, type HomeworkPageProgress } from './progressUtils';
+import {
+  buildHomeworkPageProgress,
+  type HomeworkPageProgress,
+  type HomeworkSubmissionStatus,
+} from './progressUtils';
 import { selectionVerdict, studentStagePhase } from './selectionDisplayUtils';
 import { isEventActive, sortScheduleEventsAscending } from './scheduleUtils';
-import type { HomeworkPage, HomeworkPageSubmission, ScheduleEvent, UserProfile } from './types';
+import type { HomeworkPage, ScheduleEvent, UserProfile } from './types';
 
 export type SelectionSubTab = 'stage1' | 'stage2' | 'results';
 
@@ -227,7 +231,7 @@ export function nextEnrolledAction(
 export function buildEnrolledHomeworkProgress(
   userId: string,
   publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[],
-  submissions: HomeworkPageSubmission[],
+  submissions: HomeworkSubmissionStatus[],
 ) {
   return buildHomeworkPageProgress(publishedPages, submissions, userId);
 }

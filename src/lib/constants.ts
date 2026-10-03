@@ -3,9 +3,8 @@ export const YANDEX_FORMS = {
   essay: '6a34617d02848f51a4bf3c52',
 } as const;
 
-/** Официальное встраивание: embed.js сам подстраивает высоту iframe */
+/** Встраивание формы; высоту iframe подгоняет YandexFormEmbed, без embed.js. */
 export const YANDEX_FORM_EMBED = {
-  scriptUrl: 'https://forms.yandex.ru/_static/embed.js',
   /** Как в коде из «Поделиться → iframe» */
   width: 650,
 } as const;

@@ -90,9 +90,21 @@ export function computeProgressPercent(pages: HomeworkPageProgress[]) {
   return Math.round(sum / pages.length);
 }
 
+/** Поля сдачи, из которых считается прогресс, — без самих ответов. */
+export type HomeworkSubmissionStatus = Pick<
+  HomeworkPageSubmission,
+  'user_id' | 'page_id' | 'status' | 'score' | 'submitted_at' | 'graded_at'
+>;
+
+/**
+ * Те же поля для select. Счётчикам и плашкам тексты ответов не нужны, а весят
+ * они больше всего остального, и на мобильной сети это заметно.
+ */
+export const HOMEWORK_SUBMISSION_STATUS_COLUMNS = 'user_id, page_id, status, score, submitted_at, graded_at';
+
 export function buildHomeworkPageProgress(
   publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[],
-  submissions: HomeworkPageSubmission[],
+  submissions: HomeworkSubmissionStatus[],
   userId: string,
 ): HomeworkPageProgress[] {
   const byPage = new Map(submissions.filter((s) => s.user_id === userId).map((s) => [s.page_id, s]));

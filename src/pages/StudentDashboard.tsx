@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Loader2, LogOut, Calendar, BarChart3, Home,
@@ -50,6 +50,7 @@ import {
 } from '../components/ExternalSubmitConfirm';
 import SelectionStage1Progress, { StepSectionLabel } from '../components/SelectionStage1Progress';
 import { countSelectionPendingSteps, buildEnrolledHomeworkProgress } from '../lib/studentHomeActions';
+import { HOMEWORK_SUBMISSION_STATUS_COLUMNS } from '../lib/progressUtils';
 import { markEnrollmentWelcomeShown, shouldShowEnrollmentWelcome } from '../lib/enrollmentWelcome';
 import { markHadPendingTeacherApplication } from '../lib/teacherPromotionNotice';
 import { TeacherApplicationPendingBanner } from '../components/TeacherRoleBanners';
@@ -137,6 +138,19 @@ export default function StudentDashboard() {
     return () => window.clearInterval(id);
   }, [user?.id, profile?.teacher_application, refreshProfile]);
 
+  // Счётчик несданных ДЗ меняется, когда ученик что-то сдал, а сдают во
+  // вкладке «Обучение». Перечитываем его при открытии кабинета и при уходе
+  // оттуда, а не на каждое переключение вкладок: на мобильной сети эти
+  // запросы тормозили открытие соседних разделов, того же расписания.
+  const [homeworkCountRefresh, setHomeworkCountRefresh] = useState(0);
+  const previousTabRef = useRef(tab);
+  useEffect(() => {
+    if (previousTabRef.current === 'learning' && tab !== 'learning') {
+      setHomeworkCountRefresh((n) => n + 1);
+    }
+    previousTabRef.current = tab;
+  }, [tab]);
+
   useEffect(() => {
     if (!user?.id || !isEnrolled) {
       setHomeworkPendingCount(0);
@@ -144,12 +158,12 @@ export default function StudentDashboard() {
     }
     Promise.all([
       supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true),
-      supabase.from('homework_page_submissions').select('*').eq('user_id', user.id),
+      supabase.from('homework_page_submissions').select(HOMEWORK_SUBMISSION_STATUS_COLUMNS).eq('user_id', user.id),
     ]).then(([pagesRes, subsRes]) => {
       const progress = buildEnrolledHomeworkProgress(user.id, pagesRes.data ?? [], subsRes.data ?? []);
       setHomeworkPendingCount(progress.filter((p) => p.status === 'none' || p.status === 'draft').length);
     });
-  }, [user?.id, isEnrolled, tab]);
+  }, [user?.id, isEnrolled, homeworkCountRefresh]);
 
   const openLockedEnrollmentInfo = () => {
     openSelection('results');

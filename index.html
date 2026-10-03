@@ -9,9 +9,13 @@
     <meta name="theme-color" content="#2563eb" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Квантовый кружок - Онлайн-школа МФТИ и РКЦ по квантовым технологиям</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Unbounded:wght@900&display=swap" rel="stylesheet">
+    <!-- Соединение с Supabase открываем, пока качается JS: первый же запрос
+         (вход, профиль) не ждёт DNS и TLS. Адрес подставляет Vite при сборке. -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin>
+    <!-- Шрифты свои (см. src/index.css). Кириллица и латиница Inter нужны на
+         любой странице — грузим их сразу, остальные наборы по мере надобности. -->
+    <link rel="preload" href="/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <meta name="description" content="Онлайн-школа МФТИ и Российского квантового центра по квантовым технологиям для школьников." />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Квантовый кружок" />
@@ -30,7 +34,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://forms.yandex.ru/_static/embed.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
