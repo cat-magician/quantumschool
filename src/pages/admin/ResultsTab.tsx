@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckCircle, Download, GraduationCap, Loader2, Mail, MapPin, School, UserPlus, UserX,
+  Check, Download, GraduationCap, Hourglass, Loader2, Mail, MapPin, School, X,
 } from 'lucide-react';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
@@ -11,7 +11,12 @@ import { profileAccountLabel, profileContactEmail, profileDisplayName, profileLo
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import SuperadminDeleteAccount from '../../components/SuperadminDeleteAccount';
 import SuperadminResetPassword from '../../components/SuperadminResetPassword';
-import { adminStageBadgeClass, adminStageLabel } from '../../lib/selectionDisplayUtils';
+import {
+  adminStageBadgeClass,
+  adminStageLabel,
+  selectionVerdict,
+  type SelectionVerdict,
+} from '../../lib/selectionDisplayUtils';
 import { removeUserFromAllGroups } from '../../lib/groupUtils';
 import SelectionFilterBar from '../../components/SelectionFilterBar';
 import { downloadSelectionCsv } from '../../lib/selectionExport';
@@ -28,6 +33,46 @@ type StudentRow = UserProfile & { email: string | null };
 /** Участник и этапы — фикс. ширина; последняя колонка растягивается, кнопки справа. */
 const RESULTS_ROW_GRID =
   'grid-cols-1 md:grid-cols-[14rem_15rem_15rem_1fr] md:gap-x-4 md:items-center';
+
+type Decision = Exclude<SelectionVerdict, 'waiting'>;
+
+/**
+ * Кнопки решения — одни иконки, чтобы помещались в узкую колонку. Различаются
+ * цветом и формой значка; принятое решение залито целиком.
+ */
+const DECISION_BUTTONS: {
+  decision: Decision;
+  label: string;
+  activeLabel: string;
+  icon: typeof Check;
+  idleClass: string;
+  activeClass: string;
+}[] = [
+  {
+    decision: 'accepted',
+    label: 'Зачислить',
+    activeLabel: 'Зачислен',
+    icon: Check,
+    idleClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25 hover:text-emerald-200 hover:border-emerald-400/60',
+    activeClass: 'bg-emerald-500 text-emerald-950 border-emerald-500 hover:bg-emerald-400 hover:border-emerald-400',
+  },
+  {
+    decision: 'waitlist',
+    label: 'В лист ожидания',
+    activeLabel: 'В листе ожидания',
+    icon: Hourglass,
+    idleClass: 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25 hover:text-amber-200 hover:border-amber-400/60',
+    activeClass: 'bg-amber-400 text-amber-950 border-amber-400 hover:bg-amber-300 hover:border-amber-300',
+  },
+  {
+    decision: 'rejected',
+    label: 'Отказать',
+    activeLabel: 'Отказ',
+    icon: X,
+    idleClass: 'bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-400/60',
+    activeClass: 'bg-rose-500 text-rose-950 border-rose-500 hover:bg-rose-400 hover:border-rose-400',
+  },
+];
 
 /** Балл не меняет статус этапа — только действия ученика. passed/failed в БД устарели. */
 function normalizeStatus(
@@ -106,6 +151,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
       stage2_score: d.stage2_score,
       is_enrolled: d.is_enrolled,
       selection_rejected: d.selection_rejected ?? false,
+      selection_waitlisted: d.selection_waitlisted ?? false,
       updated_at: new Date().toISOString(),
     }).eq('id', s.id);
 
@@ -132,20 +178,14 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
     return !error;
   };
 
-  const toggleEnroll = async (s: StudentRow) => {
-    const d = getDraft(s);
-    const patch = d.is_enrolled
-      ? { is_enrolled: false, selection_rejected: false }
-      : { is_enrolled: true, selection_rejected: false };
-    await persistStudent(s, patch);
-  };
-
-  const toggleReject = async (s: StudentRow) => {
-    const d = getDraft(s);
-    const patch = d.selection_rejected
-      ? { is_enrolled: false, selection_rejected: false }
-      : { is_enrolled: false, selection_rejected: true };
-    await persistStudent(s, patch);
+  /** Повторное нажатие на принятое решение снимает его. */
+  const toggleDecision = async (s: StudentRow, decision: Decision) => {
+    const next = selectionVerdict(getDraft(s)) === decision ? 'waiting' : decision;
+    await persistStudent(s, {
+      is_enrolled: next === 'accepted',
+      selection_waitlisted: next === 'waitlist',
+      selection_rejected: next === 'rejected',
+    });
   };
 
   const saveScoresIfChanged = async (s: StudentRow) => {
@@ -229,6 +269,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
 
           {filtered.map((s) => {
             const d = getDraft(s);
+            const verdict = selectionVerdict(d);
             const scoreDraft = hasScoreChanges(s);
             const saving = savingId === s.id;
             const showInfo = infoStudentId === s.id;
@@ -281,42 +322,27 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                   />
 
                   <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 md:col-start-4 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => { void toggleEnroll(s); }}
-                      disabled={saving}
-                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[100px] h-9 px-3 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
-                        d.is_enrolled
-                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-white/5 text-slate-300 border border-white/10 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/20'
-                      }`}
-                    >
-                      {saving ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : d.is_enrolled ? (
-                        <CheckCircle className="w-4 h-4" />
-                      ) : (
-                        <UserPlus className="w-4 h-4" />
-                      )}
-                      <span>{d.is_enrolled ? 'Зачислен' : 'Зачислить'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { void toggleReject(s); }}
-                      disabled={saving}
-                      className={`flex items-center justify-center gap-1.5 min-w-0 sm:min-w-[88px] h-9 px-3 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
-                        d.selection_rejected
-                          ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                          : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/20'
-                      }`}
-                    >
-                      {saving ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <UserX className="w-4 h-4" />
-                      )}
-                      <span>{d.selection_rejected ? 'Отказ' : 'Отказать'}</span>
-                    </button>
+                    <div role="group" aria-label="Решение" className="flex items-center gap-2">
+                      {DECISION_BUTTONS.map(({ decision, label, activeLabel, icon: Icon, idleClass, activeClass }) => {
+                        const active = verdict === decision;
+                        return (
+                          <button
+                            key={decision}
+                            type="button"
+                            onClick={() => { void toggleDecision(s, decision); }}
+                            disabled={saving}
+                            aria-label={label}
+                            aria-pressed={active}
+                            title={active ? `${activeLabel} — нажмите ещё раз, чтобы снять` : label}
+                            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors disabled:opacity-50 ${
+                              active ? activeClass : idleClass
+                            }`}
+                          >
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+                          </button>
+                        );
+                      })}
+                    </div>
                     {isSuperAdmin && profileLogin(d) && (
                       <SuperadminResetPassword
                         userId={s.id}

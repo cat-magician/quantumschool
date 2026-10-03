@@ -227,6 +227,14 @@ async function loadStudentNotifications(
       createdAt: profile.updated_at,
       action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
     });
+  } else if ((profile.selection_waitlisted ?? false) && !isNotificationRead(userId, 'selection-waitlist')) {
+    items.push({
+      id: 'selection-waitlist',
+      title: 'Вы в листе ожидания',
+      body: 'Подробности — в разделе «Результаты»',
+      createdAt: profile.updated_at,
+      action: { audience: 'student', state: { tab: 'selection', selectionSubTab: 'results' } },
+    });
   }
 
   return sortByDate(items).slice(0, NOTIFICATION_LIMIT);

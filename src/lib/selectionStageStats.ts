@@ -144,6 +144,7 @@ export const VERDICT_REQUIREMENT_OPTIONS: { value: VerdictRequirement; label: st
   { value: 'any', label: 'Любое' },
   { value: 'waiting', label: 'Без решения' },
   { value: 'accepted', label: 'Зачислен' },
+  { value: 'waitlist', label: 'Лист ожидания' },
   { value: 'rejected', label: 'Отказ' },
 ];
 

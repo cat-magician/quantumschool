@@ -242,7 +242,7 @@ export function buildPersonMap(
       contactEmail: profileContactEmail(profile),
       contactSource: contactSourceOf(profile),
       registeredAt: profile.created_at ?? null,
-      verdict: selectionVerdict(profile.is_enrolled, !!profile.selection_rejected),
+      verdict: selectionVerdict(profile),
       cells,
       linkedCount,
     };
@@ -342,6 +342,7 @@ const CONTACT_SOURCE_LABELS: Record<ContactSource, string> = {
 
 export const VERDICT_LABELS: Record<SelectionVerdict, string> = {
   accepted: 'Зачислен',
+  waitlist: 'Лист ожидания',
   rejected: 'Отказ',
   waiting: 'Без решения',
 };

@@ -87,6 +87,7 @@ export interface UserProfile {
   stage2_viewed_at?: string | null;
   questionnaire_submitted_at?: string | null;
   selection_rejected?: boolean;
+  selection_waitlisted?: boolean;
   city?: string | null;
   school?: string | null;
   grade?: string | null;

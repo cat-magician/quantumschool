@@ -1,4 +1,4 @@
-import type { StageStatus } from './types';
+import type { StageStatus, UserProfile } from './types';
 
 export function adminStageLabel(
   status: StageStatus,
@@ -26,14 +26,18 @@ export function adminStageBadgeClass(
   return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
 }
 
-export type SelectionVerdict = 'waiting' | 'accepted' | 'rejected';
+/**
+ * Решение по отбору. 'waiting' — решения ещё нет; 'waitlist' — лист ожидания,
+ * это уже решение: места пока не дали, но и не отказали.
+ */
+export type SelectionVerdict = 'waiting' | 'accepted' | 'waitlist' | 'rejected';
 
 export function selectionVerdict(
-  isEnrolled: boolean,
-  selectionRejected: boolean,
+  profile: Pick<UserProfile, 'is_enrolled' | 'selection_rejected' | 'selection_waitlisted'>,
 ): SelectionVerdict {
-  if (isEnrolled) return 'accepted';
-  if (selectionRejected) return 'rejected';
+  if (profile.is_enrolled) return 'accepted';
+  if (profile.selection_rejected) return 'rejected';
+  if (profile.selection_waitlisted) return 'waitlist';
   return 'waiting';
 }
 

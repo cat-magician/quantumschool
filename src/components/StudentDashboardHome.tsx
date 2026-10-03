@@ -70,7 +70,7 @@ export default function StudentDashboardHome({
   }, [isEnrolled, userId]);
 
   const greeting = displayName.trim() || 'добро пожаловать';
-  const verdict = selectionVerdict(profile.is_enrolled, profile.selection_rejected ?? false);
+  const verdict = selectionVerdict(profile);
   const selectionChecklist = useMemo(() => buildSelectionChecklist(profile), [profile]);
   const selectionAction = useMemo(() => nextSelectionAction(profile), [profile]);
   const enrolledAction = useMemo(
@@ -89,7 +89,9 @@ export default function StudentDashboardHome({
             ? 'Ваш курс — материалы, занятия и домашние задания'
             : verdict === 'rejected'
               ? 'Отбор завершён — итоги во вкладке «Результаты»'
-              : 'Отборочный этап — пройдите шаги ниже в удобном порядке'}
+              : verdict === 'waitlist'
+                ? 'Вы в листе ожидания — подробности во вкладке «Результаты»'
+                : 'Отборочный этап — пройдите шаги ниже в удобном порядке'}
         </p>
       </div>
 
@@ -242,7 +244,7 @@ export default function StudentDashboardHome({
         </section>
       )}
 
-      {!isEnrolled && verdict !== 'rejected' && (
+      {verdict === 'waiting' && (
         <p className="text-xs text-slate-600 flex items-start gap-2 px-1">
           <FlaskConical className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           Этапы 1 и 2 можно проходить параллельно — главное подтвердить отправку кнопкой на странице этапа.

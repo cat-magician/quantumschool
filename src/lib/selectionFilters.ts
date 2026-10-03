@@ -1,6 +1,6 @@
 import type { UserProfile } from './types';
 import { profileContactEmail, profileLogin } from './profileUtils';
-import { selectionVerdict } from './selectionDisplayUtils';
+import { selectionVerdict, type SelectionVerdict } from './selectionDisplayUtils';
 
 /**
  * Фильтрация участников отбора. Логика вынесена из ResultsTab, чтобы её можно
@@ -9,7 +9,7 @@ import { selectionVerdict } from './selectionDisplayUtils';
 
 export type StageFilter = 'any' | 'submitted' | 'not_submitted' | 'ungraded' | 'graded';
 export type YesNoFilter = 'any' | 'yes' | 'no';
-export type VerdictFilter = 'any' | 'accepted' | 'rejected' | 'waiting';
+export type VerdictFilter = 'any' | SelectionVerdict;
 export type AccountFilter = 'any' | 'yandex' | 'login';
 export type SelectionPreset =
   | 'none'
@@ -85,6 +85,7 @@ export const CONTACT_FILTER_OPTIONS: { value: YesNoFilter; label: string }[] = [
 export const VERDICT_FILTER_OPTIONS: { value: VerdictFilter; label: string }[] = [
   { value: 'any', label: 'Любое' },
   { value: 'accepted', label: 'Зачислен' },
+  { value: 'waitlist', label: 'Лист ожидания' },
   { value: 'rejected', label: 'Отказ' },
   { value: 'waiting', label: 'Без решения' },
 ];
@@ -162,7 +163,7 @@ function matchesPreset(preset: SelectionPreset, p: UserProfile): boolean {
     case 'ready':
       return p.stage1_score !== null
         && p.stage2_score !== null
-        && selectionVerdict(p.is_enrolled, !!p.selection_rejected) === 'waiting';
+        && selectionVerdict(p) === 'waiting';
     default:
       return true;
   }
@@ -205,7 +206,7 @@ export function matchesSelectionFilters(p: UserProfile, f: SelectionFilters): bo
   if (!matchesScoreRange(p.stage1_score, f.essayScoreMin, f.essayScoreMax)) return false;
   if (!matchesScoreRange(p.stage2_score, f.contestScoreMin, f.contestScoreMax)) return false;
 
-  if (f.verdict !== 'any' && selectionVerdict(p.is_enrolled, !!p.selection_rejected) !== f.verdict) {
+  if (f.verdict !== 'any' && selectionVerdict(p) !== f.verdict) {
     return false;
   }
 

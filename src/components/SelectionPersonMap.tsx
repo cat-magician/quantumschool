@@ -91,6 +91,7 @@ const CONTACT_STYLES: Record<ContactSource, { text: string; note: string }> = {
 
 const VERDICT_STYLES: Record<SelectionVerdict, string> = {
   accepted: 'text-emerald-300',
+  waitlist: 'text-amber-300',
   rejected: 'text-rose-300/90',
   waiting: 'text-slate-500',
 };

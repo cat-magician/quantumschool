@@ -57,6 +57,7 @@ function escapeCell(value: string): string {
 
 const VERDICT_LABELS = {
   accepted: 'Зачислен',
+  waitlist: 'Лист ожидания',
   rejected: 'Отказ',
   waiting: 'Без решения',
 } as const;
@@ -79,7 +80,7 @@ export function selectionExportRow(p: UserProfile): string[] {
     p.stage1_score === null ? '' : String(p.stage1_score),
     stageSubmitted(p.stage2_status, p.stage2_submitted_at) ? formatDateTime(p.stage2_submitted_at) || 'отмечено' : '',
     p.stage2_score === null ? '' : String(p.stage2_score),
-    VERDICT_LABELS[selectionVerdict(p.is_enrolled, !!p.selection_rejected)],
+    VERDICT_LABELS[selectionVerdict(p)],
     formatDateTime(p.created_at),
     p.id,
   ];

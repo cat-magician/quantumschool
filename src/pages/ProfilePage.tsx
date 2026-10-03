@@ -27,10 +27,17 @@ import {
 } from '../lib/profileUtils';
 import UserAvatar from '../components/UserAvatar';
 import AvatarUploadModal from '../components/AvatarUploadModal';
-import { adminStageLabel } from '../lib/selectionDisplayUtils';
+import { adminStageLabel, selectionVerdict, type SelectionVerdict } from '../lib/selectionDisplayUtils';
 import type { Group } from '../lib/types';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import LinkedAccountsSection from '../components/LinkedAccountsSection';
+
+const SELECTION_STATUS_LABELS: Record<SelectionVerdict, string> = {
+  accepted: 'Зачислен',
+  waitlist: 'В листе ожидания',
+  rejected: 'Не прошёл отбор',
+  waiting: 'На рассмотрении',
+};
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -321,7 +328,7 @@ export default function ProfilePage() {
             />
             <InfoRow
               label="Статус"
-              value={profile.selection_rejected ? 'Не прошёл отбор' : profile.is_enrolled ? 'Зачислен' : 'На рассмотрении'}
+              value={SELECTION_STATUS_LABELS[selectionVerdict(profile)]}
             />
           </section>
         )}

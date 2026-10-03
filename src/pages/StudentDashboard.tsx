@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Loader2, LogOut, Calendar, BarChart3, Home,
   ClipboardList, FileText, FlaskConical, Lock,
-  CheckCircle, BookOpen, Presentation, GraduationCap,
+  CheckCircle, BookOpen, Presentation, GraduationCap, Hourglass,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { profileAccountLabel, profileDisplayName } from '../lib/profileUtils';
@@ -1059,7 +1059,7 @@ function SelectionTab({
 }
 
 function SelectionResults({ profile }: { profile: UserProfile }) {
-  const verdict = selectionVerdict(profile.is_enrolled, profile.selection_rejected ?? false);
+  const verdict = selectionVerdict(profile);
   // Баллы участнику не показываем — только факт проверки. Само число нужно
   // лишь чтобы понять, проверена работа или ещё нет.
   const stage1Graded = profile.stage1_score !== null;
@@ -1105,6 +1105,30 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
             </div>
           </div>
           <TelegramCommunityCard compact />
+        </div>
+      )}
+
+      {verdict === 'waitlist' && (
+        <div className="rounded-2xl overflow-hidden border border-amber-500/30">
+          <div className="bg-gradient-to-br from-amber-500/15 to-amber-600/5 px-6 py-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 flex items-center justify-center mx-auto mb-4">
+              <Hourglass className="w-8 h-8 text-amber-300" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Вы в листе ожидания</h3>
+            <p className="text-sm text-amber-100/80 max-w-md mx-auto leading-relaxed">
+              Спасибо за участие в отборе! Сейчас все места в наборе заняты.
+              Если место освободится, решение о зачислении появится здесь.
+            </p>
+            <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed mt-3">
+              По вопросам:{' '}
+              <a
+                href="mailto:quantumschool@rqc.ru"
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                quantumschool@rqc.ru
+              </a>
+            </p>
+          </div>
         </div>
       )}
 

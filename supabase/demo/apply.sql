@@ -106,6 +106,7 @@ AS $$
       AND (
         up.is_enrolled
         OR up.selection_rejected
+        OR up.selection_waitlisted
         OR up.stage1_score IS NOT NULL
         OR up.stage2_score IS NOT NULL
         OR EXISTS (SELECT 1 FROM public.group_members gm WHERE gm.user_id = up.id)

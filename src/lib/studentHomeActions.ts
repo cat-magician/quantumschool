@@ -32,7 +32,7 @@ function contestDone(profile: UserProfile) {
 
 /** Сколько шагов отбора ещё не сданы (для бейджа в меню). */
 export function countSelectionPendingSteps(profile: UserProfile): number {
-  if (profile.is_enrolled || (profile.selection_rejected ?? false)) return 0;
+  if (selectionVerdict(profile) !== 'waiting') return 0;
   let n = 0;
   if (!profile.questionnaire_submitted_at) n += 1;
   if (!essayDone(profile)) n += 1;
@@ -44,7 +44,7 @@ export function buildSelectionChecklist(profile: UserProfile): SelectionChecklis
   const questionnaireDone = !!profile.questionnaire_submitted_at;
   const essayComplete = essayDone(profile);
   const contestComplete = contestDone(profile);
-  const verdict = selectionVerdict(profile.is_enrolled, profile.selection_rejected ?? false);
+  const verdict = selectionVerdict(profile);
 
   let current: SelectionChecklistItem['id'] | null = null;
   if (!questionnaireDone) current = 'questionnaire';
@@ -91,26 +91,32 @@ export function buildSelectionChecklist(profile: UserProfile): SelectionChecklis
       status:
         verdict === 'accepted' || verdict === 'rejected'
           ? 'done'
-          : stepStatus('decision', false),
+          : verdict === 'waitlist'
+            ? 'waiting'
+            : stepStatus('decision', false),
       detail:
         verdict === 'accepted'
           ? 'Зачислены на обучение'
           : verdict === 'rejected'
             ? 'Не зачислены'
-            : questionnaireDone && essayComplete && contestComplete
-              ? 'Ожидайте проверки и зачисления'
-              : 'Появится после сдачи этапов',
+            : verdict === 'waitlist'
+              ? 'В листе ожидания'
+              : questionnaireDone && essayComplete && contestComplete
+                ? 'Ожидайте проверки и зачисления'
+                : 'Появится после сдачи этапов',
     },
   ];
 }
 
 export function nextSelectionAction(profile: UserProfile): StudentNextAction | null {
-  const verdict = selectionVerdict(profile.is_enrolled, profile.selection_rejected ?? false);
+  const verdict = selectionVerdict(profile);
   if (verdict === 'accepted') return null;
-  if (verdict === 'rejected') {
+  if (verdict === 'rejected' || verdict === 'waitlist') {
     return {
       label: 'Посмотреть результаты',
-      description: 'Решение по зачислению уже принято',
+      description: verdict === 'waitlist'
+        ? 'Если освободится место, решение появится там'
+        : 'Решение по зачислению уже принято',
       tab: 'selection',
       selectionSub: 'results',
       emphasis: 'secondary',

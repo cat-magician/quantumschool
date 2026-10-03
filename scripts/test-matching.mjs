@@ -52,6 +52,8 @@ await build({
       export * from '../src/lib/contestReview';
       export * from '../src/lib/contestClock';
       export * from '../src/lib/selectionUploads';
+      export * from '../src/lib/selectionDisplayUtils';
+      export * from '../src/lib/studentHomeActions';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -476,6 +478,42 @@ check('csv-выгрузка: колонки на месте, точка с за�
   assert.ok(row.split(';').includes('0'));
 });
 
+// ── Решение по отбору ─────────────────────────────────────────
+check('лист ожидания — отдельное решение, а не «без решения»', () => {
+  assert.equal(lib.selectionVerdict(profile()), 'waiting');
+  assert.equal(lib.selectionVerdict(profile({ selection_waitlisted: true })), 'waitlist');
+  assert.equal(lib.selectionVerdict(profile({ selection_rejected: true })), 'rejected');
+  assert.equal(lib.selectionVerdict(profile({ is_enrolled: true })), 'accepted');
+  // Зачисление главнее остальных флагов: по нему открывается обучение.
+  assert.equal(lib.selectionVerdict(profile({ is_enrolled: true, selection_waitlisted: true })), 'accepted');
+});
+
+check('фильтр и выгрузка видят лист ожидания', () => {
+  const graded = { stage1_score: 7, stage2_score: 8 };
+  const waitlisted = profile({ ...graded, selection_waitlisted: true });
+  const undecided = profile(graded);
+  const only = (patch) => [waitlisted, undecided]
+    .filter((p) => lib.matchesSelectionFilters(p, { ...lib.EMPTY_SELECTION_FILTERS, ...patch }));
+
+  assert.deepEqual(only({ verdict: 'waitlist' }), [waitlisted]);
+  assert.deepEqual(only({ verdict: 'waiting' }), [undecided]);
+  // «Готовы к решению» — только те, по кому решения ещё нет.
+  assert.deepEqual(only({ preset: 'ready' }), [undecided]);
+
+  const row = lib.buildSelectionCsv([waitlisted]).trim().split('\r\n')[1];
+  assert.ok(row.split(';').includes('Лист ожидания'));
+});
+
+check('из листа ожидания досдавать нечего, путь ведёт к результатам', () => {
+  const p = profile({ selection_waitlisted: true });
+  assert.equal(lib.countSelectionPendingSteps(p), 0);
+  assert.equal(lib.nextSelectionAction(p)?.selectionSub, 'results');
+
+  const decision = lib.buildSelectionChecklist(p).find((item) => item.id === 'decision');
+  assert.equal(decision.status, 'waiting');
+  assert.equal(decision.detail, 'В листе ожидания');
+});
+
 fs.rmSync(bundlePath, { force: true });
 
 // ── Карта участника ───────────────────────────────────────────
@@ -739,6 +777,17 @@ check('карту можно сузить по почте, решению и п�
   assert.deepEqual(idsMatching(rows, { verdict: 'accepted' }), ['p1']);
   assert.deepEqual(idsMatching(rows, { verdict: 'rejected' }), ['p2']);
   assert.deepEqual(idsMatching(rows, { text: 'nick' }), ['p2']);
+});
+
+check('карту можно сузить до листа ожидания', () => {
+  const rows = mapOf([
+    profile({ id: 'p1', selection_waitlisted: true }),
+    profile({ id: 'p2' }),
+  ]);
+
+  assert.deepEqual(idsMatching(rows, { verdict: 'waitlist' }), ['p1']);
+  assert.deepEqual(idsMatching(rows, { verdict: 'waiting' }), ['p2']);
+  assert.equal(lib.VERDICT_LABELS[rows[0].verdict], 'Лист ожидания');
 });
 
 check('список почт: без повторов, и видно, кому писать некуда', () => {

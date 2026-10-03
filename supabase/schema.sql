@@ -1222,6 +1222,12 @@ ALTER TABLE public.user_profiles
 ALTER TABLE public.user_profiles
   ADD COLUMN IF NOT EXISTS selection_rejected boolean NOT NULL DEFAULT false;
 
+-- Лист ожидания — третье решение рядом с зачислением и отказом: места пока
+-- не дали, но и не отказали. Ставит его, как и остальные решения, только
+-- staff (см. guard_user_profile_update).
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS selection_waitlisted boolean NOT NULL DEFAULT false;
+
 -- ══════════════════════════════════════════════════════════════
 -- 20260619150000_017_selection_stage_config.sql
 -- ══════════════════════════════════════════════════════════════
@@ -2023,6 +2029,7 @@ BEGIN
     NEW.stage1_score := NULL;
     NEW.stage2_score := NULL;
     NEW.selection_rejected := false;
+    NEW.selection_waitlisted := false;
     RETURN NEW;
   END IF;
 
@@ -3224,6 +3231,9 @@ BEGIN
     END IF;
     IF NEW.selection_rejected IS DISTINCT FROM OLD.selection_rejected THEN
       RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'selection_rejected';
+    END IF;
+    IF NEW.selection_waitlisted IS DISTINCT FROM OLD.selection_waitlisted THEN
+      RAISE EXCEPTION 'profile_update_forbidden' USING ERRCODE = '42501', MESSAGE = 'selection_waitlisted';
     END IF;
 
     IF NEW.stage1_status IS DISTINCT FROM OLD.stage1_status THEN
