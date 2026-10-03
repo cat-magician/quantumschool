@@ -50,7 +50,7 @@ import {
 } from '../components/ExternalSubmitConfirm';
 import SelectionStage1Progress, { StepSectionLabel } from '../components/SelectionStage1Progress';
 import { countSelectionPendingSteps, buildEnrolledHomeworkProgress } from '../lib/studentHomeActions';
-import { HOMEWORK_SUBMISSION_STATUS_COLUMNS } from '../lib/progressUtils';
+import { loadStudentHomework } from '../lib/studentHomeworkData';
 import { markEnrollmentWelcomeShown, shouldShowEnrollmentWelcome } from '../lib/enrollmentWelcome';
 import { markHadPendingTeacherApplication } from '../lib/teacherPromotionNotice';
 import { TeacherApplicationPendingBanner } from '../components/TeacherRoleBanners';
@@ -156,11 +156,8 @@ export default function StudentDashboard() {
       setHomeworkPendingCount(0);
       return;
     }
-    Promise.all([
-      supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true),
-      supabase.from('homework_page_submissions').select(HOMEWORK_SUBMISSION_STATUS_COLUMNS).eq('user_id', user.id),
-    ]).then(([pagesRes, subsRes]) => {
-      const progress = buildEnrolledHomeworkProgress(user.id, pagesRes.data ?? [], subsRes.data ?? []);
+    loadStudentHomework(user.id).then(({ pages, submissions }) => {
+      const progress = buildEnrolledHomeworkProgress(user.id, pages, submissions);
       setHomeworkPendingCount(progress.filter((p) => p.status === 'none' || p.status === 'draft').length);
     });
   }, [user?.id, isEnrolled, homeworkCountRefresh]);

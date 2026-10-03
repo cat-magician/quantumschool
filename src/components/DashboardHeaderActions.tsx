@@ -3,7 +3,11 @@ import { Bell } from 'lucide-react';
 import DashboardSiteHomeLink from './DashboardSiteHomeLink';
 import UserAvatar from './UserAvatar';
 import { countUnreadNotifications } from '../lib/notificationReadState';
-import { loadNotificationsForProfile, type NotificationAction } from '../lib/notificationsUtils';
+import {
+  loadNotificationsForProfile,
+  type AppNotification,
+  type NotificationAction,
+} from '../lib/notificationsUtils';
 import type { UserProfile } from '../lib/types';
 import { profileDisplayName } from '../lib/profileUtils';
 import NotificationsPanel from './NotificationsPanel';
@@ -22,16 +26,24 @@ export default function DashboardHeaderActions({
   const [bellOpen, setBellOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const refreshUnread = useCallback(async () => {
-    const items = await loadNotificationsForProfile(profile, userId);
-    setUnreadCount(countUnreadNotifications(userId, items));
+  // Счётчик грузим при открытии кабинета (и при смене профиля) — один раз.
+  useEffect(() => {
+    let cancelled = false;
+    loadNotificationsForProfile(profile, userId).then((items) => {
+      if (!cancelled) setUnreadCount(countUnreadNotifications(userId, items));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [profile, userId]);
 
-  // Один эффект на всё: при открытии кабинета колокольчик закрыт, так что
-  // счётчик загрузится здесь же. Второй такой же эффект грузил всё дважды.
-  useEffect(() => {
-    if (!bellOpen) refreshUnread();
-  }, [bellOpen, refreshUnread]);
+  // Открытая панель сама загружает свежий список и помечает его прочитанным:
+  // счётчик считаем по нему, а не скачиваем всё заново — ни сразу, ни при
+  // закрытии панели, как было раньше.
+  const recountUnread = useCallback(
+    (items: AppNotification[]) => setUnreadCount(countUnreadNotifications(userId, items)),
+    [userId],
+  );
 
   return (
     <div className="relative flex items-center gap-2">
@@ -55,7 +67,7 @@ export default function DashboardHeaderActions({
             profile={profile}
             userId={userId}
             onClose={() => setBellOpen(false)}
-            onReadStateChange={refreshUnread}
+            onReadStateChange={recountUnread}
             onNavigate={(action) => {
               onNotificationNavigate?.(action);
               setBellOpen(false);

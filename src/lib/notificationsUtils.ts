@@ -13,7 +13,8 @@ import {
 } from './homeworkUtils';
 import { studentStagePhase } from './selectionDisplayUtils';
 import { isNotificationRead } from './notificationReadState';
-import type { Group, HomeworkPage, HomeworkPageSubmission, LessonPageType, UserProfile } from './types';
+import type { Group, HomeworkPageSubmission, LessonPageType, UserProfile } from './types';
+import { loadStudentHomework } from './studentHomeworkData';
 
 export type NotificationAction =
   | { audience: 'student'; state: StudentDashboardState }
@@ -101,19 +102,8 @@ async function loadStudentNotifications(
 ): Promise<AppNotification[]> {
   const items: AppNotification[] = [];
 
-  // Тексты ответов уведомлениям не нужны — только статус и оценка.
-  const subsPromise = supabase
-    .from('homework_page_submissions')
-    .select('id, page_id, status, score, graded_at, page:homework_pages(id, title, max_score)')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
-
-  const pagesPromise = profile.is_enrolled
-    ? supabase
-        .from('homework_pages')
-        .select('id, title, due_at, updated_at')
-        .eq('is_published', true)
-    : Promise.resolve({ data: [] as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'updated_at'>[] });
+  // Те же ДЗ и сдачи грузят счётчик и главная — запрос общий, см. loadStudentHomework.
+  const homeworkPromise = loadStudentHomework(userId, { withPages: profile.is_enrolled });
 
   const lessonsPromise = profile.is_enrolled
     ? supabase
@@ -122,30 +112,27 @@ async function loadStudentNotifications(
         .eq('is_published', true)
     : Promise.resolve({ data: [] as { id: string; title: string; lesson_type: LessonPageType; updated_at: string }[] });
 
-  const [subsRes, pagesRes, lessonsRes] = await Promise.all([subsPromise, pagesPromise, lessonsPromise]);
+  const [{ pages, submissions: subs }, lessonsRes] = await Promise.all([homeworkPromise, lessonsPromise]);
 
-  // Без схемы базы supabase-js считает вложенную page массивом; на деле у сдачи
-  // одна страница, и PostgREST отдаёт объект.
-  const subs = (subsRes.data ?? []) as unknown as Pick<
-    HomeworkPageSubmission,
-    'id' | 'page_id' | 'status' | 'score' | 'graded_at' | 'page'
-  >[];
-  const pages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'updated_at'>[];
   const lessons = (lessonsRes.data ?? []) as {
     id: string;
     title: string;
     lesson_type: LessonPageType;
     updated_at: string;
   }[];
+  // Ученику видны только опубликованные ДЗ, так что название сданного берём
+  // из того же списка (раньше — вложенной выборкой, с тем же итогом).
+  const pageById = new Map(pages.map((page) => [page.id, page]));
   const submittedPageIds = new Set(subs.filter((s) => s.status !== 'draft').map((s) => s.page_id));
 
   for (const s of subs) {
     if (s.status === 'graded' && s.graded_at && isRecent(s.graded_at)) {
+      const page = pageById.get(s.page_id);
       items.push({
         id: `hw-grade-${s.id}`,
-        title: `Оценка за «${s.page?.title ?? 'ДЗ'}»`,
+        title: `Оценка за «${page?.title ?? 'ДЗ'}»`,
         body: s.score != null
-          ? `Получена оценка: ${formatHomeworkScoreShort(s.score, s.page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE)}`
+          ? `Получена оценка: ${formatHomeworkScoreShort(s.score, page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE)}`
           : 'Работа проверена',
         createdAt: s.graded_at,
         action: {

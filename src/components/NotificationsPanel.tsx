@@ -83,7 +83,8 @@ export default function NotificationsPanel({
   profile: UserProfile;
   userId: string;
   onClose: () => void;
-  onReadStateChange?: () => void;
+  /** Список, который панель только что загрузила и пометила прочитанным. */
+  onReadStateChange?: (items: AppNotification[]) => void;
   onNavigate?: (action: NotificationAction) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -118,7 +119,7 @@ export default function NotificationsPanel({
 
     if (newIds.length) {
       markNotificationsRead(userId, items.map((item) => item.id));
-      onReadStateChange?.();
+      onReadStateChange?.(items);
     }
   }, [loading, items, userId, onReadStateChange]);
 
