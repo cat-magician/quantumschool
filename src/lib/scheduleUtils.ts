@@ -1,4 +1,4 @@
-import type { ScheduleEventType } from './types';
+import type { CalendarEntry, HomeworkPage, ScheduleEvent, ScheduleEventType } from './types';
 
 export const EVENT_TYPE_LABELS: Record<ScheduleEventType, string> = {
   lecture: 'Лекция',
@@ -9,14 +9,66 @@ export const EVENT_TYPE_LABELS: Record<ScheduleEventType, string> = {
   consultation: 'Консультация',
 };
 
+/**
+ * Типы для новых событий. «Домашнее задание» не предлагаем: дедлайны ДЗ
+ * попадают в расписание сами, со страницы задания. Старые события этого
+ * типа по-прежнему показываются и редактируются.
+ */
 export const EVENT_TYPE_OPTIONS: ScheduleEventType[] = [
   'lecture',
   'seminar',
   'webinar',
-  'homework',
   'exam',
   'consultation',
 ];
+
+/** Лекция и семинар — то же занятие, что страница с материалами. */
+export function isLessonEventType(type: ScheduleEventType): type is 'lecture' | 'seminar' {
+  return type === 'lecture' || type === 'seminar';
+}
+
+type DeadlineSource = Pick<HomeworkPage, 'id' | 'title' | 'due_at'>
+  & Partial<Pick<HomeworkPage, 'is_published' | 'group_ids' | 'updated_at'>>;
+
+/** Дедлайн ДЗ в виде записи календаря; без срока — не в календаре. */
+export function homeworkDeadlineEntry(page: DeadlineSource): CalendarEntry | null {
+  if (!page.due_at) return null;
+  return {
+    id: `homework-${page.id}`,
+    title: page.title,
+    description: '',
+    event_type: 'homework',
+    scheduled_at: page.due_at,
+    duration_minutes: 0,
+    meeting_url: '',
+    group_id: null,
+    group_ids: page.group_ids ?? [],
+    lesson_page_id: null,
+    created_by: null,
+    created_at: page.updated_at ?? page.due_at,
+    updated_at: page.updated_at ?? page.due_at,
+    homeworkPageId: page.id,
+    homeworkPublished: page.is_published ?? true,
+  };
+}
+
+/** Группы события; у строк до появления group_ids — из старой group_id. */
+export function eventGroupIds(event: Pick<ScheduleEvent, 'group_ids' | 'group_id'>): string[] {
+  return event.group_ids ?? (event.group_id ? [event.group_id] : []);
+}
+
+/** Дата события в поле «дата» (YYYY-MM-DD) по часам браузера. */
+export function toLocalDateValue(iso: string) {
+  return toDatetimeLocalValue(iso).slice(0, 10);
+}
+
+/** События расписания вместе с дедлайнами ДЗ. */
+export function buildCalendar(events: ScheduleEvent[], homework: DeadlineSource[]): CalendarEntry[] {
+  const deadlines = homework
+    .map(homeworkDeadlineEntry)
+    .filter((entry): entry is CalendarEntry => entry !== null);
+  return [...events, ...deadlines];
+}
 
 const dateFmt = new Intl.DateTimeFormat('ru-RU', {
   weekday: 'long',

@@ -7,7 +7,13 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
-import type { LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType } from '../../lib/types';
+import type {
+  Group, LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType, ScheduleEvent,
+} from '../../lib/types';
+import GroupMultiSelect from '../../components/GroupMultiSelect';
+import { normalizeMeetingUrl } from '../../lib/meetingLinkUtils';
+import { legacyGroupId } from '../../lib/groupTargeting';
+import { toDatetimeLocalValue } from '../../lib/scheduleUtils';
 import {
   LESSON_BLOCK_LABELS,
   LESSON_BLOCK_TYPES,
@@ -21,7 +27,9 @@ import VideoEmbed from '../../components/VideoEmbed';
 import LessonPageCard from '../../components/LessonPageCard';
 import DocumentSourceInput from '../../components/DocumentSourceInput';
 import ImageSourceInput from '../../components/ImageSourceInput';
-import { FormDate, FormLabel, FormSelect } from '../../components/FormControls';
+import {
+  FormDate, FormDatetime, FormLabel, FormNumber, FormSelect, FormText,
+} from '../../components/FormControls';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
@@ -41,6 +49,18 @@ type EditorState = {
   lesson_date: string;
   cover_url: string;
   is_published: boolean;
+  /** Группы-адресаты: им видны и занятие в расписании, и материалы. */
+  group_ids: string[];
+  /**
+   * Занятие в расписании — то же событие, что эта страница. Время, ссылка и
+   * группы хранятся у события; название, дату и группы страницы база
+   * копирует с него сама.
+   */
+  in_schedule: boolean;
+  event_id: string | null;
+  starts_at: string;
+  duration_minutes: number;
+  meeting_url: string;
   blocks: EditorBlock[];
 };
 
@@ -52,6 +72,12 @@ function emptyEditor(type: LessonPageType): EditorState {
     lesson_date: new Date().toISOString().slice(0, 10),
     cover_url: '',
     is_published: false,
+    group_ids: [],
+    in_schedule: true,
+    event_id: null,
+    starts_at: '',
+    duration_minutes: 90,
+    meeting_url: '',
     blocks: createDefaultBlocks().map((b, i) => ({
       id: crypto.randomUUID(),
       block_type: b.block_type,
@@ -73,9 +99,19 @@ function blocksFromRows(rows: LessonPageBlock[]): EditorBlock[] {
     }));
 }
 
-export default function LessonsTab({ lessonType }: { lessonType: LessonPageType }) {
+export default function LessonsTab({
+  lessonType,
+  openPageId,
+  onPageOpened,
+}: {
+  lessonType: LessonPageType;
+  /** Открыть эту страницу сразу — например, по кнопке «Материалы» в расписании. */
+  openPageId?: string;
+  onPageOpened?: () => void;
+}) {
   const { user } = useAuth();
   const { confirm } = useAppDialog();
+  const [groups, setGroups] = useState<Group[]>([]);
   const [pages, setPages] = useState<LessonPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -119,7 +155,19 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
 
   useEffect(() => {
     void loadHomeworkPages();
+    supabase
+      .from('groups')
+      .select('*')
+      .eq('group_type', 'teacher')
+      .order('name')
+      .then(({ data }) => setGroups((data ?? []) as Group[]));
   }, []);
+
+  useEffect(() => {
+    if (!openPageId) return;
+    void openEdit(openPageId);
+    onPageOpened?.();
+  }, [openPageId, onPageOpened]);
 
   useEffect(() => {
     if (previewMode) {
@@ -137,9 +185,10 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
   const openEdit = async (pageId: string) => {
     setLoading(true);
     setLoadError(null);
-    const [pageRes, blocksRes] = await Promise.all([
+    const [pageRes, blocksRes, eventRes] = await Promise.all([
       supabase.from('lesson_pages').select('*').eq('id', pageId).single(),
       supabase.from('lesson_page_blocks').select('*').eq('page_id', pageId),
+      supabase.from('schedule_events').select('*').eq('lesson_page_id', pageId).maybeSingle(),
     ]);
     setLoading(false);
     if (pageRes.error) {
@@ -147,7 +196,8 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
       return;
     }
     if (!pageRes.data) return;
-    const page = pageRes.data;
+    const page = pageRes.data as LessonPage;
+    const event = (eventRes.data ?? null) as ScheduleEvent | null;
     setEditor({
       id: page.id,
       title: page.title,
@@ -155,6 +205,12 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
       lesson_date: lessonDateInputValue(page.lesson_date),
       cover_url: page.cover_url ?? '',
       is_published: page.is_published,
+      group_ids: event?.group_ids ?? page.group_ids ?? [],
+      in_schedule: Boolean(event),
+      event_id: event?.id ?? null,
+      starts_at: event ? toDatetimeLocalValue(event.scheduled_at) : '',
+      duration_minutes: event?.duration_minutes ?? 90,
+      meeting_url: event?.meeting_url ?? '',
       blocks: blocksFromRows((blocksRes.data ?? []) as LessonPageBlock[]),
     });
     setPreviewMode(false);
@@ -174,8 +230,8 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
       setMessage('Укажите название занятия');
       return;
     }
-    if (!editor.lesson_date) {
-      setMessage('Укажите дату занятия');
+    if (editor.in_schedule ? !editor.starts_at : !editor.lesson_date) {
+      setMessage(editor.in_schedule ? 'Укажите дату и время занятия' : 'Укажите дату занятия');
       return;
     }
 
@@ -183,6 +239,9 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
     setMessage('');
     const now = new Date().toISOString();
     const isPublished = publish ? true : editor.is_published;
+    const title = editor.title.trim();
+    // В расписании дата — из времени занятия; база потом уточнит её по Москве.
+    const lessonDate = editor.in_schedule ? editor.starts_at.slice(0, 10) : editor.lesson_date;
 
     try {
       let pageId = editor.id;
@@ -191,11 +250,12 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
         const { data: created, error } = await supabase
           .from('lesson_pages')
           .insert({
-            title: editor.title.trim(),
+            title,
             lesson_type: editor.lesson_type,
-            lesson_date: editor.lesson_date,
+            lesson_date: lessonDate,
             cover_url: editor.cover_url.trim() || null,
             is_published: isPublished,
+            group_ids: editor.group_ids,
             created_by: user.id,
             updated_at: now,
           })
@@ -210,10 +270,11 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
         const { error } = await supabase
           .from('lesson_pages')
           .update({
-            title: editor.title.trim(),
-            lesson_date: editor.lesson_date,
+            title,
+            lesson_date: lessonDate,
             cover_url: editor.cover_url.trim() || null,
             is_published: isPublished,
+            group_ids: editor.group_ids,
             updated_at: now,
           })
           .eq('id', pageId);
@@ -221,6 +282,46 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
           setMessage(lessonPageSaveError(error, 'Не удалось сохранить'));
           return;
         }
+      }
+
+      // Событие расписания — то же занятие: создаём, обновляем или убираем.
+      let eventId = editor.event_id;
+      if (editor.in_schedule) {
+        const eventFields = {
+          title,
+          event_type: editor.lesson_type,
+          scheduled_at: new Date(editor.starts_at).toISOString(),
+          duration_minutes: editor.duration_minutes,
+          meeting_url: normalizeMeetingUrl(editor.meeting_url),
+          group_ids: editor.group_ids,
+          group_id: legacyGroupId(editor.group_ids),
+          lesson_page_id: pageId,
+          updated_at: now,
+        };
+        const insertEvent = () => supabase
+          .from('schedule_events')
+          .insert({ ...eventFields, description: '', created_by: user.id })
+          .select('id')
+          .single();
+        let eventRes = eventId
+          ? await supabase.from('schedule_events').update(eventFields).eq('id', eventId).select('id').maybeSingle()
+          : await insertEvent();
+        // Событие успели удалить из расписания — заводим заново.
+        if (eventId && !eventRes.error && !eventRes.data) eventRes = await insertEvent();
+        if (eventRes.error || !eventRes.data) {
+          setEditor({ ...editor, id: pageId });
+          setMessage('Страница сохранена, но в расписание не попала. Попробуйте сохранить ещё раз.');
+          return;
+        }
+        eventId = eventRes.data.id;
+      } else if (eventId) {
+        const { error } = await supabase.from('schedule_events').delete().eq('id', eventId);
+        if (error) {
+          setEditor({ ...editor, id: pageId });
+          setMessage('Страница сохранена, но из расписания не убралась. Попробуйте ещё раз.');
+          return;
+        }
+        eventId = null;
       }
 
       await supabase.from('lesson_page_blocks').delete().eq('page_id', pageId);
@@ -243,6 +344,8 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
       setEditor({
         ...editor,
         id: pageId,
+        event_id: eventId,
+        lesson_date: lessonDate,
         is_published: isPublished,
       });
       setMessage(isPublished ? 'Сохранено и опубликовано' : 'Сохранено');
@@ -276,7 +379,9 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
     if (!editor?.id) return;
     const ok = await confirm({
       title: 'Удалить страницу?',
-      message: 'Страница и все блоки будут удалены без возможности восстановления.',
+      message: editor.event_id
+        ? 'Страница, все блоки и занятие в расписании будут удалены без возможности восстановления.'
+        : 'Страница и все блоки будут удалены без возможности восстановления.',
       confirmLabel: 'Удалить',
       danger: true,
     });
@@ -312,7 +417,7 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
   const deleteFromList = async (page: LessonPage) => {
     const ok = await confirm({
       title: 'Удалить страницу?',
-      message: `«${page.title}» и все блоки будут удалены без возможности восстановления.`,
+      message: `«${page.title}», все блоки и занятие в расписании, если оно есть, будут удалены без возможности восстановления.`,
       confirmLabel: 'Удалить',
       danger: true,
     });
@@ -421,7 +526,7 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
             <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6">
               <LessonPageStudentPreview
                 title={editor.title}
-                lessonDate={editor.lesson_date}
+                lessonDate={editor.in_schedule && editor.starts_at ? editor.starts_at.slice(0, 10) : editor.lesson_date}
                 lessonType={editor.lesson_type}
                 coverUrl={editor.cover_url}
                 blocks={previewBlocks}
@@ -456,12 +561,79 @@ export default function LessonsTab({ lessonType }: { lessonType: LessonPageType 
               <p className="text-[11px] text-slate-600">Без обложки — градиентная заглушка в списке</p>
             )}
           </label>
-          <div className="block space-y-1.5">
-            <FormLabel className="text-xs text-slate-500 mb-0">Дата занятия</FormLabel>
-            <FormDate
-              value={editor.lesson_date}
-              onChange={(lesson_date) => setEditor({ ...editor, lesson_date })}
+        </div>
+
+        <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Занятие в расписании</h3>
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+              Это то же событие, что в «Расписании»: ученики увидят его в календаре, а когда
+              страница опубликована — откроют отсюда запись и конспект.
+            </p>
+          </div>
+          <label className="flex items-start gap-2.5 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={editor.in_schedule}
+              onChange={(e) => setEditor({ ...editor, in_schedule: e.target.checked })}
+              className="mt-0.5 rounded border-white/20 bg-slate-900 text-blue-500 focus:ring-blue-500/40"
             />
+            <span className="text-sm text-slate-300 group-hover:text-slate-200">Показывать в расписании</span>
+          </label>
+          {editor.in_schedule ? (
+            <>
+              <div className="block space-y-1.5">
+                <FormLabel className="text-xs text-slate-500 mb-0">Дата и время *</FormLabel>
+                <FormDatetime
+                  value={editor.starts_at}
+                  onChange={(starts_at) => setEditor({ ...editor, starts_at })}
+                />
+              </div>
+              <div className="grid sm:grid-cols-[10rem_1fr] gap-3">
+                <div className="block space-y-1.5">
+                  <FormLabel className="text-xs text-slate-500 mb-0">Длительность (мин)</FormLabel>
+                  <FormNumber
+                    min={1}
+                    max={480}
+                    value={editor.duration_minutes}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (!Number.isNaN(n)) {
+                        setEditor({ ...editor, duration_minutes: Math.min(480, Math.max(1, n)) });
+                      }
+                    }}
+                  />
+                </div>
+                <div className="block space-y-1.5">
+                  <FormLabel className="text-xs text-slate-500 mb-0">Ссылка на трансляцию</FormLabel>
+                  <FormText
+                    value={editor.meeting_url}
+                    onChange={(e) => setEditor({ ...editor, meeting_url: e.target.value })}
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="block space-y-1.5">
+              <FormLabel className="text-xs text-slate-500 mb-0">Дата занятия</FormLabel>
+              <FormDate
+                value={editor.lesson_date}
+                onChange={(lesson_date) => setEditor({ ...editor, lesson_date })}
+              />
+              {editor.event_id && (
+                <p className="text-[11px] text-amber-400/90">При сохранении занятие уберётся из расписания</p>
+              )}
+            </div>
+          )}
+          <div className="block space-y-1.5">
+            <FormLabel className="text-xs text-slate-500 mb-0">Группы</FormLabel>
+            <GroupMultiSelect
+              groups={groups}
+              value={editor.group_ids}
+              onChange={(group_ids) => setEditor({ ...editor, group_ids })}
+            />
+            <p className="text-[11px] text-slate-600">Только эти группы увидят занятие и материалы</p>
           </div>
         </div>
 

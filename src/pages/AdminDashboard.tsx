@@ -26,7 +26,7 @@ import TeachersTab from './admin/TeachersTab';
 import HomeworkTab from './admin/HomeworkTab';
 import HomeworkPagesTab from './admin/HomeworkPagesTab';
 import LessonsTab from './admin/LessonsTab';
-import ScheduleTab from './admin/ScheduleTab';
+import ScheduleTab, { type ScheduleContentTarget } from './admin/ScheduleTab';
 import StatisticsTab from './admin/StatisticsTab';
 import SiteContentTab from './admin/SiteContentTab';
 import AdminDashboardHome, { type AdminHomeAction } from '../components/AdminDashboardHome';
@@ -81,6 +81,8 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [contentListResetKey, setContentListResetKey] = useState(0);
+  // Страница, которую открыть во вкладке «Лекции»/«Семинары»/«ДЗ» по кнопке из расписания.
+  const [contentToOpen, setContentToOpen] = useState<ScheduleContentTarget | null>(null);
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
   const accountSubtitle = profileAccountLabel(profile, user?.email);
 
@@ -503,16 +505,37 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           {tab === 'students' && <StudentsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'teachers' && isSuperAdmin && <TeachersTab />}
           {tab === 'lectures' && (
-            <LessonsTab key={`lecture-${contentListResetKey}`} lessonType="lecture" />
+            <LessonsTab
+              key={`lecture-${contentListResetKey}`}
+              lessonType="lecture"
+              openPageId={contentToOpen?.kind === 'lecture' ? contentToOpen.pageId : undefined}
+              onPageOpened={() => setContentToOpen(null)}
+            />
           )}
           {tab === 'seminars' && (
-            <LessonsTab key={`seminar-${contentListResetKey}`} lessonType="seminar" />
+            <LessonsTab
+              key={`seminar-${contentListResetKey}`}
+              lessonType="seminar"
+              openPageId={contentToOpen?.kind === 'seminar' ? contentToOpen.pageId : undefined}
+              onPageOpened={() => setContentToOpen(null)}
+            />
           )}
           {tab === 'homework' && (
-            <HomeworkPagesTab key={`homework-${contentListResetKey}`} />
+            <HomeworkPagesTab
+              key={`homework-${contentListResetKey}`}
+              openPageId={contentToOpen?.kind === 'homework' ? contentToOpen.pageId : undefined}
+              onPageOpened={() => setContentToOpen(null)}
+            />
           )}
           {tab === 'grading' && <HomeworkTab isSuperAdmin={isSuperAdmin} mode="grading" />}
-          {tab === 'schedule' && <ScheduleTab />}
+          {tab === 'schedule' && (
+            <ScheduleTab
+              onOpenContent={(target) => {
+                setContentToOpen(target);
+                selectTab(target.kind === 'lecture' ? 'lectures' : target.kind === 'seminar' ? 'seminars' : 'homework');
+              }}
+            />
+          )}
           {tab === 'statistics' && <StatisticsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'site' && isSuperAdmin && <SiteContentTab />}
         </div>

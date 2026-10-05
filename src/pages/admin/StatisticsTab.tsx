@@ -6,6 +6,7 @@ import { FormSelect } from '../../components/FormControls';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import UserAvatar from '../../components/UserAvatar';
+import { formatLastSeen } from '../../lib/profileUtils';
 import {
   buildGroupsWithDetails,
   groupsForTeacher,
@@ -57,7 +58,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
     const [enrolledRes, pagesRes, subsRes, progressRes, achievementsRes, groupsRes, membersRes, gtRows] =
       await Promise.all([
         supabase.from('user_profiles').select('*').eq('role', 'student').eq('is_enrolled', true).order('display_name'),
-        supabase.from('homework_pages').select('id, title, due_at, max_score').eq('is_published', true).order('due_at'),
+        supabase.from('homework_pages').select('id, title, due_at, max_score, group_ids').eq('is_published', true).order('due_at'),
         supabase.from('homework_page_submissions').select('*'),
         supabase.from('course_progress').select('*'),
         supabase.from('achievements').select('*'),
@@ -67,7 +68,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
       ]);
 
     const enrolled = (enrolledRes.data ?? []) as UserProfile[];
-    const publishedPages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[];
+    const publishedPages = (pagesRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score' | 'group_ids'>[];
     const submissions = (subsRes.data ?? []) as HomeworkPageSubmission[];
     const modules = (progressRes.data ?? []) as CourseProgress[];
     const achievements = (achievementsRes.data ?? []) as Achievement[];
@@ -602,6 +603,7 @@ function RankRow({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
             <span className="text-[11px] text-slate-500 truncate">
               {snapshot.groupName ?? 'Без группы'} · {snapshot.gradeLabel} · {snapshot.gradedCount}/{snapshot.totalPublished} ДЗ
+              {' · '}визит {formatLastSeen(snapshot.lastSeenAt)}
             </span>
             <AchievementBadgeStrip earnedKeys={snapshot.earnedAchievementKeys} size="sm" showLocked={false} wrap />
           </div>
@@ -634,6 +636,7 @@ function TeacherStudentRow({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
             <span className="text-[11px] text-slate-500">
               {snapshot.gradedCount}/{snapshot.totalPublished} · {snapshot.progressPercent}%
+              {' · '}визит {formatLastSeen(snapshot.lastSeenAt)}
             </span>
             <AchievementBadgeStrip earnedKeys={snapshot.earnedAchievementKeys} size="sm" showLocked={false} wrap />
           </div>

@@ -770,7 +770,9 @@ export default function StudentDashboard() {
               onOpenHomeworkPage={openHomeworkPage}
             />
           )}
-          {tab === 'schedule' && isEnrolled && <StudentScheduleTab />}
+          {tab === 'schedule' && isEnrolled && (
+            <StudentScheduleTab onOpenContent={(sub, pageId) => openLearning(sub, pageId)} />
+          )}
           {tab === 'progress' && isEnrolled && (
             <StudentProgressTab onOpenHomework={openHomeworkPage} />
           )}

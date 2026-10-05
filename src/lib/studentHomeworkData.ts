@@ -22,6 +22,15 @@ export type StudentHomeworkData = {
  */
 const inFlight = new Map<string, Promise<StudentHomeworkData>>();
 
+/** Только опубликованные ДЗ, без сдач — для дедлайнов в расписании. */
+export async function loadPublishedHomework(): Promise<PublishedHomeworkPage[]> {
+  const { data } = await supabase
+    .from('homework_pages')
+    .select('id, title, due_at, max_score, updated_at')
+    .eq('is_published', true);
+  return (data ?? []) as PublishedHomeworkPage[];
+}
+
 export function loadStudentHomework(
   userId: string,
   { withPages = true }: { withPages?: boolean } = {},
@@ -31,19 +40,14 @@ export function loadStudentHomework(
   if (pending) return pending;
 
   const request = Promise.all([
-    withPages
-      ? supabase
-          .from('homework_pages')
-          .select('id, title, due_at, max_score, updated_at')
-          .eq('is_published', true)
-      : Promise.resolve({ data: [] }),
+    withPages ? loadPublishedHomework() : Promise.resolve([] as PublishedHomeworkPage[]),
     supabase
       .from('homework_page_submissions')
       .select(`id, ${HOMEWORK_SUBMISSION_STATUS_COLUMNS}`)
       .eq('user_id', userId),
   ])
-    .then(([pagesRes, subsRes]) => ({
-      pages: (pagesRes.data ?? []) as PublishedHomeworkPage[],
+    .then(([pages, subsRes]) => ({
+      pages,
       submissions: (subsRes.data ?? []) as OwnHomeworkSubmission[],
     }))
     .finally(() => inFlight.delete(key));

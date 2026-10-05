@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, Download, GraduationCap, Hourglass, Loader2, Mail, MapPin, School, X,
+  Check, Clock, Download, GraduationCap, Hourglass, Loader2, Mail, MapPin, Pencil, School, X,
 } from 'lucide-react';
+import EditStudentProfileModal from '../../components/EditStudentProfileModal';
 import SectionHint from '../../components/SectionHint';
 import { SECTION_HINT } from '../../lib/dashboardHelpCopy';
 import { supabase } from '../../lib/supabase';
 import type { UserProfile } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileAccountLabel, profileContactEmail, profileDisplayName, profileLogin } from '../../lib/profileUtils';
+import {
+  formatLastSeen, profileAccountLabel, profileContactEmail, profileDisplayName, profileLogin,
+} from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import SuperadminDeleteAccount from '../../components/SuperadminDeleteAccount';
 import SuperadminResetPassword from '../../components/SuperadminResetPassword';
@@ -94,6 +97,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
   const [saveErrorId, setSaveErrorId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Partial<StudentRow>>>({});
   const [infoStudentId, setInfoStudentId] = useState<string | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const load = async () => {
@@ -382,11 +386,23 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                       <InfoRow icon={MapPin} label="Город" value={d.city} />
                       <InfoRow icon={School} label="Школа" value={d.school} />
                       <InfoRow icon={GraduationCap} label="Класс" value={d.grade} />
+                      <InfoRow icon={Clock} label="Последний визит" value={formatLastSeen(d.last_seen_at)} />
                       {!d.is_enrolled && (
                         <div className="pt-1 border-t border-white/5">
                           <QuestionnaireStatusHint submittedAt={d.questionnaire_submitted_at} />
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInfoStudentId(null);
+                          setEditStudent(s);
+                        }}
+                        className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-medium border border-white/10 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Изменить данные
+                      </button>
                     </div>
                   </div>
                 )}
@@ -395,6 +411,17 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
           })}
         </div>
         </div>
+      )}
+
+      {editStudent && (
+        <EditStudentProfileModal
+          student={editStudent}
+          onClose={() => setEditStudent(null)}
+          onSaved={(updated) => {
+            setEditStudent(null);
+            setStudents((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+          }}
+        />
       )}
     </div>
   );

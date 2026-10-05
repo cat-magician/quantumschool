@@ -61,7 +61,10 @@ export default function StudentDashboardHome({
     ]).then(([eventsRes, homework]) => {
       if (cancelled) return;
       const events = (eventsRes.data ?? []) as ScheduleEvent[];
-      if (eventsRes.data) rememberStudentSchedule(userId, events);
+      rememberStudentSchedule(userId, {
+        ...(eventsRes.data ? { events } : {}),
+        homework: homework.pages,
+      });
       setNextEvent(nextScheduleEvent(events));
       setHwProgress(buildEnrolledHomeworkProgress(userId, homework.pages, homework.submissions));
       setLoading(false);

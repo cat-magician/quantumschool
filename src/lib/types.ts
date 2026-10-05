@@ -88,6 +88,8 @@ export interface UserProfile {
   questionnaire_submitted_at?: string | null;
   selection_rejected?: boolean;
   selection_waitlisted?: boolean;
+  /** Когда человек последний раз был на сайте; отмечает touch_last_seen. */
+  last_seen_at?: string | null;
   city?: string | null;
   school?: string | null;
   grade?: string | null;
@@ -140,12 +142,31 @@ export interface ScheduleEvent {
   scheduled_at: string;
   duration_minutes: number;
   meeting_url: string;
+  /** Устарело: одна группа. Держится равной единственной из group_ids или null. */
   group_id: string | null;
+  /** Группы-адресаты; пусто — все зачисленные. */
+  group_ids?: string[];
+  /** Страница материалов лекции или семинара — то же занятие. */
+  lesson_page_id?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
   group?: Pick<Group, 'id' | 'name'> | null;
+  /** Ученику приходит, только если материалы опубликованы и ему видны. */
+  lesson_page?: Pick<LessonPage, 'id' | 'lesson_type' | 'is_published' | 'title'> | null;
 }
+
+/**
+ * Запись календаря: событие расписания или дедлайн ДЗ. Дедлайн — не строка
+ * schedule_events, а срок со страницы задания, приведённый к виду события,
+ * чтобы календарь, сортировки и списки работали с ним одинаково.
+ */
+export type CalendarEntry = ScheduleEvent & {
+  /** Есть только у дедлайна ДЗ. */
+  homeworkPageId?: string;
+  /** Для дедлайна: опубликовано ли задание (сотрудники видят и черновики). */
+  homeworkPublished?: boolean;
+};
 
 export type HomeworkSubmissionStatus = 'draft' | 'submitted' | 'graded';
 
@@ -304,6 +325,8 @@ export interface LessonPage {
   lesson_date: string;
   cover_url: string | null;
   is_published: boolean;
+  /** Группы-адресаты; у связанной с событием страницы — копия групп события. */
+  group_ids?: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -334,6 +357,8 @@ export interface HomeworkPage {
   due_at: string | null;
   max_score: number;
   is_published: boolean;
+  /** Группы-адресаты; пусто — все зачисленные. */
+  group_ids?: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;

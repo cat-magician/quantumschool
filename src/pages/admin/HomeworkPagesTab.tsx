@@ -7,7 +7,8 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import { useAppDialog } from '../../lib/AppDialogContext';
-import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPageBlock } from '../../lib/types';
+import type { Group, HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPageBlock } from '../../lib/types';
+import GroupMultiSelect from '../../components/GroupMultiSelect';
 import {
   HOMEWORK_BLOCK_LABELS,
   HOMEWORK_CONTENT_BLOCK_TYPES,
@@ -49,6 +50,8 @@ type EditorState = {
   due_at: string;
   max_score: string;
   is_published: boolean;
+  /** Каким группам задано; пусто — всем зачисленным. */
+  group_ids: string[];
   blocks: EditorBlock[];
 };
 
@@ -59,6 +62,7 @@ function emptyEditor(): EditorState {
     due_at: '',
     max_score: String(DEFAULT_HOMEWORK_MAX_SCORE),
     is_published: false,
+    group_ids: [],
     blocks: createDefaultHomeworkBlocks().map((b, i) => ({
       id: crypto.randomUUID(),
       block_type: b.block_type,
@@ -83,9 +87,17 @@ function blocksFromRows(rows: HomeworkPageBlock[]): EditorBlock[] {
     }));
 }
 
-export default function HomeworkPagesTab() {
+export default function HomeworkPagesTab({
+  openPageId,
+  onPageOpened,
+}: {
+  /** Открыть это ДЗ сразу — например, по карточке дедлайна в расписании. */
+  openPageId?: string;
+  onPageOpened?: () => void;
+} = {}) {
   const { user } = useAuth();
   const { confirm } = useAppDialog();
+  const [groups, setGroups] = useState<Group[]>([]);
   const [pages, setPages] = useState<HomeworkPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -120,6 +132,21 @@ export default function HomeworkPagesTab() {
   useEffect(() => { loadList(); }, []);
 
   useEffect(() => {
+    supabase
+      .from('groups')
+      .select('*')
+      .eq('group_type', 'teacher')
+      .order('name')
+      .then(({ data }) => setGroups((data ?? []) as Group[]));
+  }, []);
+
+  useEffect(() => {
+    if (!openPageId) return;
+    void openEdit(openPageId);
+    onPageOpened?.();
+  }, [openPageId, onPageOpened]);
+
+  useEffect(() => {
     if (previewMode) {
       previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -151,6 +178,7 @@ export default function HomeworkPagesTab() {
       due_at: homeworkDueInputValue(page.due_at),
       max_score: formatHomeworkScoreValue(page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE),
       is_published: page.is_published,
+      group_ids: (page as HomeworkPage).group_ids ?? [],
       blocks: blocksFromRows((blocksRes.data ?? []) as HomeworkPageBlock[]),
     });
     setPreviewMode(false);
@@ -189,6 +217,7 @@ export default function HomeworkPagesTab() {
           due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
           max_score: maxScore,
           is_published: isPublished,
+          group_ids: editor.group_ids,
           created_by: user.id,
           updated_at: now,
         })
@@ -208,6 +237,7 @@ export default function HomeworkPagesTab() {
           due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
           max_score: maxScore,
           is_published: isPublished,
+          group_ids: editor.group_ids,
           updated_at: now,
         })
         .eq('id', pageId);
@@ -444,7 +474,19 @@ export default function HomeworkPagesTab() {
                   onChange={(e) => setEditor({ ...editor, due_at: e.target.value })}
                   className="w-full max-w-xs px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm [color-scheme:dark]"
                 />
+                <p className="text-[11px] text-slate-600">
+                  Со сроком задание само появится в расписании — у учеников после публикации.
+                </p>
               </label>
+              <div className="block space-y-1.5">
+                <span className="text-xs text-slate-500">Кому задано</span>
+                <GroupMultiSelect
+                  groups={groups}
+                  value={editor.group_ids}
+                  onChange={(group_ids) => setEditor({ ...editor, group_ids })}
+                />
+                <p className="text-[11px] text-slate-600">Задание, его срок и проверка — только для этих групп</p>
+              </div>
               <label className="block space-y-1.5">
                 <span className="text-xs text-slate-500">Максимальный балл</span>
                 <input

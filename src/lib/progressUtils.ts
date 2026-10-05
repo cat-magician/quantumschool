@@ -16,6 +16,7 @@ import {
   DEFAULT_HOMEWORK_MAX_SCORE,
   formatHomeworkScoreValue,
 } from './homeworkUtils';
+import { visibleToGroup } from './groupTargeting';
 
 export {
   ACHIEVEMENT_CATALOG,
@@ -49,6 +50,8 @@ export type StudentProgressSnapshot = {
   pendingCount: number;
   draftCount: number;
   totalPublished: number;
+  /** Последний визит на сайт. */
+  lastSeenAt: string | null;
   avgScore: number | null;
   achievementCount: number;
   totalAchievementsPossible: number;
@@ -145,14 +148,16 @@ export function countOverdueMissing(pages: HomeworkPageProgress[]) {
 
 export function buildStudentProgressSnapshot(
   student: UserProfile,
-  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[],
+  publishedPages: Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score' | 'group_ids'>[],
   submissions: HomeworkPageSubmission[],
   modules: CourseProgress[],
   achievements: Achievement[],
   groupId: string | null,
   groupName: string | null,
 ): StudentProgressSnapshot {
-  const homeworkPages = buildHomeworkPageProgress(publishedPages, submissions, student.id);
+  // Задания других групп ученику не заданы — несданными их не считаем.
+  const ownPages = publishedPages.filter((page) => visibleToGroup(page.group_ids, groupId));
+  const homeworkPages = buildHomeworkPageProgress(ownPages, submissions, student.id);
   const graded = homeworkPages.filter((p) => p.status === 'graded');
   const submitted = homeworkPages.filter((p) => p.status === 'submitted');
   const drafts = homeworkPages.filter((p) => p.status === 'draft');
@@ -181,7 +186,8 @@ export function buildStudentProgressSnapshot(
     submittedCount: submitted.length,
     pendingCount: submitted.length,
     draftCount: drafts.length,
-    totalPublished: publishedPages.length,
+    totalPublished: ownPages.length,
+    lastSeenAt: student.last_seen_at ?? null,
     avgScore,
     achievementCount: earnedKeys.length,
     totalAchievementsPossible: TOTAL_ACHIEVEMENTS_POSSIBLE,

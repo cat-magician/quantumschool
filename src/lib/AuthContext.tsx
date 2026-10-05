@@ -67,6 +67,10 @@ function describeProfileLoadError(error: PostgrestError): ProfileLoadError {
   return { kind: unauthorized ? 'unauthorized' : 'unavailable', detail: error.message };
 }
 
+/** Отметка «последнего визита»: первая после входа и дальше не чаще. */
+const LAST_SEEN_FIRST_DELAY_MS = 4000;
+const LAST_SEEN_INTERVAL_MS = 10 * 60 * 1000;
+
 /** Столько ждём каждую попытку выхода, прежде чем перейти к запасной. */
 const SIGN_OUT_TIMEOUT_MS = 5000;
 
@@ -423,6 +427,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
+
+  // «Последний визит» для вкладок «Ученики» и «Статистика»: отмечаемся, пока
+  // вкладка открыта и на виду. Первый раз — через несколько секунд, чтобы не
+  // отнимать сеть у загрузки кабинета; чаще раза в пять минут база не пишет.
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let lastTouch = 0;
+    const touch = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastTouch < LAST_SEEN_INTERVAL_MS) return;
+      lastTouch = Date.now();
+      void supabase.rpc('touch_last_seen');
+    };
+    const first = window.setTimeout(touch, LAST_SEEN_FIRST_DELAY_MS);
+    const interval = window.setInterval(touch, LAST_SEEN_INTERVAL_MS);
+    document.addEventListener('visibilitychange', touch);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', touch);
+    };
+  }, [userId]);
 
   const loading = initializing || (Boolean(user) && profileLoading && profile === null);
 

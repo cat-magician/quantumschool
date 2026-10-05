@@ -54,6 +54,9 @@ await build({
       export * from '../src/lib/selectionUploads';
       export * from '../src/lib/selectionDisplayUtils';
       export * from '../src/lib/studentHomeActions';
+      export * from '../src/lib/groupTargeting';
+      export { buildCalendar, homeworkDeadlineEntry, eventGroupIds } from '../src/lib/scheduleUtils';
+      export { buildStudentProgressSnapshot } from '../src/lib/progressUtils';
     `,
     resolveDir: path.join(root, 'scripts'),
     loader: 'ts',
@@ -512,6 +515,77 @@ check('из листа ожидания досдавать нечего, пут�
   const decision = lib.buildSelectionChecklist(p).find((item) => item.id === 'decision');
   assert.equal(decision.status, 'waiting');
   assert.equal(decision.detail, 'В листе ожидания');
+});
+
+// ── Расписание, группы, последний визит ───────────────────────
+check('группы-адресаты: пусто — всем, иначе только своим', () => {
+  assert.equal(lib.visibleToGroup([], 'g1'), true);
+  assert.equal(lib.visibleToGroup(undefined, null), true);
+  assert.equal(lib.visibleToGroup(['g1', 'g2'], 'g2'), true);
+  assert.equal(lib.visibleToGroup(['g1'], 'g2'), false);
+  // Ученик без группы видит только общее.
+  assert.equal(lib.visibleToGroup(['g1'], null), false);
+
+  const groups = [{ id: 'g1', name: 'Альфа' }, { id: 'g2', name: 'Бета' }];
+  assert.equal(lib.groupTargetLabel([], groups), 'Все зачисленные');
+  assert.equal(lib.groupTargetLabel(['g2', 'g1'], groups), 'Бета, Альфа');
+  // Чужие (или удалённые) группы не называем.
+  assert.equal(lib.groupTargetLabel(['gone'], groups), 'Другая группа');
+  assert.equal(lib.groupTargetLabel(['x', 'y'], groups), 'Другие группы');
+  assert.equal(lib.groupTargetLabel(['g1', 'x'], groups), 'Альфа и ещё 1');
+
+  // Старым вкладкам — единственная группа, иначе null.
+  assert.equal(lib.legacyGroupId(['g1']), 'g1');
+  assert.equal(lib.legacyGroupId(['g1', 'g2']), null);
+  assert.equal(lib.legacyGroupId([]), null);
+  assert.deepEqual(lib.eventGroupIds({ group_ids: undefined, group_id: 'g1' }), ['g1']);
+  assert.deepEqual(lib.eventGroupIds({ group_ids: [], group_id: 'g1' }), []);
+});
+
+check('дедлайн ДЗ становится записью календаря, без срока — нет', () => {
+  const lecture = {
+    id: 'e1', title: 'Лекция', description: '', event_type: 'lecture',
+    scheduled_at: '2026-10-13T14:00:00Z', duration_minutes: 90, meeting_url: '',
+    group_id: null, group_ids: [], created_by: null, created_at: '', updated_at: '',
+  };
+  const entries = lib.buildCalendar([lecture], [
+    { id: 'h1', title: 'ДЗ 1', due_at: '2026-10-15T20:59:00Z', is_published: false, group_ids: ['g1'] },
+    { id: 'h2', title: 'Без срока', due_at: null },
+  ]);
+  assert.equal(entries.length, 2);
+  const deadline = entries.find((e) => e.homeworkPageId === 'h1');
+  assert.equal(deadline.scheduled_at, '2026-10-15T20:59:00Z');
+  assert.equal(deadline.duration_minutes, 0);
+  assert.equal(deadline.event_type, 'homework');
+  assert.equal(deadline.homeworkPublished, false);
+  assert.deepEqual(deadline.group_ids, ['g1']);
+  // Ученику опубликованность не приходит — у него в выборке только опубликованные.
+  assert.equal(lib.homeworkDeadlineEntry({ id: 'h3', title: 'x', due_at: '2026-10-20T00:00:00Z' }).homeworkPublished, true);
+});
+
+check('последний визит: недавнее — словами, давнее — датой', () => {
+  const now = new Date('2026-10-05T12:00:00Z').getTime();
+  const ago = (ms) => new Date(now - ms).toISOString();
+  assert.equal(lib.formatLastSeen(null, now), 'нет данных');
+  assert.equal(lib.formatLastSeen(ago(20 * 1000), now), 'только что');
+  assert.equal(lib.formatLastSeen(ago(5 * 60 * 1000), now), '5 минут назад');
+  assert.equal(lib.formatLastSeen(ago(3 * 3600 * 1000), now), '3 часа назад');
+  assert.equal(lib.formatLastSeen(ago(24 * 3600 * 1000), now), 'вчера');
+  assert.match(lib.formatLastSeen(ago(40 * 24 * 3600 * 1000), now), /авг/);
+});
+
+check('статистика не считает ДЗ чужих групп несданными', () => {
+  const student = profile({ id: 's1', is_enrolled: true });
+  const pages = [
+    { id: 'p-all', title: 'Общее', due_at: null, max_score: 10, group_ids: [] },
+    { id: 'p-mine', title: 'Моей группе', due_at: null, max_score: 10, group_ids: ['g1'] },
+    { id: 'p-other', title: 'Чужой группе', due_at: null, max_score: 10, group_ids: ['g2'] },
+  ];
+  const snap = lib.buildStudentProgressSnapshot(student, pages, [], [], [], 'g1', 'Альфа');
+  assert.deepEqual(snap.homeworkPages.map((p) => p.pageId), ['p-all', 'p-mine']);
+  assert.equal(snap.totalPublished, 2);
+  const noGroup = lib.buildStudentProgressSnapshot(student, pages, [], [], [], null, null);
+  assert.deepEqual(noGroup.homeworkPages.map((p) => p.pageId), ['p-all']);
 });
 
 fs.rmSync(bundlePath, { force: true });

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronDown, GraduationCap, Loader2, MapPin, Plus, School,
+  ChevronDown, Clock, GraduationCap, Loader2, MapPin, Pencil, Plus, School,
   Trash2, UserPlus, Users, X,
 } from 'lucide-react';
+import EditStudentProfileModal from '../../components/EditStudentProfileModal';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
 import type { Group, GroupMember } from '../../lib/types';
 import UserAvatar from '../../components/UserAvatar';
-import { profileAccountLabel, profileDisplayName } from '../../lib/profileUtils';
+import { formatLastSeen, profileAccountLabel, profileDisplayName } from '../../lib/profileUtils';
 import QuestionnaireStatusHint from '../../components/QuestionnaireStatusHint';
 import { useAppDialog } from '../../lib/AppDialogContext';
 import {
@@ -50,6 +51,12 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [creating, setCreating] = useState(false);
   const [infoStudentId, setInfoStudentId] = useState<string | null>(null);
   const [assignStudent, setAssignStudent] = useState<StudentRow | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+
+  const openEditStudent = (student: StudentRow) => {
+    setInfoStudentId(null);
+    setEditStudent(student);
+  };
   const [enrolledQuery, setEnrolledQuery] = useState('');
   const [enrolledScope, setEnrolledScope] = useState<EnrolledScope>('all');
   const [memberQuery, setMemberQuery] = useState('');
@@ -430,6 +437,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                 : 'Все зачисленные ученики курса.'
           }
           students={visibleEnrolled}
+          onEditStudent={openEditStudent}
           emptyText={
             enrolledStudents.length === 0
               ? 'Нет зачисленных учеников. Зачислите учеников во вкладке «Отборочные этапы».'
@@ -548,6 +556,7 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                   showGroupLine={false}
                   showInfo={infoStudentId === m.user_id}
                   onToggleInfo={() => setInfoStudentId((prev) => (prev === m.user_id ? null : m.user_id))}
+                  onEdit={m.profile ? () => openEditStudent(m.profile!) : undefined}
                   trailing={(
                     <button
                       type="button"
@@ -648,6 +657,18 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
             emptyText="Все преподаватели уже в группе"
           />
         </Modal>
+      )}
+
+      {editStudent && (
+        <EditStudentProfileModal
+          student={editStudent}
+          onClose={() => setEditStudent(null)}
+          onSaved={() => {
+            setEditStudent(null);
+            toast('Данные ученика сохранены', 'success');
+            void load({ silent: true });
+          }}
+        />
       )}
     </div>
   );
@@ -761,7 +782,7 @@ function StudentCardGrid({ children }: { children: React.ReactNode }) {
 
 function StudentList({
   title, description, students, emptyText, infoStudentId, onToggleInfo, groupLabelFor,
-  onAssignToGroup, toolbar,
+  onAssignToGroup, onEditStudent, toolbar,
 }: {
   title: string;
   description: string;
@@ -771,6 +792,7 @@ function StudentList({
   onToggleInfo: (id: string) => void;
   groupLabelFor?: (id: string) => string | null;
   onAssignToGroup?: (student: StudentRow) => void;
+  onEditStudent?: (student: StudentRow) => void;
   toolbar?: React.ReactNode;
 }) {
   return (
@@ -792,6 +814,7 @@ function StudentList({
               student={s}
               showInfo={infoStudentId === s.id}
               onToggleInfo={() => onToggleInfo(s.id)}
+              onEdit={onEditStudent ? () => onEditStudent(s) : undefined}
               groupLabel={groupLabelFor?.(s.id) ?? null}
               trailing={onAssignToGroup && (
                 <button
@@ -812,11 +835,13 @@ function StudentList({
 }
 
 function StudentCard({
-  student, showInfo, onToggleInfo, trailing, groupLabel, showGroupLine = true,
+  student, showInfo, onToggleInfo, onEdit, trailing, groupLabel, showGroupLine = true,
 }: {
   student?: StudentRow;
   showInfo: boolean;
   onToggleInfo: () => void;
+  /** Поправить имя, город, школу, класс за ученика. */
+  onEdit?: () => void;
   trailing?: React.ReactNode;
   groupLabel?: string | null;
   showGroupLine?: boolean;
@@ -850,6 +875,9 @@ function StudentCard({
                 )}
               </div>
             )}
+            <div className="text-[11px] text-slate-500 mt-0.5 truncate">
+              Визит: {formatLastSeen(student.last_seen_at)}
+            </div>
           </div>
         </button>
         {trailing}
@@ -865,10 +893,21 @@ function StudentCard({
             <InfoRow icon={MapPin} label="Город" value={student.city} />
             <InfoRow icon={School} label="Школа" value={student.school} />
             <InfoRow icon={GraduationCap} label="Класс" value={student.grade} />
+            <InfoRow icon={Clock} label="Последний визит" value={formatLastSeen(student.last_seen_at)} />
             {!student.is_enrolled && (
               <div className="pt-1 border-t border-white/5">
                 <QuestionnaireStatusHint submittedAt={student.questionnaire_submitted_at} />
               </div>
+            )}
+            {onEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-medium border border-white/10 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Изменить данные
+              </button>
             )}
           </div>
         </div>

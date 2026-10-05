@@ -3744,3 +3744,208 @@ ALTER TABLE public.selection_stage_config
 
 ALTER TABLE public.selection_form_links
   ADD COLUMN IF NOT EXISTS work_url text;
+
+-- ══════════════════════════════════════════════════════════════
+-- Расписание, лекции и ДЗ — одни события; группы адресатов
+-- ══════════════════════════════════════════════════════════════
+--
+-- Лекция или семинар — это событие расписания (время, длительность, ссылка
+-- на трансляцию, группы) и страница с материалами: запись, конспект. Связь
+-- держит schedule_events.lesson_page_id. Время, название и группы принадлежат
+-- событию; страница получает их копию триггером — так список лекций и права
+-- учеников не ходят в расписание. Удалили страницу — уходит и событие
+-- (каскад); удалили событие — материалы остаются во вкладке.
+--
+-- ДЗ событий не создаёт: дедлайн попадает в календарь прямо из
+-- homework_pages.due_at.
+--
+-- group_ids: пустой массив — для всех зачисленных, иначе только участникам
+-- перечисленных групп. У события раньше была одна group_id; она остаётся ради
+-- вкладок старой версии и переносится в group_ids (см. триггер ниже).
+
+ALTER TABLE public.schedule_events
+  ADD COLUMN IF NOT EXISTS group_ids uuid[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS lesson_page_id uuid REFERENCES public.lesson_pages(id) ON DELETE CASCADE;
+
+-- У страницы материалов — не больше одного события.
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_events_lesson_page_idx
+  ON public.schedule_events (lesson_page_id)
+  WHERE lesson_page_id IS NOT NULL;
+
+ALTER TABLE public.lesson_pages
+  ADD COLUMN IF NOT EXISTS group_ids uuid[] NOT NULL DEFAULT '{}';
+
+ALTER TABLE public.homework_pages
+  ADD COLUMN IF NOT EXISTS group_ids uuid[] NOT NULL DEFAULT '{}';
+
+-- Перенос единственной группы. Новая версия держит group_id равной
+-- единственной группе или NULL, так что повторный прогон ничего не вернёт.
+UPDATE public.schedule_events
+SET group_ids = ARRAY[group_id]
+WHERE group_id IS NOT NULL AND group_ids = '{}';
+
+-- Вкладки старой версии пишут только group_id — переносим её в group_ids,
+-- иначе событие группы стало бы видно всем зачисленным.
+CREATE OR REPLACE FUNCTION public.schedule_event_legacy_group()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.group_ids = '{}' AND NEW.group_id IS NOT NULL THEN
+      NEW.group_ids := ARRAY[NEW.group_id];
+    END IF;
+  ELSIF NEW.group_id IS DISTINCT FROM OLD.group_id
+    AND NEW.group_ids IS NOT DISTINCT FROM OLD.group_ids THEN
+    NEW.group_ids := CASE WHEN NEW.group_id IS NULL THEN '{}'::uuid[] ELSE ARRAY[NEW.group_id] END;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS schedule_event_legacy_group ON public.schedule_events;
+CREATE TRIGGER schedule_event_legacy_group
+  BEFORE INSERT OR UPDATE ON public.schedule_events
+  FOR EACH ROW EXECUTE FUNCTION public.schedule_event_legacy_group();
+
+-- Название, дата и группы страницы материалов — копия её события. Дата
+-- считается по Москве: по ней сортируется список лекций.
+CREATE OR REPLACE FUNCTION public.sync_lesson_page_from_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.lesson_page_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  UPDATE public.lesson_pages
+  SET
+    title = NEW.title,
+    lesson_date = (NEW.scheduled_at AT TIME ZONE 'Europe/Moscow')::date,
+    group_ids = NEW.group_ids
+  WHERE id = NEW.lesson_page_id
+    AND (title, lesson_date, group_ids) IS DISTINCT FROM
+        (NEW.title, (NEW.scheduled_at AT TIME ZONE 'Europe/Moscow')::date, NEW.group_ids);
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS sync_lesson_page_from_event ON public.schedule_events;
+CREATE TRIGGER sync_lesson_page_from_event
+  AFTER INSERT OR UPDATE ON public.schedule_events
+  FOR EACH ROW EXECUTE FUNCTION public.sync_lesson_page_from_event();
+
+REVOKE ALL ON FUNCTION public.schedule_event_legacy_group() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.sync_lesson_page_from_event() FROM PUBLIC, anon, authenticated;
+
+-- Группы текущего пользователя. В политиках зовётся как (SELECT …), чтобы
+-- считаться один раз на запрос, а не на каждую строку.
+CREATE OR REPLACE FUNCTION private.my_group_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT COALESCE(array_agg(gm.group_id), '{}'::uuid[])
+  FROM public.group_members gm
+  WHERE gm.user_id = auth.uid();
+$$;
+
+REVOKE ALL ON FUNCTION private.my_group_ids() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.my_group_ids() TO authenticated;
+
+DROP POLICY IF EXISTS "Enrolled students read schedule events" ON public.schedule_events;
+CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_profiles
+      WHERE id = auth.uid() AND is_enrolled = true
+    )
+    AND (group_ids = '{}' OR group_ids && (SELECT private.my_group_ids()))
+  );
+
+DROP POLICY IF EXISTS "Enrolled read published lesson pages" ON public.lesson_pages;
+CREATE POLICY "Enrolled read published lesson pages" ON public.lesson_pages
+  FOR SELECT TO authenticated
+  USING (
+    is_published
+    AND EXISTS (
+      SELECT 1 FROM public.user_profiles up
+      WHERE up.id = auth.uid() AND up.is_enrolled = true
+    )
+    AND (group_ids = '{}' OR group_ids && (SELECT private.my_group_ids()))
+  );
+
+DROP POLICY IF EXISTS "Enrolled read published lesson blocks" ON public.lesson_page_blocks;
+CREATE POLICY "Enrolled read published lesson blocks" ON public.lesson_page_blocks
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.lesson_pages lp
+      JOIN public.user_profiles up ON up.id = auth.uid()
+      WHERE lp.id = lesson_page_blocks.page_id
+        AND lp.is_published
+        AND up.is_enrolled = true
+        AND (lp.group_ids = '{}' OR lp.group_ids && (SELECT private.my_group_ids()))
+    )
+  );
+
+DROP POLICY IF EXISTS "Enrolled read published homework pages" ON public.homework_pages;
+CREATE POLICY "Enrolled read published homework pages" ON public.homework_pages
+  FOR SELECT TO authenticated
+  USING (
+    is_published
+    AND EXISTS (
+      SELECT 1 FROM public.user_profiles up
+      WHERE up.id = auth.uid() AND up.is_enrolled = true
+    )
+    AND (group_ids = '{}' OR group_ids && (SELECT private.my_group_ids()))
+  );
+
+DROP POLICY IF EXISTS "Enrolled read published homework page blocks" ON public.homework_page_blocks;
+CREATE POLICY "Enrolled read published homework page blocks" ON public.homework_page_blocks
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.homework_pages hp
+      JOIN public.user_profiles up ON up.id = auth.uid()
+      WHERE hp.id = homework_page_blocks.page_id
+        AND hp.is_published
+        AND up.is_enrolled = true
+        AND (hp.group_ids = '{}' OR hp.group_ids && (SELECT private.my_group_ids()))
+    )
+  );
+
+-- ══════════════════════════════════════════════════════════════
+-- Последний визит на сайт
+-- ══════════════════════════════════════════════════════════════
+--
+-- Вход (auth.users.last_sign_in_at) тут не годится: сессия живёт неделями,
+-- и человек, заходящий каждый день, выглядел бы пропавшим. Сайт сам отмечает
+-- визит, пока вкладка открыта; чаще раза в пять минут запись не меняется.
+
+ALTER TABLE public.user_profiles
+  ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+
+CREATE OR REPLACE FUNCTION public.touch_last_seen()
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  UPDATE public.user_profiles
+  SET last_seen_at = now()
+  WHERE id = auth.uid()
+    AND (last_seen_at IS NULL OR last_seen_at < now() - interval '5 minutes');
+$$;
+
+REVOKE ALL ON FUNCTION public.touch_last_seen() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.touch_last_seen() TO authenticated;

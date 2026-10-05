@@ -24,6 +24,30 @@ export function formatProfileDate(iso: string | null | undefined): string {
   }).format(new Date(iso));
 }
 
+const relativeFmt = new Intl.RelativeTimeFormat('ru', { numeric: 'auto' });
+const lastSeenDateFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' });
+const lastSeenDateYearFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/**
+ * «Последний визит»: недавнее — относительно («5 минут назад», «вчера»),
+ * старше недели — датой. Отмечать визиты сайт начал не сразу, поэтому
+ * пустое значение — «нет данных», а не «никогда».
+ */
+export function formatLastSeen(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return 'нет данных';
+  const at = new Date(iso);
+  const diffMin = Math.round((now - at.getTime()) / 60000);
+  if (diffMin < 1) return 'только что';
+  if (diffMin < 60) return relativeFmt.format(-diffMin, 'minute');
+  const diffHours = Math.round(diffMin / 60);
+  if (diffHours < 24) return relativeFmt.format(-diffHours, 'hour');
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return relativeFmt.format(-diffDays, 'day');
+  return at.getFullYear() === new Date(now).getFullYear()
+    ? lastSeenDateFmt.format(at)
+    : lastSeenDateYearFmt.format(at);
+}
+
 export function profileInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
