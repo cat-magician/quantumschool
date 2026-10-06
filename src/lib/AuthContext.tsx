@@ -439,7 +439,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastTouch < LAST_SEEN_INTERVAL_MS) return;
       lastTouch = Date.now();
-      void supabase.rpc('touch_last_seen');
+      // Запрос supabase-js уходит только по then/await: без него вызов молча пропадал.
+      supabase.rpc('touch_last_seen').then(({ error }) => {
+        if (!error) return;
+        console.warn('Last seen error:', error.message);
+        lastTouch = 0; // не вышло — повторим, когда вкладка снова окажется на виду
+      });
     };
     const first = window.setTimeout(touch, LAST_SEEN_FIRST_DELAY_MS);
     const interval = window.setInterval(touch, LAST_SEEN_INTERVAL_MS);

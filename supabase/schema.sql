@@ -3935,6 +3935,15 @@ CREATE POLICY "Enrolled read published homework page blocks" ON public.homework_
 ALTER TABLE public.user_profiles
   ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
 
+-- Кому визит ещё не отмечен, ставим время последнего входа: визит был не
+-- раньше него. Первое же посещение сайта запишет точное время.
+UPDATE public.user_profiles p
+SET last_seen_at = u.last_sign_in_at
+FROM auth.users u
+WHERE p.id = u.id
+  AND p.last_seen_at IS NULL
+  AND u.last_sign_in_at IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION public.touch_last_seen()
 RETURNS void
 LANGUAGE sql
