@@ -8,10 +8,8 @@ import {
   splitLessonsByTime,
   type LessonPageWithEvent,
 } from '../lib/lessonPageUtils';
-import { isEventActive } from '../lib/scheduleUtils';
-import LessonPageBlocks from './LessonPageBlocks';
 import LessonPageCard from './LessonPageCard';
-import LessonEventHeader, { type LessonEventInfo } from './LessonEventHeader';
+import LessonPageView, { type LessonEventInfo } from './LessonPageView';
 import { SchedulePastDivider } from './ScheduleCard';
 
 export function StudentLessonList({
@@ -148,7 +146,7 @@ export function StudentLessonPageView({
 
   if (loadError || !page) {
     return (
-      <div className="max-w-3xl space-y-4">
+      <div className="max-w-6xl space-y-4">
         {backButton}
         <p className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
           {loadError ?? 'Страница не найдена или недоступна'}
@@ -157,27 +155,17 @@ export function StudentLessonPageView({
     );
   }
 
-  const beforeEnd = event ? isEventActive(event.scheduled_at, event.duration_minutes) : false;
-
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-6xl space-y-6">
       {backButton}
-      <LessonEventHeader
+      <LessonPageView
         title={page.title}
         lessonType={page.lesson_type}
         coverUrl={page.cover_url}
         lessonDate={page.lesson_date}
         event={event}
-      />
-      <LessonPageBlocks
         blocks={blocks}
         onOpenHomework={onOpenHomework}
-        emptyState={beforeEnd
-          ? {
-            title: 'Запись и конспект появятся после занятия',
-            text: 'Преподаватель добавит их на эту страницу — загляните сюда, когда занятие закончится.',
-          }
-          : undefined}
       />
     </div>
   );

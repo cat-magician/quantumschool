@@ -34,7 +34,7 @@ import {
   FormDate, FormDatetime, FormDuration, FormLabel, FormSelect, FormSwitch, FormText, FormTextarea,
 } from '../../components/FormControls';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
-import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
+import LessonPageView from '../../components/LessonPageView';
 import AdminPageViewBar from '../../components/AdminPageViewBar';
 import { SchedulePastDivider } from '../../components/ScheduleCard';
 
@@ -536,7 +536,7 @@ export default function LessonsTab({
 
     if (pageView) {
       return (
-        <div className="space-y-6 max-w-3xl">
+        <div className="space-y-6 max-w-6xl">
           {backButton}
           <AdminPageViewBar
             published={editor.is_published}
@@ -550,7 +550,7 @@ export default function LessonsTab({
             onSave={() => { void persist(false); }}
           />
           {messageLine}
-          <LessonPageStudentPreview
+          <LessonPageView
             title={editor.title}
             lessonDate={editor.in_schedule && editor.starts_at ? editor.starts_at.slice(0, 10) : editor.lesson_date}
             lessonType={editor.lesson_type}
