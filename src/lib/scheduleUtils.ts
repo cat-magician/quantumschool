@@ -1,5 +1,14 @@
 import type { CalendarEntry, HomeworkPage, ScheduleEvent, ScheduleEventType } from './types';
-import { daysFromToday } from './dateTimeInput';
+import { toDateValue } from './dateTimeInput';
+import {
+  dateValueIn,
+  daysBetweenDateValues,
+  dayStartMsIn,
+  schoolTimeNote,
+  todayValueIn,
+  zoneFor,
+  type TimeView,
+} from './schoolTime';
 
 export const EVENT_TYPE_LABELS: Record<ScheduleEventType, string> = {
   lecture: 'Лекция',
@@ -59,11 +68,6 @@ export function eventGroupIds(event: Pick<ScheduleEvent, 'group_ids' | 'group_id
   return event.group_ids ?? (event.group_id ? [event.group_id] : []);
 }
 
-/** Дата события в поле «дата» (YYYY-MM-DD) по часам браузера. */
-export function toLocalDateValue(iso: string) {
-  return toDatetimeLocalValue(iso).slice(0, 10);
-}
-
 /** События расписания вместе с дедлайнами ДЗ. */
 export function buildCalendar(events: ScheduleEvent[], homework: DeadlineSource[]): CalendarEntry[] {
   const deadlines = homework
@@ -72,48 +76,68 @@ export function buildCalendar(events: ScheduleEvent[], homework: DeadlineSource[
   return [...events, ...deadlines];
 }
 
-const dateFmt = new Intl.DateTimeFormat('ru-RU', {
+// Моменты (события, сроки) — в виде кабинета: у сотрудника по Москве, у
+// ученика по часам устройства с московским рядом (см. schoolTime.ts).
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(view: TimeView, kind: 'date' | 'time'): Intl.DateTimeFormat {
+  const key = `${view}:${kind}`;
+  let fmt = formatters.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('ru-RU', kind === 'date'
+      ? { timeZone: zoneFor(view), weekday: 'long', day: 'numeric', month: 'long' }
+      : { timeZone: zoneFor(view), hour: '2-digit', minute: '2-digit' });
+    formatters.set(key, fmt);
+  }
+  return fmt;
+}
+
+// День календаря (ячейка, выбранная дата) — это уже число месяца, без пояса.
+const calendarDayFmt = new Intl.DateTimeFormat('ru-RU', {
   weekday: 'long',
   day: 'numeric',
   month: 'long',
 });
 
-const timeFmt = new Intl.DateTimeFormat('ru-RU', {
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
-export function formatEventDate(iso: string) {
-  return dateFmt.format(new Date(iso));
+/** «понедельник, 12 октября» — день события. */
+export function formatEventDate(iso: string, view: TimeView = 'viewer') {
+  return formatter(view, 'date').format(new Date(iso));
 }
 
-export function formatEventTime(iso: string) {
-  return timeFmt.format(new Date(iso));
+/** «17:00 по мск» или «19:00 · 17:00 по мск». */
+export function formatEventTime(iso: string, view: TimeView = 'viewer') {
+  return formatTimeRange(iso, 0, view);
 }
 
-export function formatEventDateTime(iso: string) {
-  const d = new Date(iso);
-  return `${dateFmt.format(d)}, ${timeFmt.format(d)}`;
+/** «понедельник, 12 октября, 17:00 по мск». */
+export function formatEventDateTime(iso: string, view: TimeView = 'viewer') {
+  return `${formatEventDate(iso, view)}, ${formatTimeRange(iso, 0, view)}`;
 }
 
-/** «17:00–18:30»; без длительности — просто время начала. */
-export function formatTimeRange(iso: string, durationMinutes = 0) {
+/**
+ * «17:00–18:30 по мск»; у ученика не в Москве — «19:00–20:30 · 17:00 по мск».
+ * Без длительности — только время начала.
+ */
+export function formatTimeRange(iso: string, durationMinutes = 0, view: TimeView = 'viewer') {
   const start = new Date(iso);
-  if (!durationMinutes) return timeFmt.format(start);
-  const end = new Date(start.getTime() + durationMinutes * 60_000);
-  return `${timeFmt.format(start)}–${timeFmt.format(end)}`;
+  const fmt = formatter(view, 'time');
+  const range = durationMinutes
+    ? `${fmt.format(start)}–${fmt.format(new Date(start.getTime() + durationMinutes * 60_000))}`
+    : fmt.format(start);
+  return `${range}${schoolTimeNote(start, view)}`;
 }
 
 /**
  * Заголовок дня в списке: «понедельник, 12 октября» и, если близко,
  * «Сегодня»/«Завтра»/«Вчера». Год — только у дней не текущего года.
  */
-export function formatDayHeading(iso: string, now = new Date()) {
-  const d = new Date(iso);
-  const diff = daysFromToday(d, now);
+export function formatDayHeading(iso: string, view: TimeView = 'viewer') {
+  const day = dateValueIn(iso, view);
+  const today = todayValueIn(view);
+  const diff = daysBetweenDateValues(today, day);
   const relative = diff === 0 ? 'Сегодня' : diff === 1 ? 'Завтра' : diff === -1 ? 'Вчера' : null;
-  const year = d.getFullYear() === now.getFullYear() ? '' : ` ${d.getFullYear()}`;
-  return { relative, label: `${dateFmt.format(d)}${year}` };
+  const year = day.slice(0, 4) === today.slice(0, 4) ? '' : ` ${day.slice(0, 4)}`;
+  return { relative, label: `${formatEventDate(iso, view)}${year}` };
 }
 
 export function formatDuration(minutes: number) {
@@ -123,28 +147,24 @@ export function formatDuration(minutes: number) {
   return m ? `${h} ч ${m} мин` : `${h} ч`;
 }
 
-export function toDatetimeLocalValue(iso: string) {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export function groupEventsByDate<T extends { scheduled_at: string }>(events: T[]) {
+/** Группы по дням — того же вида, что и заголовки дней. */
+export function groupEventsByDate<T extends { scheduled_at: string }>(events: T[], view: TimeView = 'viewer') {
   const map = new Map<string, T[]>();
   for (const event of events) {
-    const key = new Date(event.scheduled_at).toDateString();
+    const key = dateValueIn(event.scheduled_at, view);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(event);
   }
   return Array.from(map.entries()).map(([key, items]) => ({
     dateKey: key,
-    dateLabel: formatEventDate(items[0].scheduled_at),
+    dateLabel: formatEventDate(items[0].scheduled_at, view),
     items,
   }));
 }
 
-export function getRefDayStartMs(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+/** Начало выбранного в календаре дня. */
+export function getRefDayStartMs(date: Date, view: TimeView = 'viewer') {
+  return dayStartMsIn(toDateValue(date), view);
 }
 
 export function getEventEndMs(scheduledAt: string, durationMinutes = 0) {
@@ -152,7 +172,7 @@ export function getEventEndMs(scheduledAt: string, durationMinutes = 0) {
 }
 
 export function formatRefDayLabel(date: Date) {
-  return dateFmt.format(date);
+  return calendarDayFmt.format(date);
 }
 
 export type ScheduleListFilter = 'all' | 'upcoming' | 'past';
@@ -162,19 +182,15 @@ export function eventMatchesScheduleFilter(
   event: { scheduled_at: string; duration_minutes: number },
   filter: ScheduleListFilter,
   selectedDate: Date | null,
+  view: TimeView = 'viewer',
 ): boolean {
   if (filter === 'all') {
     if (!selectedDate) return true;
-    const d = new Date(event.scheduled_at);
-    return (
-      d.getFullYear() === selectedDate.getFullYear() &&
-      d.getMonth() === selectedDate.getMonth() &&
-      d.getDate() === selectedDate.getDate()
-    );
+    return dateValueIn(event.scheduled_at, view) === toDateValue(selectedDate);
   }
 
   if (selectedDate) {
-    const refStart = getRefDayStartMs(selectedDate);
+    const refStart = getRefDayStartMs(selectedDate, view);
     if (filter === 'upcoming') {
       return new Date(event.scheduled_at).getTime() >= refStart;
     }

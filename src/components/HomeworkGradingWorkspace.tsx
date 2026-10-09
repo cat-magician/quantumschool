@@ -25,6 +25,7 @@ import HomeworkPageStudentPreview from './HomeworkPageStudentPreview';
 import SectionHint from './SectionHint';
 import { SECTION_HINT } from '../lib/dashboardHelpCopy';
 import { textMatches } from '../lib/listFilters';
+import { useTimeView } from '../lib/timeView';
 
 type GradingFilter = 'all' | 'ungraded' | 'graded';
 
@@ -151,6 +152,7 @@ export default function HomeworkGradingWorkspace({
   loadError: string | null;
   initialLoading: boolean;
 }) {
+  const timeView = useTimeView();
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
@@ -359,7 +361,7 @@ export default function HomeworkGradingWorkspace({
                         {assignment.title}
                       </p>
                       <p className="text-[11px] text-slate-500 mt-1">
-                        {formatDueDate(assignment.dueAt)}
+                        {formatDueDate(assignment.dueAt, timeView)}
                       </p>
                     </div>
                   </div>

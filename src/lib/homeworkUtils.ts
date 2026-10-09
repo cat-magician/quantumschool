@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { schoolTimeNote, zoneFor, type TimeView } from './schoolTime';
 import type { HomeworkSubmissionStatus } from './types';
 
 export const DEFAULT_HOMEWORK_MAX_SCORE = 10;
@@ -16,14 +17,27 @@ export const SUBMISSION_STATUS_COLORS: Record<HomeworkSubmissionStatus, string> 
   graded: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20',
 };
 
-export function formatDueDate(iso: string | null) {
+const dueDateFormatters = new Map<TimeView, Intl.DateTimeFormat>();
+
+/**
+ * Срок сдачи: у сотрудника по Москве — «14 октября в 23:59 по мск», у
+ * ученика по его часам, с московским рядом, если он не в Москве.
+ */
+export function formatDueDate(iso: string | null, view: TimeView = 'viewer') {
   if (!iso) return 'Без срока';
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso));
+  let fmt = dueDateFormatters.get(view);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('ru-RU', {
+      timeZone: zoneFor(view),
+      day: 'numeric',
+      month: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    dueDateFormatters.set(view, fmt);
+  }
+  const due = new Date(iso);
+  return `${fmt.format(due)}${schoolTimeNote(due, view)}`;
 }
 
 export function isOverdue(dueAt: string | null) {

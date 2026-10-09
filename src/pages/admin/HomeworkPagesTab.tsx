@@ -37,6 +37,7 @@ import AdminPageViewBar from '../../components/AdminPageViewBar';
 import BlockPlaceholder from '../../components/BlockPlaceholder';
 import ImageSourceInput from '../../components/ImageSourceInput';
 import { FormDatetime, type DatetimePreset } from '../../components/DateTimeControls';
+import { schoolInputToIso } from '../../lib/schoolTime';
 
 /** Срок сдачи — обычно конец дня; 23:59 есть в списке времени отдельно. */
 const DUE_TIME = '23:59';
@@ -246,7 +247,7 @@ export default function HomeworkPagesTab({
         .from('homework_pages')
         .insert({
           title: editor.title.trim(),
-          due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
+          due_at: editor.due_at ? schoolInputToIso(editor.due_at) : null,
           max_score: maxScore,
           is_published: isPublished,
           group_ids: editor.group_ids,
@@ -266,7 +267,7 @@ export default function HomeworkPagesTab({
         .from('homework_pages')
         .update({
           title: editor.title.trim(),
-          due_at: editor.due_at ? new Date(editor.due_at).toISOString() : null,
+          due_at: editor.due_at ? schoolInputToIso(editor.due_at) : null,
           max_score: maxScore,
           is_published: isPublished,
           group_ids: editor.group_ids,
@@ -477,7 +478,7 @@ export default function HomeworkPagesTab({
           {messageLine}
           <HomeworkPageStudentPreview
             title={editor.title}
-            dueAt={editor.due_at ? new Date(editor.due_at).toISOString() : null}
+            dueAt={editor.due_at ? schoolInputToIso(editor.due_at) : null}
             blocks={previewBlocks}
             preview
           />

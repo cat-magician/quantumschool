@@ -3,6 +3,7 @@ import { formatHomeworkDueAt } from '../lib/homeworkPageUtils';
 import HomeworkDueBadge from './HomeworkDueBadge';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkSubmissionSection from './HomeworkSubmissionSection';
+import { useTimeView } from '../lib/timeView';
 
 export default function HomeworkPageStudentPreview({
   title,
@@ -15,7 +16,8 @@ export default function HomeworkPageStudentPreview({
   blocks: HomeworkPageBlock[];
   preview?: boolean;
 }) {
-  const dueText = dueAt ? formatHomeworkDueAt(dueAt) : null;
+  const timeView = useTimeView();
+  const dueText = dueAt ? formatHomeworkDueAt(dueAt, timeView) : null;
 
   return (
     <div className="space-y-6">

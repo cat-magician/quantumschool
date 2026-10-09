@@ -15,6 +15,7 @@ import LessonCoverImage from './LessonCoverImage';
 import LessonPageBlocks from './LessonPageBlocks';
 import MeetingLinkButton from './MeetingLinkButton';
 import { LiveChip, ScheduleChip } from './ScheduleCard';
+import { useTimeView } from '../lib/timeView';
 
 export type LessonEventInfo = Pick<ScheduleEvent, 'scheduled_at' | 'duration_minutes' | 'meeting_url' | 'description'>;
 
@@ -49,6 +50,7 @@ export default function LessonPageView({
   blocks: LessonPageBlock[];
   onOpenHomework?: (pageId: string) => void;
 }) {
+  const timeView = useTimeView();
   const cover = coverUrl?.trim();
   const live = event ? isEventOngoing(event.scheduled_at, event.duration_minutes) : false;
   const ended = event ? isEventEnded(event.scheduled_at, event.duration_minutes) : false;
@@ -86,7 +88,7 @@ export default function LessonPageView({
                 <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" aria-hidden />
                 <div className="min-w-0">
                   <dt className="text-xs text-slate-500">Дата</dt>
-                  <dd className="text-white">{capitalize(formatEventDate(event.scheduled_at))}</dd>
+                  <dd className="text-white">{capitalize(formatEventDate(event.scheduled_at, timeView))}</dd>
                 </div>
               </div>
               <div className="flex items-start gap-2.5">
@@ -94,7 +96,7 @@ export default function LessonPageView({
                 <div>
                   <dt className="text-xs text-slate-500">Время</dt>
                   <dd className="tabular-nums text-white">
-                    {formatTimeRange(event.scheduled_at, event.duration_minutes)}
+                    {formatTimeRange(event.scheduled_at, event.duration_minutes, timeView)}
                   </dd>
                 </div>
               </div>

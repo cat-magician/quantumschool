@@ -3,6 +3,7 @@ import type { HomeworkPage, HomeworkPageSubmission } from '../lib/types';
 import { homeworkListDueText } from '../lib/homeworkPageUtils';
 import { DEFAULT_HOMEWORK_MAX_SCORE, formatHomeworkScoreShort, SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '../lib/homeworkUtils';
 import HomeworkDueBadge from './HomeworkDueBadge';
+import { useTimeView } from '../lib/timeView';
 
 export default function HomeworkPageCard({
   page,
@@ -21,6 +22,7 @@ export default function HomeworkPageCard({
   onDelete?: () => void;
   actionBusy?: boolean;
 }) {
+  const timeView = useTimeView();
   const maxScore = page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE;
   const hasActions = Boolean(onTogglePublish || onDelete);
 
@@ -40,7 +42,7 @@ export default function HomeworkPageCard({
             {page.title}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
-            <span className="text-xs text-slate-500">{homeworkListDueText(page.due_at)}</span>
+            <span className="text-xs text-slate-500">{homeworkListDueText(page.due_at, timeView)}</span>
             <HomeworkDueBadge dueAt={page.due_at} submission={submission} />
             {submission && (
               <span className={`text-[10px] px-2 py-0.5 rounded-md border ${SUBMISSION_STATUS_COLORS[submission.status]}`}>

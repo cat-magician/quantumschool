@@ -2,7 +2,7 @@ import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPag
 import { yandexFormUrl } from './constants';
 import { normalizeContestUrl, parseYandexFormId } from './selectionConfig';
 import { formatDueDate } from './homeworkUtils';
-import { toDatetimeLocalValue } from './scheduleUtils';
+import { toSchoolInputValue, type TimeView } from './schoolTime';
 
 export const HOMEWORK_BLOCK_LABELS: Record<HomeworkBlockType, string> = {
   text: 'Задачи (Markdown)',
@@ -63,14 +63,14 @@ export function createDefaultHomeworkBlocks(): {
   ];
 }
 
-export function formatHomeworkDueAt(iso: string | null | undefined) {
+export function formatHomeworkDueAt(iso: string | null | undefined, view: TimeView = 'viewer') {
   if (!iso) return null;
-  return formatDueDate(iso);
+  return formatDueDate(iso, view);
 }
 
 export function homeworkDueInputValue(iso: string | null | undefined) {
   if (!iso) return '';
-  return toDatetimeLocalValue(iso);
+  return toSchoolInputValue(iso);
 }
 
 /** Порядок списка в админке: черновики → ближайший срок → недавно меняли. */
@@ -127,9 +127,9 @@ export function homeworkDueUrgency(dueAt: string | null | undefined): HomeworkDu
   return null;
 }
 
-export function homeworkListDueText(dueAt: string | null | undefined) {
+export function homeworkListDueText(dueAt: string | null | undefined, view: TimeView = 'viewer') {
   if (!dueAt) return 'Без срока';
-  return `Срок: ${formatHomeworkDueAt(dueAt)}`;
+  return `Срок: ${formatHomeworkDueAt(dueAt, view)}`;
 }
 
 export function isHomeworkSubmissionBlock(type: HomeworkBlockType) {

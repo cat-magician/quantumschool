@@ -42,6 +42,7 @@ import {
   sortScheduleEventsAscending,
   sortScheduleEventsDescending,
 } from '../../lib/scheduleUtils';
+import { useTimeView } from '../../lib/timeView';
 
 /** Куда ведёт карточка: страница лекции, семинара или ДЗ в «Обучении». */
 export type StudentContentLink = (sub: 'lectures' | 'seminars' | 'homework', pageId: string) => void;
@@ -80,6 +81,7 @@ function deadlineStatus(
 }
 
 export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: StudentContentLink }) {
+  const timeView = useTimeView();
   const { user } = useAuth();
   const userId = user?.id ?? '';
   // Уже загруженное (той же главной) показываем сразу, свежее — следом.
@@ -132,14 +134,14 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
   );
 
   const { upcomingGroups, pastGroups } = useMemo(() => {
-    const list = entries.filter((e) => eventMatchesScheduleFilter(e, 'all', selectedDate));
+    const list = entries.filter((e) => eventMatchesScheduleFilter(e, 'all', selectedDate, timeView));
     const upcoming = list.filter((e) => isEventActive(e.scheduled_at, e.duration_minutes));
     const past = list.filter((e) => isEventEnded(e.scheduled_at, e.duration_minutes));
     return {
-      upcomingGroups: groupEventsByDate(sortScheduleEventsAscending(upcoming)),
-      pastGroups: groupEventsByDate(sortScheduleEventsDescending(past)),
+      upcomingGroups: groupEventsByDate(sortScheduleEventsAscending(upcoming), timeView),
+      pastGroups: groupEventsByDate(sortScheduleEventsDescending(past), timeView),
     };
-  }, [entries, selectedDate]);
+  }, [entries, selectedDate, timeView]);
 
   const hasEvents = upcomingGroups.length > 0 || pastGroups.length > 0;
   const showPastDivider = upcomingGroups.length > 0 && pastGroups.length > 0;
@@ -192,7 +194,7 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
             <ScheduleMeta past={past}>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-slate-500" aria-hidden />
-                сдать до {formatTimeRange(entry.scheduled_at)}
+                сдать до {formatTimeRange(entry.scheduled_at, 0, timeView)}
               </span>
             </ScheduleMeta>
           )}
@@ -224,7 +226,7 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
           <ScheduleMeta past={past}>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-slate-500" aria-hidden />
-              {formatTimeRange(entry.scheduled_at, entry.duration_minutes)}
+              {formatTimeRange(entry.scheduled_at, entry.duration_minutes, timeView)}
             </span>
             <span className="text-slate-500">{formatDuration(entry.duration_minutes)}</span>
           </ScheduleMeta>
@@ -284,11 +286,11 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-slate-300">
                 <span className="inline-flex items-center gap-1.5">
                   <Calendar className="w-4 h-4 text-blue-400 flex-shrink-0" aria-hidden />
-                  {capitalize(formatEventDate(nextEvent.scheduled_at))}
+                  {capitalize(formatEventDate(nextEvent.scheduled_at, timeView))}
                 </span>
                 <span className="inline-flex items-center gap-1.5 tabular-nums">
                   <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" aria-hidden />
-                  {formatTimeRange(nextEvent.scheduled_at, nextEvent.duration_minutes)}
+                  {formatTimeRange(nextEvent.scheduled_at, nextEvent.duration_minutes, timeView)}
                 </span>
                 <span className="text-violet-200">{EVENT_TYPE_LABELS[nextEvent.event_type]}</span>
                 {isEventOngoing(nextEvent.scheduled_at, nextEvent.duration_minutes) && <LiveChip />}

@@ -68,16 +68,6 @@ export function joinDatetimeValue(date: string, time: string): string {
   return date && time ? `${date}T${time}` : '';
 }
 
-/** Значение поля даты и времени как момент по часам браузера. */
-export function datetimeValueToDate(value: string): Date | null {
-  const { date, time } = splitDatetimeValue(value);
-  if (!date) return null;
-  const day = parseDateValue(date);
-  const parts = parseTimeInput(time);
-  if (!day || !parts) return null;
-  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), parts.hours, parts.minutes);
-}
-
 export function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }

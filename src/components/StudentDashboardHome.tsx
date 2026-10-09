@@ -19,6 +19,7 @@ import { loadStudentHomework } from '../lib/studentHomeworkData';
 import { HOME_GUIDE } from '../lib/dashboardHelpCopy';
 import { formatEventDate, formatEventTime } from '../lib/scheduleUtils';
 import type { LearningSubTab } from '../pages/student/LearningTab';
+import { useTimeView } from '../lib/timeView';
 
 export type { StudentNextAction };
 
@@ -46,6 +47,7 @@ export default function StudentDashboardHome({
   onAction,
   onOpenHomework,
 }: StudentDashboardHomeProps) {
+  const timeView = useTimeView();
   const [loading, setLoading] = useState(isEnrolled);
   const [nextEvent, setNextEvent] = useState<ScheduleEvent | null>(null);
   const [hwProgress, setHwProgress] = useState<ReturnType<typeof buildEnrolledHomeworkProgress>>([]);
@@ -178,7 +180,7 @@ export default function StudentDashboardHome({
               <>
                 <p className="text-sm font-semibold text-white truncate">{nextEvent.title}</p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {formatEventDate(nextEvent.scheduled_at)}, {formatEventTime(nextEvent.scheduled_at)}
+                  {formatEventDate(nextEvent.scheduled_at, timeView)}, {formatEventTime(nextEvent.scheduled_at, timeView)}
                 </p>
               </>
             ) : (

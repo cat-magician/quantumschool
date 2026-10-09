@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ScheduleEventType } from '../lib/types';
-import { pluralRu } from '../lib/dateTimeInput';
+import { pluralRu, toDateValue } from '../lib/dateTimeInput';
+import { dateValueIn, todayValueIn, type TimeView } from '../lib/schoolTime';
+import { useTimeView } from '../lib/timeView';
 import { EVENT_TONES } from '../lib/scheduleTones';
 
 interface CalendarEvent {
@@ -37,8 +39,9 @@ const LEGEND: Record<ScheduleEventType, string> = {
 
 const dayAriaFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
 
-function dayKey(d: Date) {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+/** День события — того же вида, что и список рядом. */
+function eventDayKey(e: CalendarEvent, view: TimeView) {
+  return dateValueIn(e.scheduled_at, view);
 }
 
 function entryType(e: CalendarEvent): ScheduleEventType {
@@ -54,6 +57,7 @@ export default function MonthCalendar({
   dateSelectionDisabled = false,
   disabledHint,
 }: MonthCalendarProps) {
+  const timeView = useTimeView();
   const { cells, label } = useMemo(() => {
     const y = month.getFullYear();
     const m = month.getMonth();
@@ -71,7 +75,7 @@ export default function MonthCalendar({
   const days = useMemo(() => {
     const map = new Map<string, { count: number; types: ScheduleEventType[] }>();
     for (const e of events) {
-      const key = dayKey(new Date(e.scheduled_at));
+      const key = eventDayKey(e, timeView);
       const day = map.get(key) ?? { count: 0, types: [] };
       day.count += 1;
       const type = entryType(e);
@@ -79,17 +83,18 @@ export default function MonthCalendar({
       map.set(key, day);
     }
     return map;
-  }, [events]);
+  }, [events, timeView]);
 
   const monthTypes = useMemo(() => {
     const types = new Set<ScheduleEventType>();
+    const monthKey = toDateValue(month).slice(0, 7);
     for (const e of events) {
-      const d = new Date(e.scheduled_at);
-      if (d.getFullYear() === month.getFullYear() && d.getMonth() === month.getMonth()) types.add(entryType(e));
+      if (eventDayKey(e, timeView).slice(0, 7) === monthKey) types.add(entryType(e));
     }
     return (Object.keys(LEGEND) as ScheduleEventType[]).filter((t) => types.has(t));
-  }, [events, month]);
+  }, [events, month, timeView]);
 
+  const today = todayValueIn(timeView);
   const prev = () => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1));
   const next = () => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1));
 
@@ -129,10 +134,10 @@ export default function MonthCalendar({
       <div className="grid grid-cols-7 gap-1">
         {cells.map((date, i) => {
           if (!date) return <div key={`empty-${i}`} />;
-          const key = dayKey(date);
+          const key = toDateValue(date);
           const day = days.get(key);
           const isSelected = selectedDate && isSameDay(date, selectedDate);
-          const isToday = isSameDay(date, new Date());
+          const isToday = key === today;
           const ariaLabel = day
             ? `${dayAriaFmt.format(date)}: ${day.count} ${pluralRu(day.count, ['событие', 'события', 'событий'])}`
             : dayAriaFmt.format(date);

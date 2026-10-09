@@ -1,6 +1,7 @@
 import type {
   LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType, ScheduleEvent,
 } from './types';
+import { schoolDayStartMs } from './schoolTime';
 
 export const LESSON_TYPE_LABELS: Record<LessonPageType, string> = {
   lecture: 'Лекция',
@@ -111,12 +112,13 @@ export function lessonEventTime(page: LessonPageWithEvent): LessonEventTime | nu
 export function splitLessonsByTime<T extends LessonPageWithEvent>(pages: T[], now = Date.now()) {
   const items = pages.map((page) => {
     const event = lessonEventTime(page);
+    // Без времени занятие длится весь свой день — московский.
     const start = event
       ? new Date(event.scheduled_at).getTime()
-      : new Date(`${page.lesson_date.slice(0, 10)}T00:00:00`).getTime();
+      : schoolDayStartMs(page.lesson_date.slice(0, 10));
     const end = event
       ? start + event.duration_minutes * 60_000
-      : new Date(`${page.lesson_date.slice(0, 10)}T23:59:59`).getTime();
+      : start + 86_400_000 - 1;
     return { page, event, start, end };
   });
   return {

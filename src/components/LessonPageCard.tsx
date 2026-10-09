@@ -5,6 +5,7 @@ import { formatLessonDate, type LessonEventTime } from '../lib/lessonPageUtils';
 import { formatEventDate, formatTimeRange, isEventOngoing } from '../lib/scheduleUtils';
 import LessonCoverImage from './LessonCoverImage';
 import { LiveChip } from './ScheduleCard';
+import { useTimeView } from '../lib/timeView';
 
 const COVER_GRADIENT: Record<LessonPageType, string> = {
   lecture: 'from-blue-600/40 via-indigo-700/30 to-slate-900',
@@ -42,6 +43,7 @@ export default function LessonPageCard({
   onDelete?: () => void;
   actionBusy?: boolean;
 }) {
+  const timeView = useTimeView();
   const [coverFailed, setCoverFailed] = useState(false);
   const coverUrl = page.cover_url?.trim() ?? '';
   const showCover = !!coverUrl && !coverFailed;
@@ -83,7 +85,7 @@ export default function LessonPageCard({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
               {event ? (
                 <span className="tabular-nums">
-                  {formatEventDate(event.scheduled_at)} · {formatTimeRange(event.scheduled_at, event.duration_minutes)}
+                  {formatEventDate(event.scheduled_at, timeView)} · {formatTimeRange(event.scheduled_at, event.duration_minutes, timeView)}
                 </span>
               ) : (
                 <span>{formatLessonDate(page.lesson_date)}</span>

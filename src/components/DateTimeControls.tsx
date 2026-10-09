@@ -6,7 +6,6 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, X } from 'lucide
 import { useDismissOnOutside, usePopoverPosition, type DismissReason } from '../hooks/usePopover';
 import {
   addDays,
-  datetimeValueToDate,
   formatTimeValue,
   joinDatetimeValue,
   parseDateValue,
@@ -18,13 +17,21 @@ import {
   toDateValue,
 } from '../lib/dateTimeInput';
 import { formatDuration } from '../lib/scheduleUtils';
+import {
+  SCHOOL_TIME_SUFFIX,
+  SCHOOL_TIME_ZONE,
+  schoolInputToMs,
+  schoolTodayValue,
+  toSchoolDateValue,
+} from '../lib/schoolTime';
 
 /**
  * Поля даты, времени и длительности в стиле сайта. Вместо системных
  * календарей и барабанов: дата — из календаря-сетки (стрелки, PageUp/PageDown),
  * время — набором («17», «1730», «17:30») или из списка с шагом, длительность —
  * готовыми вариантами. Значения — те же строки, что у input type="date" и
- * type="datetime-local", так что формы сохраняют их по-прежнему.
+ * type="datetime-local", только время в них московское (см. schoolTime.ts):
+ * «сегодня», «через 3 дня» и окончание занятия тоже считаются по Москве.
  */
 
 const FIELD =
@@ -50,7 +57,16 @@ const dayAriaFmt = new Intl.DateTimeFormat('ru-RU', {
 });
 const dayMonthFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
 const weekdayShortFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short' });
-const clockFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const clockFmt = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: SCHOOL_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** Сегодняшний день по Москве — как день календаря. */
+function schoolToday(): Date {
+  return parseDateValue(schoolTodayValue()) ?? new Date();
+}
 
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -75,7 +91,7 @@ function monthWeeks(month: Date): Date[][] {
 
 /** «пн, 12 октября»; год — только если не текущий. */
 function formatFieldDate(d: Date) {
-  const year = d.getFullYear() === new Date().getFullYear() ? '' : ` ${d.getFullYear()}`;
+  const year = d.getFullYear() === schoolToday().getFullYear() ? '' : ` ${d.getFullYear()}`;
   return `${weekdayShortFmt.format(d)}, ${dayMonthFmt.format(d)}${year}`;
 }
 
@@ -86,7 +102,7 @@ function CalendarGrid({
   selected: Date | null;
   onSelect: (day: Date) => void;
 }) {
-  const today = new Date();
+  const today = schoolToday();
   const [focusDay, setFocusDay] = useState<Date>(() => selected ?? today);
   const [view, setView] = useState(() => startOfMonth(selected ?? today));
   const [moveFocus, setMoveFocus] = useState(true);
@@ -232,7 +248,7 @@ function DatePanel({
 }) {
   const style = usePopoverPosition(open, anchorRef, panelRef);
   if (!open) return null;
-  const today = new Date();
+  const today = schoolToday();
   const quick: [string, Date][] = [
     ['Сегодня', today],
     ['Завтра', addDays(today, 1)],
@@ -454,9 +470,12 @@ export function FormTime({
     <div className={`min-w-0 ${className}`}>
       <div className="relative">
         <Clock
-          className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
           aria-hidden
         />
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500" aria-hidden>
+          мск
+        </span>
         <input
           ref={inputRef}
           id={id}
@@ -466,7 +485,7 @@ export function FormTime({
           spellCheck={false}
           maxLength={10}
           role="combobox"
-          aria-label={ariaLabel}
+          aria-label={ariaLabel ? `${ariaLabel} (по Москве)` : 'Время по Москве'}
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
@@ -482,7 +501,7 @@ export function FormTime({
           }}
           onKeyDown={onKeyDown}
           onBlur={() => commit(draft)}
-          className={`${FIELD} pl-10 pr-3 py-3 text-base sm:text-sm tabular-nums placeholder-slate-500 ${
+          className={`${FIELD} pl-9 pr-11 py-3 text-base sm:text-sm tabular-nums placeholder-slate-500 ${
             rejected ? 'border-amber-500/60' : ''
           }`}
         />
@@ -572,18 +591,19 @@ export function FormDatetime({
   id?: string;
 }) {
   const { date, time } = splitDatetimeValue(value);
-  const moment = datetimeValueToDate(value);
+  const momentMs = schoolInputToMs(value);
   const [rejectedTime, setRejectedTime] = useState<string | null>(null);
 
   const setDate = (nextDate: string) => onChange(joinDatetimeValue(nextDate, time || defaultTime));
-  const setTime = (nextTime: string) => onChange(joinDatetimeValue(date || toDateValue(new Date()), nextTime));
+  const setTime = (nextTime: string) => onChange(joinDatetimeValue(date || schoolTodayValue(), nextTime));
 
   let hint: string | null = null;
   let past = false;
-  if (moment) {
-    const minutesAhead = Math.round((moment.getTime() - Date.now()) / 60_000);
+  const day = parseDateValue(date);
+  if (momentMs !== null && day) {
+    const minutesAhead = Math.round((momentMs - Date.now()) / 60_000);
     past = minutesAhead < 0;
-    const relative = relativeDayLabel(moment);
+    const relative = relativeDayLabel(day, schoolToday());
     if (past) {
       hint = warnPast ? `Это время уже прошло — ${relative}` : `Прошло — ${relative}`;
     } else if (minutesAhead < 12 * 60) {
@@ -595,7 +615,7 @@ export function FormDatetime({
 
   return (
     <div className={`space-y-2 ${className}`}>
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(6.25rem,7.5rem)] gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(7.25rem,8.25rem)] gap-2">
         <FormDate value={date} onChange={setDate} placeholder="Дата" id={id} />
         <FormTime
           value={time}
@@ -619,7 +639,7 @@ export function FormDatetime({
               key={preset.label}
               type="button"
               onClick={() => onChange(joinDatetimeValue(
-                toDateValue(addDays(new Date(), preset.days)),
+                toDateValue(addDays(schoolToday(), preset.days)),
                 preset.time ?? (time || defaultTime),
               ))}
               className={`${CHIP} ${CHIP_OFF}`}
@@ -692,9 +712,9 @@ export function FormDuration({
     if (minutes !== value) onChange(minutes);
   };
 
-  const start = startsAt ? datetimeValueToDate(startsAt) : null;
-  const end = start ? new Date(start.getTime() + value * 60_000) : null;
-  const nextDay = start && end ? !isSameDay(start, end) : false;
+  const startMs = startsAt ? schoolInputToMs(startsAt) : null;
+  const end = startMs !== null ? new Date(startMs + value * 60_000) : null;
+  const nextDay = end && startsAt ? toSchoolDateValue(end) !== startsAt.slice(0, 10) : false;
 
   return (
     <div className="space-y-2">
@@ -768,7 +788,7 @@ export function FormDuration({
       ) : end ? (
         <p className="text-xs text-slate-500">
           {custom && `${formatDuration(value)} · `}
-          Закончится в {clockFmt.format(end)}{nextDay ? ' следующего дня' : ''}
+          Закончится в {clockFmt.format(end)} {SCHOOL_TIME_SUFFIX}{nextDay ? ', на следующий день' : ''}
         </p>
       ) : custom ? (
         <p className="text-xs text-slate-500">{formatDuration(value)}</p>

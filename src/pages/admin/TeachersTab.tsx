@@ -18,6 +18,7 @@ import {
 } from '../../lib/scheduleUtils';
 import ListSearchBar from '../../components/ListSearchBar';
 import { textMatches } from '../../lib/listFilters';
+import { useTimeView } from '../../lib/timeView';
 
 type TeacherRow = UserProfile & { email: string | null };
 
@@ -339,6 +340,7 @@ function TeacherCard({
   onExclude: (id: string) => void;
   excluding?: boolean;
 }) {
+  const timeView = useTimeView();
   const { profile } = data;
   const isYou = profile.id === currentUserId;
   const nextEvent = data.upcomingEvents[0];
@@ -409,7 +411,7 @@ function TeacherCard({
           <div className="mt-1 space-y-0.5">
             <p className="text-xs text-white font-medium truncate leading-4">{nextEvent.title}</p>
             <p className="text-xs text-slate-500 truncate leading-4">
-              {formatEventDateTime(nextEvent.scheduled_at)}
+              {formatEventDateTime(nextEvent.scheduled_at, timeView)}
               {data.upcomingEvents.length > 1 && (
                 <span className="text-slate-600"> · ещё {data.upcomingEvents.length - 1}</span>
               )}

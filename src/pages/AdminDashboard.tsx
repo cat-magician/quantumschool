@@ -37,6 +37,7 @@ import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobi
 import NavCountBadge from '../components/NavCountBadge';
 import { useAdminUngradedCount } from '../hooks/useAdminUngradedCount';
 import { TeacherPromotedBanner } from '../components/TeacherRoleBanners';
+import { TimeViewContext } from '../lib/timeView';
 
 type AdminTab =
   | 'home'
@@ -238,6 +239,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   };
 
   return (
+    <TimeViewContext.Provider value="school">
     <div className="min-h-screen bg-slate-950 text-white flex">
       <aside className="hidden lg:flex flex-col w-64 bg-slate-900/80 border-r border-white/5 backdrop-blur-sm fixed h-full min-h-0 overflow-hidden z-20">
         <div className="shrink-0 p-6 border-b border-white/5">
@@ -552,5 +554,6 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
         </div>
       </main>
     </div>
+    </TimeViewContext.Provider>
   );
 }

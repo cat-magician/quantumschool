@@ -4,6 +4,7 @@ import type { ScheduleEventType } from '../lib/types';
 import { formatDayHeading } from '../lib/scheduleUtils';
 import { EVENT_TONES } from '../lib/scheduleTones';
 import LessonCoverImage from './LessonCoverImage';
+import { useTimeView } from '../lib/timeView';
 
 /**
  * Карточка расписания — вид занятия, а не отдельная вещь: обложка и статус
@@ -158,7 +159,8 @@ export function ScheduleMeta({ children, past = false }: { children: ReactNode; 
 
 /** Заголовок дня: «Сегодня · четверг, 9 октября». */
 export function ScheduleDayHeading({ iso, past = false }: { iso: string; past?: boolean }) {
-  const { relative, label } = formatDayHeading(iso);
+  const timeView = useTimeView();
+  const { relative, label } = formatDayHeading(iso, timeView);
   return (
     <h3 className={`mb-3 flex flex-wrap items-baseline gap-x-2 text-sm font-semibold ${past ? 'text-slate-500' : 'text-slate-400'}`}>
       {relative ? (

@@ -13,7 +13,7 @@ import type {
 import GroupMultiSelect from '../../components/GroupMultiSelect';
 import { normalizeMeetingUrl } from '../../lib/meetingLinkUtils';
 import { legacyGroupId } from '../../lib/groupTargeting';
-import { toDatetimeLocalValue } from '../../lib/scheduleUtils';
+import { schoolInputToIso, schoolTodayValue, toSchoolInputValue } from '../../lib/schoolTime';
 import {
   LESSON_BLOCK_LABELS,
   LESSON_BLOCK_TYPES,
@@ -75,7 +75,7 @@ function emptyEditor(type: LessonPageType): EditorState {
     id: null,
     title: '',
     lesson_type: type,
-    lesson_date: new Date().toISOString().slice(0, 10),
+    lesson_date: schoolTodayValue(),
     cover_url: '',
     is_published: false,
     group_ids: [],
@@ -231,7 +231,7 @@ export default function LessonsTab({
       group_ids: event?.group_ids ?? page.group_ids ?? [],
       in_schedule: Boolean(event),
       event_id: event?.id ?? null,
-      starts_at: event ? toDatetimeLocalValue(event.scheduled_at) : '',
+      starts_at: event ? toSchoolInputValue(event.scheduled_at) : '',
       duration_minutes: event?.duration_minutes ?? 90,
       meeting_url: event?.meeting_url ?? '',
       description: event?.description ?? '',
@@ -320,7 +320,7 @@ export default function LessonsTab({
         const eventFields = {
           title,
           event_type: editor.lesson_type,
-          scheduled_at: new Date(editor.starts_at).toISOString(),
+          scheduled_at: schoolInputToIso(editor.starts_at),
           duration_minutes: editor.duration_minutes,
           meeting_url: normalizeMeetingUrl(editor.meeting_url),
           description: editor.description.trim(),
@@ -557,7 +557,7 @@ export default function LessonsTab({
             coverUrl={editor.cover_url}
             event={editor.in_schedule && editor.starts_at
               ? {
-                scheduled_at: new Date(editor.starts_at).toISOString(),
+                scheduled_at: schoolInputToIso(editor.starts_at),
                 duration_minutes: editor.duration_minutes,
                 meeting_url: normalizeMeetingUrl(editor.meeting_url),
                 description: editor.description,

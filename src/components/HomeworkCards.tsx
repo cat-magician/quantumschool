@@ -9,6 +9,7 @@ import {
   SUBMISSION_STATUS_COLORS,
   SUBMISSION_STATUS_LABELS,
 } from '../lib/homeworkUtils';
+import { useTimeView } from '../lib/timeView';
 
 interface HomeworkCardsProps {
   assignments: HomeworkAssignment[];
@@ -35,6 +36,7 @@ export default function HomeworkCards({
   onSaveDraft,
   onSubmit,
 }: HomeworkCardsProps) {
+  const timeView = useTimeView();
   const [selected, setSelected] = useState<HomeworkAssignment | null>(null);
   const [answer, setAnswer] = useState('');
 
@@ -97,7 +99,7 @@ export default function HomeworkCards({
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className={`inline-flex items-center gap-1 ${overdue ? 'text-rose-400' : 'text-slate-500'}`}>
                   <Clock className="w-3 h-3" />
-                  {formatDueDate(a.due_at)}
+                  {formatDueDate(a.due_at, timeView)}
                 </span>
                 {!a.is_published && (
                   <span className="px-2 py-0.5 rounded-md border text-amber-300 bg-amber-500/10 border-amber-500/20">

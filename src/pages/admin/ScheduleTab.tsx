@@ -50,9 +50,9 @@ import {
   isLessonEventType,
   sortScheduleEventsAscending,
   sortScheduleEventsDescending,
-  toDatetimeLocalValue,
-  toLocalDateValue,
 } from '../../lib/scheduleUtils';
+import { schoolInputToIso, toSchoolDateValue, toSchoolInputValue } from '../../lib/schoolTime';
+import { useTimeView } from '../../lib/timeView';
 
 type Filter = 'upcoming' | 'past' | 'all';
 
@@ -80,6 +80,7 @@ export default function ScheduleTab({
 }: {
   onOpenContent?: (target: ScheduleContentTarget) => void;
 }) {
+  const timeView = useTimeView();
   const { confirm } = useAppDialog();
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [homework, setHomework] = useState<HomeworkDeadlineRow[]>([]);
@@ -129,14 +130,14 @@ export default function ScheduleTab({
   const entries = useMemo(() => buildCalendar(events, homework), [events, homework]);
 
   const sections = useMemo(() => {
-    const list = entries.filter((e) => eventMatchesScheduleFilter(e, filter, selectedDate));
+    const list = entries.filter((e) => eventMatchesScheduleFilter(e, filter, selectedDate, timeView));
     const upcoming = list.filter((e) => isEventActive(e.scheduled_at, e.duration_minutes));
     const past = list.filter((e) => isEventEnded(e.scheduled_at, e.duration_minutes));
     return {
-      upcoming: groupEventsByDate(sortScheduleEventsAscending(upcoming)),
-      past: groupEventsByDate(sortScheduleEventsDescending(past)),
+      upcoming: groupEventsByDate(sortScheduleEventsAscending(upcoming), timeView),
+      past: groupEventsByDate(sortScheduleEventsDescending(past), timeView),
     };
-  }, [entries, filter, selectedDate]);
+  }, [entries, filter, selectedDate, timeView]);
 
   const hasEntries = sections.upcoming.length > 0 || sections.past.length > 0;
 
@@ -176,7 +177,7 @@ export default function ScheduleTab({
       title: event.title,
       description: event.description,
       event_type: event.event_type,
-      scheduled_at: toDatetimeLocalValue(event.scheduled_at),
+      scheduled_at: toSchoolInputValue(event.scheduled_at),
       duration_minutes: event.duration_minutes,
       meeting_url: event.meeting_url,
       group_ids: eventGroupIds(event),
@@ -228,7 +229,7 @@ export default function ScheduleTab({
       .insert({
         title: event.title,
         lesson_type: event.event_type,
-        lesson_date: toLocalDateValue(event.scheduled_at),
+        lesson_date: toSchoolDateValue(event.scheduled_at),
         is_published: true,
         group_ids: eventGroupIds(event),
         created_by: user?.id ?? null,
@@ -268,7 +269,7 @@ export default function ScheduleTab({
       title: form.title.trim(),
       description: form.description.trim(),
       event_type: form.event_type,
-      scheduled_at: new Date(form.scheduled_at).toISOString(),
+      scheduled_at: schoolInputToIso(form.scheduled_at),
       duration_minutes: form.duration_minutes,
       meeting_url: normalizeMeetingUrl(form.meeting_url),
       group_ids: form.group_ids,
@@ -470,7 +471,7 @@ export default function ScheduleTab({
                     <span className="block text-sm font-medium text-white truncate">
                       {e.homeworkPageId ? `Дедлайн: ${e.title}` : e.title}
                     </span>
-                    <span className="block text-xs text-slate-500 mt-0.5">{formatEventDateTime(e.scheduled_at)}</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">{formatEventDateTime(e.scheduled_at, timeView)}</span>
                   </span>
                 </button>
               ))}
@@ -642,7 +643,7 @@ export default function ScheduleTab({
             <ScheduleMeta past={past}>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-slate-500" aria-hidden />
-                до {formatTimeRange(entry.scheduled_at)}
+                до {formatTimeRange(entry.scheduled_at, 0, timeView)}
               </span>
             </ScheduleMeta>
           )}
@@ -684,7 +685,7 @@ export default function ScheduleTab({
           <ScheduleMeta past={past}>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-slate-500" aria-hidden />
-              {formatTimeRange(entry.scheduled_at, entry.duration_minutes)}
+              {formatTimeRange(entry.scheduled_at, entry.duration_minutes, timeView)}
             </span>
             <span className="text-slate-500">{formatDuration(entry.duration_minutes)}</span>
           </ScheduleMeta>

@@ -10,6 +10,7 @@ import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
 import HomeworkDueBadge from './HomeworkDueBadge';
 import HomeworkSubmissionSection, { HomeworkSubmissionStatusBadge } from './HomeworkSubmissionSection';
+import { useTimeView } from '../lib/timeView';
 
 export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => void }) {
   const { user } = useAuth();
@@ -145,6 +146,7 @@ export function StudentHomeworkPageView({
   onBack: () => void;
   backLabel?: string;
 }) {
+  const timeView = useTimeView();
   const { user } = useAuth();
   const [page, setPage] = useState<HomeworkPage | null>(null);
   const [blocks, setBlocks] = useState<HomeworkPageBlock[]>([]);
@@ -232,7 +234,7 @@ export function StudentHomeworkPageView({
     );
   }
 
-  const dueText = page.due_at ? formatHomeworkDueAt(page.due_at) : null;
+  const dueText = page.due_at ? formatHomeworkDueAt(page.due_at, timeView) : null;
 
   return (
     <div className="max-w-3xl space-y-6">
