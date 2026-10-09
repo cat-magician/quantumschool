@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ListSearchBar from '../../components/ListSearchBar';
 import { textMatches } from '../../lib/listFilters';
 import {
@@ -35,7 +35,7 @@ import {
 } from '../../components/FormControls';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
-import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
+import AdminPageViewBar from '../../components/AdminPageViewBar';
 import { SchedulePastDivider } from '../../components/ScheduleCard';
 
 type EditorBlock = {
@@ -95,6 +95,20 @@ function emptyEditor(type: LessonPageType): EditorState {
   };
 }
 
+/**
+ * Слепок редактора для сравнения с сохранённым. Публикация не в счёт: её
+ * переключают отдельными кнопками, и она сразу пишется в базу.
+ */
+function editorSnapshot(editor: EditorState): string {
+  return JSON.stringify({ ...editor, is_published: null });
+}
+
+/** Наверх к началу страницы при смене вида (без анимации, если её отключили). */
+function scrollToTop() {
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
+}
+
 function blocksFromRows(rows: LessonPageBlock[]): EditorBlock[] {
   return [...rows]
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -128,8 +142,9 @@ export default function LessonsTab({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [previewMode, setPreviewMode] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
+  // Открытую страницу сотрудник сначала видит как ученик; редактор — по кнопке.
+  const [pageView, setPageView] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
@@ -182,15 +197,10 @@ export default function LessonsTab({
     onPageOpened?.();
   }, [openPageId, onPageOpened]);
 
-  useEffect(() => {
-    if (previewMode) {
-      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [previewMode]);
-
   const openCreate = () => {
     setEditor(emptyEditor(lessonType));
-    setPreviewMode(false);
+    setSavedSnapshot('');
+    setPageView(false);
     setCoverPreviewFailed(false);
     setMessage('');
   };
@@ -211,7 +221,7 @@ export default function LessonsTab({
     if (!pageRes.data) return;
     const page = pageRes.data as LessonPage;
     const event = (eventRes.data ?? null) as ScheduleEvent | null;
-    setEditor({
+    const opened: EditorState = {
       id: page.id,
       title: page.title,
       lesson_type: page.lesson_type as LessonPageType,
@@ -226,8 +236,10 @@ export default function LessonsTab({
       meeting_url: event?.meeting_url ?? '',
       description: event?.description ?? '',
       blocks: blocksFromRows((blocksRes.data ?? []) as LessonPageBlock[]),
-    });
-    setPreviewMode(false);
+    };
+    setEditor(opened);
+    setSavedSnapshot(editorSnapshot(opened));
+    setPageView(true);
     setCoverPreviewFailed(false);
     setMessage('');
   };
@@ -238,7 +250,7 @@ export default function LessonsTab({
       return;
     }
     setEditor(null);
-    setPreviewMode(false);
+    setPageView(false);
     loadList();
   };
 
@@ -360,13 +372,15 @@ export default function LessonsTab({
         }
       }
 
-      setEditor({
+      const saved: EditorState = {
         ...editor,
         id: pageId,
         event_id: eventId,
         lesson_date: lessonDate,
         is_published: isPublished,
-      });
+      };
+      setEditor(saved);
+      setSavedSnapshot(editorSnapshot(saved));
       setMessage(isPublished ? 'Сохранено и опубликовано' : 'Сохранено');
       loadList();
     } catch (err) {
@@ -503,16 +517,61 @@ export default function LessonsTab({
       created_at: '',
     }));
 
+    const backButton = (
+      <button
+        type="button"
+        onClick={closeEditor}
+        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        {backLabel}
+      </button>
+    );
+
+    const messageLine = message && (
+      <p className={`text-sm ${isSaveSuccessMessage(message) ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {message}
+      </p>
+    );
+
+    if (pageView) {
+      return (
+        <div className="space-y-6 max-w-3xl">
+          {backButton}
+          <AdminPageViewBar
+            published={editor.is_published}
+            dirty={editorSnapshot(editor) !== savedSnapshot}
+            saving={saving}
+            onEdit={() => {
+              setPageView(false);
+              scrollToTop();
+            }}
+            onPublish={() => { void persist(true); }}
+            onSave={() => { void persist(false); }}
+          />
+          {messageLine}
+          <LessonPageStudentPreview
+            title={editor.title}
+            lessonDate={editor.in_schedule && editor.starts_at ? editor.starts_at.slice(0, 10) : editor.lesson_date}
+            lessonType={editor.lesson_type}
+            coverUrl={editor.cover_url}
+            event={editor.in_schedule && editor.starts_at
+              ? {
+                scheduled_at: new Date(editor.starts_at).toISOString(),
+                duration_minutes: editor.duration_minutes,
+                meeting_url: normalizeMeetingUrl(editor.meeting_url),
+                description: editor.description,
+              }
+              : null}
+            blocks={previewBlocks}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6 max-w-3xl">
-        <button
-          type="button"
-          onClick={closeEditor}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {backLabel}
-        </button>
+        {backButton}
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -527,41 +586,17 @@ export default function LessonsTab({
           </div>
           <button
             type="button"
-            onClick={() => setPreviewMode((v) => !v)}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
-              previewMode
-                ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
-                : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
-            }`}
+            onClick={() => {
+              setPageView(true);
+              scrollToTop();
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors bg-white/5 text-slate-300 border-white/10 hover:text-white"
           >
             <Eye className="w-4 h-4" />
-            {previewMode ? 'Редактор' : 'Как видят ученики'}
+            Как видят ученики
           </button>
         </div>
 
-        {previewMode ? (
-          <div ref={previewRef} className="space-y-4">
-            <StudentPagePreviewBanner />
-            <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6">
-              <LessonPageStudentPreview
-                title={editor.title}
-                lessonDate={editor.in_schedule && editor.starts_at ? editor.starts_at.slice(0, 10) : editor.lesson_date}
-                lessonType={editor.lesson_type}
-                coverUrl={editor.cover_url}
-                event={editor.in_schedule && editor.starts_at
-                  ? {
-                    scheduled_at: new Date(editor.starts_at).toISOString(),
-                    duration_minutes: editor.duration_minutes,
-                    meeting_url: normalizeMeetingUrl(editor.meeting_url),
-                    description: editor.description,
-                  }
-                  : null}
-                blocks={previewBlocks}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
         <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
           <label className="block space-y-1.5">
             <span className="text-xs text-slate-500">Название</span>
@@ -704,14 +739,8 @@ export default function LessonsTab({
             ))
           )}
         </div>
-          </>
-        )}
 
-        {message && (
-          <p className={`text-sm ${isSaveSuccessMessage(message) ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {message}
-          </p>
-        )}
+        {messageLine}
 
         <div className="flex flex-wrap gap-2 pt-2">
           <button

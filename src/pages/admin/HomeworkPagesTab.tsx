@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ListSearchBar from '../../components/ListSearchBar';
 import { textMatches } from '../../lib/listFilters';
 import {
@@ -33,7 +33,7 @@ import YandexFormEmbed from '../../components/YandexFormEmbed';
 import ContestLinkCard from '../../components/ContestLinkCard';
 import HomeworkPageCard from '../../components/HomeworkPageCard';
 import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPreview';
-import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
+import AdminPageViewBar from '../../components/AdminPageViewBar';
 import BlockPlaceholder from '../../components/BlockPlaceholder';
 import ImageSourceInput from '../../components/ImageSourceInput';
 import { FormDatetime, type DatetimePreset } from '../../components/DateTimeControls';
@@ -84,6 +84,20 @@ function emptyEditor(): EditorState {
   };
 }
 
+/**
+ * Слепок редактора для сравнения с сохранённым. Публикация не в счёт: её
+ * переключают отдельными кнопками, и она сразу пишется в базу.
+ */
+function editorSnapshot(editor: EditorState): string {
+  return JSON.stringify({ ...editor, is_published: null });
+}
+
+/** Наверх к началу страницы при смене вида (без анимации, если её отключили). */
+function scrollToTop() {
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
+}
+
 function blocksFromRows(rows: HomeworkPageBlock[]): EditorBlock[] {
   return [...rows]
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -118,8 +132,9 @@ export default function HomeworkPagesTab({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [previewMode, setPreviewMode] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
+  // Открытое задание сотрудник сначала видит как ученик; редактор — по кнопке.
+  const [pageView, setPageView] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [listActionId, setListActionId] = useState<string | null>(null);
@@ -162,15 +177,10 @@ export default function HomeworkPagesTab({
     onPageOpened?.();
   }, [openPageId, onPageOpened]);
 
-  useEffect(() => {
-    if (previewMode) {
-      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [previewMode]);
-
   const openCreate = () => {
     setEditor(emptyEditor());
-    setPreviewMode(false);
+    setSavedSnapshot('');
+    setPageView(false);
     setMessage('');
   };
 
@@ -188,7 +198,7 @@ export default function HomeworkPagesTab({
     }
     if (!pageRes.data) return;
     const page = pageRes.data;
-    setEditor({
+    const opened: EditorState = {
       id: page.id,
       title: page.title,
       due_at: homeworkDueInputValue(page.due_at),
@@ -196,8 +206,10 @@ export default function HomeworkPagesTab({
       is_published: page.is_published,
       group_ids: (page as HomeworkPage).group_ids ?? [],
       blocks: blocksFromRows((blocksRes.data ?? []) as HomeworkPageBlock[]),
-    });
-    setPreviewMode(false);
+    };
+    setEditor(opened);
+    setSavedSnapshot(editorSnapshot(opened));
+    setPageView(true);
     setMessage('');
   };
 
@@ -207,7 +219,7 @@ export default function HomeworkPagesTab({
       return;
     }
     setEditor(null);
-    setPreviewMode(false);
+    setPageView(false);
     loadList();
   };
 
@@ -299,7 +311,9 @@ export default function HomeworkPagesTab({
     }
 
     setSaving(false);
-    setEditor({ ...editor, id: pageId, is_published: isPublished });
+    const saved: EditorState = { ...editor, id: pageId, is_published: isPublished };
+    setEditor(saved);
+    setSavedSnapshot(editorSnapshot(saved));
     setMessage(isPublished ? 'Сохранено и опубликовано' : 'Сохранено');
     loadList();
   };
@@ -428,16 +442,52 @@ export default function HomeworkPagesTab({
       created_at: '',
     }));
 
+    const backButton = (
+      <button
+        type="button"
+        onClick={closeEditor}
+        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        {backLabel}
+      </button>
+    );
+
+    const messageLine = message && (
+      <p className={`text-sm ${message.includes('Не') || message.includes('не настроены') ? 'text-rose-400' : 'text-emerald-400'}`}>
+        {message}
+      </p>
+    );
+
+    if (pageView) {
+      return (
+        <div className="space-y-6 max-w-3xl">
+          {backButton}
+          <AdminPageViewBar
+            published={editor.is_published}
+            dirty={editorSnapshot(editor) !== savedSnapshot}
+            saving={saving}
+            onEdit={() => {
+              setPageView(false);
+              scrollToTop();
+            }}
+            onPublish={() => { void persist(true); }}
+            onSave={() => { void persist(false); }}
+          />
+          {messageLine}
+          <HomeworkPageStudentPreview
+            title={editor.title}
+            dueAt={editor.due_at ? new Date(editor.due_at).toISOString() : null}
+            blocks={previewBlocks}
+            preview
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6 max-w-3xl">
-        <button
-          type="button"
-          onClick={closeEditor}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {backLabel}
-        </button>
+        {backButton}
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -450,32 +500,17 @@ export default function HomeworkPagesTab({
           </div>
           <button
             type="button"
-            onClick={() => setPreviewMode((v) => !v)}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
-              previewMode
-                ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
-                : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
-            }`}
+            onClick={() => {
+              setPageView(true);
+              scrollToTop();
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors bg-white/5 text-slate-300 border-white/10 hover:text-white"
           >
             <Eye className="w-4 h-4" />
-            {previewMode ? 'Редактор' : 'Как видят ученики'}
+            Как видят ученики
           </button>
         </div>
 
-        {previewMode ? (
-          <div ref={previewRef} className="space-y-4">
-            <StudentPagePreviewBanner />
-            <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6">
-              <HomeworkPageStudentPreview
-                title={editor.title}
-                dueAt={editor.due_at ? new Date(editor.due_at).toISOString() : null}
-                blocks={previewBlocks}
-                preview
-              />
-            </div>
-          </div>
-        ) : (
-          <>
             <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
               <label className="block space-y-1.5">
                 <span className="text-xs text-slate-500">Название</span>
@@ -581,14 +616,8 @@ export default function HomeworkPagesTab({
                 ))
               )}
             </div>
-          </>
-        )}
 
-        {message && (
-          <p className={`text-sm ${message.includes('Не') || message.includes('не настроены') ? 'text-rose-400' : 'text-emerald-400'}`}>
-            {message}
-          </p>
-        )}
+        {messageLine}
 
         <div className="flex flex-wrap gap-2 pt-2">
           <button

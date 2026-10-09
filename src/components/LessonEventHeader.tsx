@@ -1,7 +1,6 @@
 import { Calendar, Clock, Timer } from 'lucide-react';
 import type { LessonPageType, ScheduleEvent } from '../lib/types';
 import { LESSON_TYPE_LABELS, formatLessonDate } from '../lib/lessonPageUtils';
-import { isMeetingJoinWindow } from '../lib/meetingLinkUtils';
 import { linkifyText } from '../lib/linkifyText';
 import {
   formatDuration,
@@ -40,7 +39,6 @@ export default function LessonEventHeader({
   const cover = coverUrl?.trim();
   const live = event ? isEventOngoing(event.scheduled_at, event.duration_minutes) : false;
   const ended = event ? isEventEnded(event.scheduled_at, event.duration_minutes) : false;
-  const joinSoon = event?.meeting_url && !ended && !isMeetingJoinWindow(event.scheduled_at, event.duration_minutes);
 
   return (
     <header className="space-y-4">
@@ -88,17 +86,12 @@ export default function LessonEventHeader({
           </dl>
 
           {event.meeting_url && !ended && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <MeetingLinkButton
-                url={event.meeting_url}
-                scheduledAt={event.scheduled_at}
-                durationMinutes={event.duration_minutes}
-                variant="hero"
-              />
-              {joinSoon && (
-                <p className="text-xs text-slate-500">Кнопка «Подключиться» загорится за 15 минут до начала</p>
-              )}
-            </div>
+            <MeetingLinkButton
+              url={event.meeting_url}
+              scheduledAt={event.scheduled_at}
+              durationMinutes={event.duration_minutes}
+              variant="hero"
+            />
           )}
 
           {event.description?.trim() && (

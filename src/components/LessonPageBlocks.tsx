@@ -1,9 +1,15 @@
 import { ExternalLink, Presentation } from 'lucide-react';
 import type { LessonPageBlock } from '../lib/types';
 import { linkifyText } from '../lib/linkifyText';
-import { LESSON_BLOCK_LABELS, isLessonBlockEmpty } from '../lib/lessonPageUtils';
+import { LESSON_BLOCK_HEADINGS, isLessonBlockEmpty } from '../lib/lessonPageUtils';
 import LessonMaterialsBlock from './LessonMaterialsBlock';
 import VideoEmbed from './VideoEmbed';
+
+function BlockHeading({ type }: { type: LessonPageBlock['block_type'] }) {
+  const heading = LESSON_BLOCK_HEADINGS[type];
+  if (!heading) return null;
+  return <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{heading}</h3>;
+}
 
 export type LessonBlocksEmptyState = { title: string; text: string };
 
@@ -58,9 +64,7 @@ export default function LessonPageBlocks({
         if (block.block_type === 'recording') {
           return (
             <section key={block.id} className="space-y-3">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                {LESSON_BLOCK_LABELS.recording}
-              </h3>
+              <BlockHeading type="recording" />
               <VideoEmbed url={content.url ?? ''} />
             </section>
           );
@@ -69,9 +73,7 @@ export default function LessonPageBlocks({
         if (block.block_type === 'text') {
           return (
             <section key={block.id} className="space-y-3">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                {LESSON_BLOCK_LABELS.text}
-              </h3>
+              <BlockHeading type="text" />
               <TextBlock body={content.body ?? ''} />
             </section>
           );
@@ -80,9 +82,7 @@ export default function LessonPageBlocks({
         if (block.block_type === 'materials') {
           return (
             <section key={block.id} className="space-y-3">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                {LESSON_BLOCK_LABELS.materials}
-              </h3>
+              <BlockHeading type="materials" />
               <LessonMaterialsBlock content={content} />
             </section>
           );
@@ -95,9 +95,7 @@ export default function LessonPageBlocks({
 
           return (
             <section key={block.id} className="space-y-3">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                {LESSON_BLOCK_LABELS.homework_link}
-              </h3>
+              <BlockHeading type="homework_link" />
               {pageId && onOpenHomework ? (
                 <button
                   type="button"

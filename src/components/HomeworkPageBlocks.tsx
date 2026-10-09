@@ -1,5 +1,5 @@
 import type { HomeworkPageBlock } from '../lib/types';
-import { HOMEWORK_BLOCK_LABELS } from '../lib/homeworkPageUtils';
+import { HOMEWORK_BLOCK_HEADINGS } from '../lib/homeworkPageUtils';
 import { parseYandexFormId, isContestLink } from '../lib/selectionConfig';
 import BlockPlaceholder from './BlockPlaceholder';
 import { HomeworkMarkdown } from './LazyMarkdown';
@@ -7,8 +7,28 @@ import VideoEmbed from './VideoEmbed';
 import ContestLinkCard from './ContestLinkCard';
 import YandexFormEmbed from './YandexFormEmbed';
 
+/**
+ * Пустой блок условия (текст, картинка, видео) ученику не показываем — это
+ * недоделка, а не часть задания. Пустые форма и контест остаются заглушкой:
+ * по ней видно, что сдача ещё появится.
+ */
+function isEmptyContentBlock(block: HomeworkPageBlock): boolean {
+  const content = block.content ?? {};
+  if (block.block_type === 'text') return !content.body?.trim();
+  if (block.block_type === 'image' || block.block_type === 'video') return !content.url?.trim();
+  return false;
+}
+
+function BlockHeading({ type }: { type: HomeworkPageBlock['block_type'] }) {
+  const heading = HOMEWORK_BLOCK_HEADINGS[type];
+  if (!heading) return null;
+  return <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{heading}</h4>;
+}
+
 export default function HomeworkPageBlocks({ blocks }: { blocks: HomeworkPageBlock[] }) {
-  const sorted = [...blocks].sort((a, b) => a.sort_order - b.sort_order);
+  const sorted = [...blocks]
+    .filter((block) => !isEmptyContentBlock(block))
+    .sort((a, b) => a.sort_order - b.sort_order);
 
   return (
     <div className="space-y-6">
@@ -23,14 +43,8 @@ function renderBlock(block: HomeworkPageBlock) {
   if (block.block_type === 'text') {
     return (
       <section key={block.id} className="space-y-3">
-        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {HOMEWORK_BLOCK_LABELS.text}
-        </h4>
-        {content.body?.trim() ? (
-          <HomeworkMarkdown source={content.body} />
-        ) : (
-          <BlockPlaceholder variant="text" />
-        )}
+        <BlockHeading type="text" />
+        <HomeworkMarkdown source={content.body ?? ''} />
       </section>
     );
   }
@@ -38,23 +52,17 @@ function renderBlock(block: HomeworkPageBlock) {
   if (block.block_type === 'image') {
     return (
       <section key={block.id} className="space-y-3">
-        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {HOMEWORK_BLOCK_LABELS.image}
-        </h4>
-        {content.url?.trim() ? (
-          <figure className="space-y-2">
-            <img
-              src={content.url.trim()}
-              alt={content.caption?.trim() || 'Изображение к заданию'}
-              className="max-w-full rounded-xl border border-white/10"
-            />
-            {content.caption?.trim() && (
-              <figcaption className="text-sm text-slate-500">{content.caption}</figcaption>
-            )}
-          </figure>
-        ) : (
-          <BlockPlaceholder variant="image" />
-        )}
+        <BlockHeading type="image" />
+        <figure className="space-y-2">
+          <img
+            src={content.url?.trim()}
+            alt={content.caption?.trim() || 'Изображение к заданию'}
+            className="max-w-full rounded-xl border border-white/10"
+          />
+          {content.caption?.trim() && (
+            <figcaption className="text-sm text-slate-500">{content.caption}</figcaption>
+          )}
+        </figure>
       </section>
     );
   }
@@ -62,14 +70,8 @@ function renderBlock(block: HomeworkPageBlock) {
   if (block.block_type === 'video') {
     return (
       <section key={block.id} className="space-y-3">
-        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {HOMEWORK_BLOCK_LABELS.video}
-        </h4>
-        {content.url?.trim() ? (
-          <VideoEmbed url={content.url} />
-        ) : (
-          <BlockPlaceholder variant="video" />
-        )}
+        <BlockHeading type="video" />
+        <VideoEmbed url={content.url ?? ''} />
       </section>
     );
   }
@@ -78,9 +80,7 @@ function renderBlock(block: HomeworkPageBlock) {
     const formId = parseYandexFormId(content.form_id ?? '');
     return (
       <section key={block.id} className="space-y-3">
-        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {HOMEWORK_BLOCK_LABELS.yandex_form}
-        </h4>
+        <BlockHeading type="yandex_form" />
         {formId ? (
             <YandexFormEmbed formId={formId} />
         ) : (
@@ -95,9 +95,7 @@ function renderBlock(block: HomeworkPageBlock) {
     const hasContest = !!url && isContestLink(url);
     return (
       <section key={block.id} className="space-y-3">
-        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {HOMEWORK_BLOCK_LABELS.contest}
-        </h4>
+        <BlockHeading type="contest" />
         {hasContest ? (
           <ContestLinkCard url={url} title="Задачи в Яндекс.Контесте" />
         ) : (

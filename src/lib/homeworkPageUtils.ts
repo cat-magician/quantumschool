@@ -12,6 +12,18 @@ export const HOMEWORK_BLOCK_LABELS: Record<HomeworkBlockType, string> = {
   contest: 'Яндекс.Контест (сдача)',
 };
 
+/**
+ * Заголовки блоков у ученика. Подписи редактора — «Задачи (Markdown)»,
+ * «Яндекс.Форма (сдача)» — служебные, ученику их не показываем.
+ */
+export const HOMEWORK_BLOCK_HEADINGS: Record<HomeworkBlockType, string | null> = {
+  text: null,
+  image: null,
+  video: null,
+  yandex_form: 'Сдача ответа',
+  contest: null,
+};
+
 /** Блоки с условием задания */
 export const HOMEWORK_CONTENT_BLOCK_TYPES: HomeworkBlockType[] = ['text', 'image', 'video'];
 

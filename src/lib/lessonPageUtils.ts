@@ -14,6 +14,17 @@ export const LESSON_BLOCK_LABELS: Record<LessonBlockType, string> = {
   homework_link: 'Домашнее задание',
 };
 
+/**
+ * Заголовки блоков на странице ученика — не подписи редактора: «Текст» —
+ * слово конструктора, над самим текстом заголовок ученику не нужен.
+ */
+export const LESSON_BLOCK_HEADINGS: Record<LessonBlockType, string | null> = {
+  recording: 'Запись занятия',
+  text: null,
+  materials: 'Конспект и материалы',
+  homework_link: 'Домашнее задание',
+};
+
 export const LESSON_BLOCK_TYPES: LessonBlockType[] = [
   'recording',
   'text',
