@@ -152,8 +152,11 @@ export interface ScheduleEvent {
   created_at: string;
   updated_at: string;
   group?: Pick<Group, 'id' | 'name'> | null;
-  /** Ученику приходит, только если материалы опубликованы и ему видны. */
-  lesson_page?: Pick<LessonPage, 'id' | 'lesson_type' | 'is_published' | 'title'> | null;
+  /**
+   * Страница занятия: карточка в расписании показывает её обложку и статус.
+   * Ученику приходит, только если страница опубликована и ему видна.
+   */
+  lesson_page?: Pick<LessonPage, 'id' | 'lesson_type' | 'is_published' | 'title' | 'cover_url'> | null;
 }
 
 /**
@@ -166,6 +169,8 @@ export type CalendarEntry = ScheduleEvent & {
   homeworkPageId?: string;
   /** Для дедлайна: опубликовано ли задание (сотрудники видят и черновики). */
   homeworkPublished?: boolean;
+  /** Для дедлайна: максимальный балл — чтобы показать ученику оценку. */
+  homeworkMaxScore?: number;
 };
 
 export type HomeworkSubmissionStatus = 'draft' | 'submitted' | 'graded';

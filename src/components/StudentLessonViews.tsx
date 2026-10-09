@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { LessonPage, LessonPageBlock, LessonPageType } from '../lib/types';
 import { lessonPageLoadError } from '../lib/lessonPageLoadError';
-import { formatLessonDate } from '../lib/lessonPageUtils';
+import {
+  LESSON_LIST_SELECT,
+  splitLessonsByTime,
+  type LessonPageWithEvent,
+} from '../lib/lessonPageUtils';
+import { isEventActive } from '../lib/scheduleUtils';
 import LessonPageBlocks from './LessonPageBlocks';
 import LessonPageCard from './LessonPageCard';
-import LessonCoverImage from './LessonCoverImage';
+import LessonEventHeader, { type LessonEventInfo } from './LessonEventHeader';
+import { SchedulePastDivider } from './ScheduleCard';
 
 export function StudentLessonList({
   lessonType,
@@ -15,7 +21,7 @@ export function StudentLessonList({
   lessonType: LessonPageType;
   onOpen: (pageId: string) => void;
 }) {
-  const [pages, setPages] = useState<LessonPage[]>([]);
+  const [pages, setPages] = useState<LessonPageWithEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -24,16 +30,18 @@ export function StudentLessonList({
     setLoadError(null);
     supabase
       .from('lesson_pages')
-      .select('*')
+      .select(LESSON_LIST_SELECT)
       .eq('lesson_type', lessonType)
       .eq('is_published', true)
       .order('lesson_date', { ascending: false })
       .then(({ data, error }) => {
         if (error) setLoadError(lessonPageLoadError(error.message));
-        else setPages((data ?? []) as LessonPage[]);
+        else setPages((data ?? []) as LessonPageWithEvent[]);
         setLoading(false);
       });
   }, [lessonType]);
+
+  const { upcoming, past } = useMemo(() => splitLessonsByTime(pages), [pages]);
 
   if (loading) {
     return (
@@ -61,8 +69,16 @@ export function StudentLessonList({
 
   return (
     <div className="space-y-2">
-      {pages.map((page) => (
-        <LessonPageCard key={page.id} page={page} onClick={() => onOpen(page.id)} />
+      {upcoming.map(({ page, event }) => (
+        <LessonPageCard key={page.id} page={page} event={event} onClick={() => onOpen(page.id)} />
+      ))}
+      {upcoming.length > 0 && past.length > 0 && (
+        <div className="pt-3 pb-1">
+          <SchedulePastDivider />
+        </div>
+      )}
+      {past.map(({ page, event }) => (
+        <LessonPageCard key={page.id} page={page} event={event} onClick={() => onOpen(page.id)} past />
       ))}
     </div>
   );
@@ -71,14 +87,17 @@ export function StudentLessonList({
 export function StudentLessonPageView({
   pageId,
   onBack,
+  backLabel = 'Назад',
   onOpenHomework,
 }: {
   pageId: string;
   onBack: () => void;
+  backLabel?: string;
   onOpenHomework?: (pageId: string) => void;
 }) {
   const [page, setPage] = useState<LessonPage | null>(null);
   const [blocks, setBlocks] = useState<LessonPageBlock[]>([]);
+  const [event, setEvent] = useState<LessonEventInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -88,18 +107,36 @@ export function StudentLessonPageView({
     Promise.all([
       supabase.from('lesson_pages').select('*').eq('id', pageId).single(),
       supabase.from('lesson_page_blocks').select('*').eq('page_id', pageId),
-    ]).then(([pageRes, blocksRes]) => {
+      supabase
+        .from('schedule_events')
+        .select('scheduled_at, duration_minutes, meeting_url, description')
+        .eq('lesson_page_id', pageId)
+        .maybeSingle(),
+    ]).then(([pageRes, blocksRes, eventRes]) => {
       if (pageRes.error) {
         setLoadError(lessonPageLoadError(pageRes.error.message));
         setPage(null);
         setBlocks([]);
+        setEvent(null);
       } else {
         setPage((pageRes.data ?? null) as LessonPage | null);
         setBlocks((blocksRes.data ?? []) as LessonPageBlock[]);
+        setEvent((eventRes.data ?? null) as LessonEventInfo | null);
       }
       setLoading(false);
     });
   }, [pageId]);
+
+  const backButton = (
+    <button
+      type="button"
+      onClick={onBack}
+      className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+    >
+      <ArrowLeft className="w-4 h-4" />
+      {backLabel}
+    </button>
+  );
 
   if (loading) {
     return (
@@ -112,14 +149,7 @@ export function StudentLessonPageView({
   if (loadError || !page) {
     return (
       <div className="max-w-3xl space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Назад
-        </button>
+        {backButton}
         <p className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
           {loadError ?? 'Страница не найдена или недоступна'}
         </p>
@@ -127,31 +157,28 @@ export function StudentLessonPageView({
     );
   }
 
+  const beforeEnd = event ? isEventActive(event.scheduled_at, event.duration_minutes) : false;
+
   return (
     <div className="max-w-3xl space-y-6">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Назад
-      </button>
-
-      <div>
-        {page.cover_url?.trim() && (
-          <div className="mb-4 rounded-2xl overflow-hidden border border-white/5 aspect-[21/9] max-h-48 bg-slate-900">
-            <LessonCoverImage
-              url={page.cover_url.trim()}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
-        <p className="text-sm text-slate-500">{formatLessonDate(page.lesson_date)}</p>
-        <h2 className="text-2xl font-bold text-white mt-1">{page.title}</h2>
-      </div>
-
-      <LessonPageBlocks blocks={blocks} onOpenHomework={onOpenHomework} />
+      {backButton}
+      <LessonEventHeader
+        title={page.title}
+        lessonType={page.lesson_type}
+        coverUrl={page.cover_url}
+        lessonDate={page.lesson_date}
+        event={event}
+      />
+      <LessonPageBlocks
+        blocks={blocks}
+        onOpenHomework={onOpenHomework}
+        emptyState={beforeEnd
+          ? {
+            title: 'Запись и конспект появятся после занятия',
+            text: 'Преподаватель добавит их на эту страницу — загляните сюда, когда занятие закончится.',
+          }
+          : undefined}
+      />
     </div>
   );
 }

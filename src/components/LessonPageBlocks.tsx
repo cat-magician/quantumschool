@@ -1,10 +1,16 @@
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Presentation } from 'lucide-react';
 import type { LessonPageBlock } from '../lib/types';
 import { linkifyText } from '../lib/linkifyText';
-import { LESSON_BLOCK_LABELS } from '../lib/lessonPageUtils';
-import BlockPlaceholder from './BlockPlaceholder';
+import { LESSON_BLOCK_LABELS, isLessonBlockEmpty } from '../lib/lessonPageUtils';
 import LessonMaterialsBlock from './LessonMaterialsBlock';
 import VideoEmbed from './VideoEmbed';
+
+export type LessonBlocksEmptyState = { title: string; text: string };
+
+const DEFAULT_EMPTY: LessonBlocksEmptyState = {
+  title: 'Материалы скоро появятся',
+  text: 'Преподаватель ещё не добавил запись и конспект.',
+};
 
 function TextBlock({ body }: { body: string }) {
   return (
@@ -14,14 +20,35 @@ function TextBlock({ body }: { body: string }) {
   );
 }
 
+/**
+ * Блоки страницы занятия. Пустые не показываются: до занятия записи нет,
+ * и заглушки «появится после публикации» на опубликованной странице только
+ * сбивают с толку. Если пусто всё — одна короткая заметка, когда ждать.
+ */
 export default function LessonPageBlocks({
   blocks,
   onOpenHomework,
+  emptyState = DEFAULT_EMPTY,
 }: {
   blocks: LessonPageBlock[];
   onOpenHomework?: (pageId: string) => void;
+  emptyState?: LessonBlocksEmptyState;
 }) {
-  const sorted = [...blocks].sort((a, b) => a.sort_order - b.sort_order);
+  const sorted = [...blocks]
+    .filter((block) => !isLessonBlockEmpty(block))
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  if (sorted.length === 0) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-5">
+        <Presentation className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" aria-hidden />
+        <div>
+          <p className="text-sm font-medium text-slate-200">{emptyState.title}</p>
+          <p className="text-sm text-slate-500 mt-0.5">{emptyState.text}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -34,11 +61,7 @@ export default function LessonPageBlocks({
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {LESSON_BLOCK_LABELS.recording}
               </h3>
-              {content.url?.trim() ? (
-                <VideoEmbed url={content.url} />
-              ) : (
-                <BlockPlaceholder variant="recording" />
-              )}
+              <VideoEmbed url={content.url ?? ''} />
             </section>
           );
         }
@@ -49,11 +72,7 @@ export default function LessonPageBlocks({
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 {LESSON_BLOCK_LABELS.text}
               </h3>
-              {content.body?.trim() ? (
-                <TextBlock body={content.body} />
-              ) : (
-                <BlockPlaceholder variant="text" />
-              )}
+              <TextBlock body={content.body ?? ''} />
             </section>
           );
         }
@@ -99,7 +118,11 @@ export default function LessonPageBlocks({
                   {label}
                 </a>
               ) : (
-                <BlockPlaceholder variant="homework_link" />
+                // Предпросмотр в редакторе: перейти некуда, но кнопку видно.
+                <span className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-200 text-sm font-medium">
+                  <ExternalLink className="w-4 h-4 shrink-0" />
+                  {label}
+                </span>
               )}
             </section>
           );

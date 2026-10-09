@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
+import { CheckboxBox } from './CheckboxBox';
 
 export type PickerRow = {
   id: string;
@@ -179,12 +180,10 @@ export function SearchableCheckboxList({
                   : 'bg-white/5 hover:bg-white/10'
               }`}
             >
-              <input
-                type="checkbox"
+              <CheckboxBox
                 checked={selectedIds.includes(row.id)}
                 disabled={row.disabled}
                 onChange={() => onToggle(row.id)}
-                className="rounded border-slate-600 shrink-0"
               />
               {row.leading}
               <div className="min-w-0 flex-1">

@@ -17,10 +17,13 @@ import { toDatetimeLocalValue } from '../../lib/scheduleUtils';
 import {
   LESSON_BLOCK_LABELS,
   LESSON_BLOCK_TYPES,
+  LESSON_LIST_SELECT,
   LESSON_TYPE_LABELS,
   createDefaultBlocks,
   defaultBlockContent,
   lessonDateInputValue,
+  splitLessonsByTime,
+  type LessonPageWithEvent,
 } from '../../lib/lessonPageUtils';
 import { lessonPageLoadError, lessonPageSaveError, isSaveSuccessMessage } from '../../lib/lessonPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
@@ -28,11 +31,12 @@ import LessonPageCard from '../../components/LessonPageCard';
 import DocumentSourceInput from '../../components/DocumentSourceInput';
 import ImageSourceInput from '../../components/ImageSourceInput';
 import {
-  FormDate, FormDatetime, FormLabel, FormNumber, FormSelect, FormText,
+  FormDate, FormDatetime, FormDuration, FormLabel, FormSelect, FormSwitch, FormText, FormTextarea,
 } from '../../components/FormControls';
 import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageStudentPreview from '../../components/LessonPageStudentPreview';
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
+import { SchedulePastDivider } from '../../components/ScheduleCard';
 
 type EditorBlock = {
   id: string;
@@ -61,6 +65,8 @@ type EditorState = {
   starts_at: string;
   duration_minutes: number;
   meeting_url: string;
+  /** Анонс занятия — на карточке в расписании и вверху страницы. */
+  description: string;
   blocks: EditorBlock[];
 };
 
@@ -78,6 +84,7 @@ function emptyEditor(type: LessonPageType): EditorState {
     starts_at: '',
     duration_minutes: 90,
     meeting_url: '',
+    description: '',
     blocks: createDefaultBlocks().map((b, i) => ({
       id: crypto.randomUUID(),
       block_type: b.block_type,
@@ -103,16 +110,21 @@ export default function LessonsTab({
   lessonType,
   openPageId,
   onPageOpened,
+  backLabel = 'К списку',
+  onBack,
 }: {
   lessonType: LessonPageType;
-  /** Открыть эту страницу сразу — например, по кнопке «Материалы» в расписании. */
+  /** Открыть эту страницу сразу — например, по карточке занятия в расписании. */
   openPageId?: string;
   onPageOpened?: () => void;
+  /** Куда ведёт «назад» из редактора, если пришли не из списка (из расписания). */
+  backLabel?: string;
+  onBack?: () => void;
 }) {
   const { user } = useAuth();
   const { confirm } = useAppDialog();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [pages, setPages] = useState<LessonPage[]>([]);
+  const [pages, setPages] = useState<LessonPageWithEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -129,6 +141,7 @@ export default function LessonsTab({
     () => pages.filter((p) => textMatches(query, [p.title])),
     [pages, query],
   );
+  const { upcoming, past } = useMemo(() => splitLessonsByTime(visiblePages), [visiblePages]);
 
   const loadHomeworkPages = async () => {
     const { data } = await supabase
@@ -143,11 +156,11 @@ export default function LessonsTab({
     setLoadError(null);
     const { data, error } = await supabase
       .from('lesson_pages')
-      .select('*')
+      .select(LESSON_LIST_SELECT)
       .eq('lesson_type', lessonType)
       .order('lesson_date', { ascending: false });
     if (error) setLoadError(lessonPageLoadError(error.message));
-    else setPages((data ?? []) as LessonPage[]);
+    else setPages((data ?? []) as LessonPageWithEvent[]);
     setLoading(false);
   };
 
@@ -211,6 +224,7 @@ export default function LessonsTab({
       starts_at: event ? toDatetimeLocalValue(event.scheduled_at) : '',
       duration_minutes: event?.duration_minutes ?? 90,
       meeting_url: event?.meeting_url ?? '',
+      description: event?.description ?? '',
       blocks: blocksFromRows((blocksRes.data ?? []) as LessonPageBlock[]),
     });
     setPreviewMode(false);
@@ -219,6 +233,10 @@ export default function LessonsTab({
   };
 
   const closeEditor = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
     setEditor(null);
     setPreviewMode(false);
     loadList();
@@ -293,6 +311,7 @@ export default function LessonsTab({
           scheduled_at: new Date(editor.starts_at).toISOString(),
           duration_minutes: editor.duration_minutes,
           meeting_url: normalizeMeetingUrl(editor.meeting_url),
+          description: editor.description.trim(),
           group_ids: editor.group_ids,
           group_id: legacyGroupId(editor.group_ids),
           lesson_page_id: pageId,
@@ -300,7 +319,7 @@ export default function LessonsTab({
         };
         const insertEvent = () => supabase
           .from('schedule_events')
-          .insert({ ...eventFields, description: '', created_by: user.id })
+          .insert({ ...eventFields, created_by: user.id })
           .select('id')
           .single();
         let eventRes = eventId
@@ -492,7 +511,7 @@ export default function LessonsTab({
           className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          К списку
+          {backLabel}
         </button>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -529,6 +548,14 @@ export default function LessonsTab({
                 lessonDate={editor.in_schedule && editor.starts_at ? editor.starts_at.slice(0, 10) : editor.lesson_date}
                 lessonType={editor.lesson_type}
                 coverUrl={editor.cover_url}
+                event={editor.in_schedule && editor.starts_at
+                  ? {
+                    scheduled_at: new Date(editor.starts_at).toISOString(),
+                    duration_minutes: editor.duration_minutes,
+                    meeting_url: normalizeMeetingUrl(editor.meeting_url),
+                    description: editor.description,
+                  }
+                  : null}
                 blocks={previewBlocks}
               />
             </div>
@@ -563,77 +590,81 @@ export default function LessonsTab({
           </label>
         </div>
 
-        <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
+        <div className="space-y-5 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
           <div>
-            <h3 className="text-sm font-semibold text-white">Занятие в расписании</h3>
+            <h3 className="text-sm font-semibold text-white">Занятие</h3>
             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-              Это то же событие, что в «Расписании»: ученики увидят его в календаре, а когда
-              страница опубликована — откроют отсюда запись и конспект.
+              Страница и есть занятие: его карточка в «Расписании» показывает то же, что здесь, — обложку,
+              время и ссылку. Пока страница черновик, ученики не видят ни её, ни карточку.
             </p>
           </div>
-          <label className="flex items-start gap-2.5 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={editor.in_schedule}
-              onChange={(e) => setEditor({ ...editor, in_schedule: e.target.checked })}
-              className="mt-0.5 rounded border-white/20 bg-slate-900 text-blue-500 focus:ring-blue-500/40"
-            />
-            <span className="text-sm text-slate-300 group-hover:text-slate-200">Показывать в расписании</span>
-          </label>
+          <FormSwitch
+            checked={editor.in_schedule}
+            onChange={(in_schedule) => setEditor({ ...editor, in_schedule })}
+            label="Показывать в расписании"
+            description="Со временем и ссылкой на трансляцию — ученики увидят занятие в календаре"
+          />
           {editor.in_schedule ? (
             <>
-              <div className="block space-y-1.5">
-                <FormLabel className="text-xs text-slate-500 mb-0">Дата и время *</FormLabel>
+              <div>
+                <FormLabel className="text-xs text-slate-500">Дата и время *</FormLabel>
                 <FormDatetime
                   value={editor.starts_at}
                   onChange={(starts_at) => setEditor({ ...editor, starts_at })}
+                  warnPast={!editor.event_id}
                 />
               </div>
-              <div className="grid sm:grid-cols-[10rem_1fr] gap-3">
-                <div className="block space-y-1.5">
-                  <FormLabel className="text-xs text-slate-500 mb-0">Длительность (мин)</FormLabel>
-                  <FormNumber
-                    min={1}
-                    max={480}
-                    value={editor.duration_minutes}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      if (!Number.isNaN(n)) {
-                        setEditor({ ...editor, duration_minutes: Math.min(480, Math.max(1, n)) });
-                      }
-                    }}
-                  />
-                </div>
-                <div className="block space-y-1.5">
-                  <FormLabel className="text-xs text-slate-500 mb-0">Ссылка на трансляцию</FormLabel>
-                  <FormText
-                    value={editor.meeting_url}
-                    onChange={(e) => setEditor({ ...editor, meeting_url: e.target.value })}
-                    placeholder="https://..."
-                  />
-                </div>
+              <div>
+                <FormLabel className="text-xs text-slate-500">Длительность</FormLabel>
+                <FormDuration
+                  value={editor.duration_minutes}
+                  onChange={(duration_minutes) => setEditor({ ...editor, duration_minutes })}
+                  startsAt={editor.starts_at}
+                />
+              </div>
+              <div>
+                <FormLabel className="text-xs text-slate-500">Ссылка на трансляцию</FormLabel>
+                <FormText
+                  value={editor.meeting_url}
+                  onChange={(e) => setEditor({ ...editor, meeting_url: e.target.value })}
+                  placeholder="https://telemost.yandex.ru/…"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+              <div>
+                <FormLabel className="text-xs text-slate-500">Анонс</FormLabel>
+                <FormTextarea
+                  value={editor.description}
+                  onChange={(e) => setEditor({ ...editor, description: e.target.value })}
+                  rows={2}
+                  placeholder="О чём занятие, что подготовить…"
+                />
+                <p className="text-[11px] text-slate-600 mt-1">Коротко: виден на карточке в расписании и вверху страницы</p>
               </div>
             </>
           ) : (
-            <div className="block space-y-1.5">
-              <FormLabel className="text-xs text-slate-500 mb-0">Дата занятия</FormLabel>
+            <div>
+              <FormLabel className="text-xs text-slate-500">Дата занятия</FormLabel>
               <FormDate
                 value={editor.lesson_date}
                 onChange={(lesson_date) => setEditor({ ...editor, lesson_date })}
+                className="max-w-xs"
               />
               {editor.event_id && (
-                <p className="text-[11px] text-amber-400/90">При сохранении занятие уберётся из расписания</p>
+                <p className="text-[11px] text-amber-400/90 mt-1.5">При сохранении занятие уберётся из расписания</p>
               )}
             </div>
           )}
-          <div className="block space-y-1.5">
-            <FormLabel className="text-xs text-slate-500 mb-0">Группы</FormLabel>
+          <div>
+            <FormLabel className="text-xs text-slate-500">Группы</FormLabel>
             <GroupMultiSelect
               groups={groups}
               value={editor.group_ids}
               onChange={(group_ids) => setEditor({ ...editor, group_ids })}
             />
-            <p className="text-[11px] text-slate-600">Только эти группы увидят занятие и материалы</p>
+            <p className="text-[11px] text-slate-600 mt-1.5">Только эти группы увидят занятие и материалы</p>
           </div>
         </div>
 
@@ -772,16 +803,24 @@ export default function LessonsTab({
               Ничего не найдено по запросу
             </p>
           )}
-          {visiblePages.map((page) => (
-            <LessonPageCard
-              key={page.id}
-              page={page}
-              onClick={() => openEdit(page.id)}
-              showStatus
-              onTogglePublish={() => { void togglePublishFromList(page); }}
-              onDelete={() => { void deleteFromList(page); }}
-              actionBusy={listActionId === page.id}
-            />
+          {[...upcoming, ...past].map(({ page, event }, index) => (
+            <div key={page.id}>
+              {index === upcoming.length && upcoming.length > 0 && (
+                <div className="pt-3 pb-4">
+                  <SchedulePastDivider />
+                </div>
+              )}
+              <LessonPageCard
+                page={page}
+                event={event}
+                past={index >= upcoming.length}
+                onClick={() => openEdit(page.id)}
+                showStatus
+                onTogglePublish={() => { void togglePublishFromList(page); }}
+                onDelete={() => { void deleteFromList(page); }}
+                actionBusy={listActionId === page.id}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -891,7 +930,9 @@ function BlockEditor({
             placeholder="Дополнительные ссылки и материалы…"
             className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm resize-y min-h-[4rem]"
           />
-          <LessonMaterialsBlock content={block.content} />
+          {(block.content.pdf_url?.trim() || block.content.body?.trim()) && (
+            <LessonMaterialsBlock content={block.content} />
+          )}
         </div>
       )}
 

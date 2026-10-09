@@ -139,9 +139,11 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
 export function StudentHomeworkPageView({
   pageId,
   onBack,
+  backLabel = 'Назад',
 }: {
   pageId: string;
   onBack: () => void;
+  backLabel?: string;
 }) {
   const { user } = useAuth();
   const [page, setPage] = useState<HomeworkPage | null>(null);
@@ -221,7 +223,7 @@ export function StudentHomeworkPageView({
           className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Назад
+          {backLabel}
         </button>
         <p className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
           {loadError ?? 'Задание не найдено или недоступно'}
@@ -240,7 +242,7 @@ export function StudentHomeworkPageView({
         className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
-        Назад
+        {backLabel}
       </button>
 
       <div>

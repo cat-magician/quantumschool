@@ -10,7 +10,8 @@ type MeetingLinkProps = {
   url: string;
   scheduledAt: string;
   durationMinutes: number;
-  variant?: 'hero' | 'inline' | 'admin';
+  /** card — компактная кнопка для карточки расписания, без внешних отступов. */
+  variant?: 'hero' | 'inline' | 'admin' | 'card';
 };
 
 export default function MeetingLinkButton({
@@ -31,9 +32,27 @@ export default function MeetingLinkButton({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+        className={inJoinWindow
+          ? 'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors'
+          : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-blue-200 text-sm font-medium transition-colors'}
       >
         <Video className="w-4 h-4" />
+        {label}
+      </a>
+    );
+  }
+
+  if (variant === 'card') {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={inJoinWindow
+          ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 transition-colors'
+          : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-blue-300 bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/15 hover:text-blue-200 transition-colors'}
+      >
+        {inJoinWindow ? <Video className="w-4 h-4" /> : <ExternalLink className="w-3.5 h-3.5" />}
         {label}
       </a>
     );

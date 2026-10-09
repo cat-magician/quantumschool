@@ -1,4 +1,5 @@
 import type { CalendarEntry, HomeworkPage, ScheduleEvent, ScheduleEventType } from './types';
+import { daysFromToday } from './dateTimeInput';
 
 export const EVENT_TYPE_LABELS: Record<ScheduleEventType, string> = {
   lecture: 'Лекция',
@@ -28,7 +29,7 @@ export function isLessonEventType(type: ScheduleEventType): type is 'lecture' | 
 }
 
 type DeadlineSource = Pick<HomeworkPage, 'id' | 'title' | 'due_at'>
-  & Partial<Pick<HomeworkPage, 'is_published' | 'group_ids' | 'updated_at'>>;
+  & Partial<Pick<HomeworkPage, 'is_published' | 'group_ids' | 'updated_at' | 'max_score'>>;
 
 /** Дедлайн ДЗ в виде записи календаря; без срока — не в календаре. */
 export function homeworkDeadlineEntry(page: DeadlineSource): CalendarEntry | null {
@@ -49,6 +50,7 @@ export function homeworkDeadlineEntry(page: DeadlineSource): CalendarEntry | nul
     updated_at: page.updated_at ?? page.due_at,
     homeworkPageId: page.id,
     homeworkPublished: page.is_published ?? true,
+    homeworkMaxScore: page.max_score,
   };
 }
 
@@ -92,6 +94,26 @@ export function formatEventTime(iso: string) {
 export function formatEventDateTime(iso: string) {
   const d = new Date(iso);
   return `${dateFmt.format(d)}, ${timeFmt.format(d)}`;
+}
+
+/** «17:00–18:30»; без длительности — просто время начала. */
+export function formatTimeRange(iso: string, durationMinutes = 0) {
+  const start = new Date(iso);
+  if (!durationMinutes) return timeFmt.format(start);
+  const end = new Date(start.getTime() + durationMinutes * 60_000);
+  return `${timeFmt.format(start)}–${timeFmt.format(end)}`;
+}
+
+/**
+ * Заголовок дня в списке: «понедельник, 12 октября» и, если близко,
+ * «Сегодня»/«Завтра»/«Вчера». Год — только у дней не текущего года.
+ */
+export function formatDayHeading(iso: string, now = new Date()) {
+  const d = new Date(iso);
+  const diff = daysFromToday(d, now);
+  const relative = diff === 0 ? 'Сегодня' : diff === 1 ? 'Завтра' : diff === -1 ? 'Вчера' : null;
+  const year = d.getFullYear() === now.getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return { relative, label: `${dateFmt.format(d)}${year}` };
 }
 
 export function formatDuration(minutes: number) {

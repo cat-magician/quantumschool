@@ -7,7 +7,10 @@ type Props = {
 };
 
 export default function HomeworkDueBadge({ dueAt, submission }: Props) {
-  if (submission?.status === 'graded' || submission?.score !== null) {
+  // Сданное (на проверке или с оценкой) срок уже не торопит. Без сдачи и
+  // с черновиком — торопит; раньше «submission?.score !== null» было истинно
+  // и при отсутствии сдачи, и плашка не появлялась у тех, кто не начинал.
+  if (submission && submission.status !== 'draft') {
     return null;
   }
 

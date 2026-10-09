@@ -81,8 +81,10 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [viewReady, setViewReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [contentListResetKey, setContentListResetKey] = useState(0);
-  // Страница, которую открыть во вкладке «Лекции»/«Семинары»/«ДЗ» по кнопке из расписания.
+  // Страница, которую открыть во вкладке «Лекции»/«Семинары»/«ДЗ» по карточке из расписания.
   const [contentToOpen, setContentToOpen] = useState<ScheduleContentTarget | null>(null);
+  // Открыли из расписания — «назад» в редакторе возвращает в расписание.
+  const [backToSchedule, setBackToSchedule] = useState(false);
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
   const accountSubtitle = profileAccountLabel(profile, user?.email);
 
@@ -166,6 +168,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   const selectTab = (nextTab: AdminTab) => {
+    setBackToSchedule(false);
     if (
       nextTab === tab
       && (nextTab === 'lectures' || nextTab === 'seminars' || nextTab === 'homework')
@@ -215,6 +218,10 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     }
     selectTab(action.tab);
   };
+
+  const backFromContent = backToSchedule
+    ? { backLabel: 'К расписанию', onBack: () => selectTab('schedule') }
+    : {};
 
   const headerTitle = tab === 'home'
     ? 'Личный кабинет'
@@ -510,6 +517,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               lessonType="lecture"
               openPageId={contentToOpen?.kind === 'lecture' ? contentToOpen.pageId : undefined}
               onPageOpened={() => setContentToOpen(null)}
+              {...backFromContent}
             />
           )}
           {tab === 'seminars' && (
@@ -518,6 +526,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               lessonType="seminar"
               openPageId={contentToOpen?.kind === 'seminar' ? contentToOpen.pageId : undefined}
               onPageOpened={() => setContentToOpen(null)}
+              {...backFromContent}
             />
           )}
           {tab === 'homework' && (
@@ -525,6 +534,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               key={`homework-${contentListResetKey}`}
               openPageId={contentToOpen?.kind === 'homework' ? contentToOpen.pageId : undefined}
               onPageOpened={() => setContentToOpen(null)}
+              {...backFromContent}
             />
           )}
           {tab === 'grading' && <HomeworkTab isSuperAdmin={isSuperAdmin} mode="grading" />}
@@ -533,6 +543,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               onOpenContent={(target) => {
                 setContentToOpen(target);
                 selectTab(target.kind === 'lecture' ? 'lectures' : target.kind === 'seminar' ? 'seminars' : 'homework');
+                setBackToSchedule(true);
               }}
             />
           )}

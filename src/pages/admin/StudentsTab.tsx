@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronDown, Clock, GraduationCap, Loader2, MapPin, Pencil, Plus, School,
+  Clock, GraduationCap, Loader2, MapPin, Pencil, Plus, School,
   Trash2, UserPlus, Users, X,
 } from 'lucide-react';
 import EditStudentProfileModal from '../../components/EditStudentProfileModal';
@@ -21,6 +21,7 @@ import {
   type StudentRow,
 } from '../../lib/groupUtils';
 import { SearchableActionList, SearchableCheckboxList, type PickerRow } from '../../components/SearchablePicker';
+import { FormSelect } from '../../components/FormControls';
 import ListSearchBar, { type ListChipOption } from '../../components/ListSearchBar';
 import { textMatches } from '../../lib/listFilters';
 
@@ -696,20 +697,11 @@ function GroupNavigation({
             Новая группа
           </button>
         )}
-        <div className="relative">
-          <select
-            value={activeView}
-            onChange={(e) => onSelect(e.target.value)}
-            className="w-full appearance-none pl-4 pr-10 py-3 rounded-xl bg-slate-900/60 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
-          >
-            {items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label} ({item.count})
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-        </div>
+        <FormSelect
+          value={activeView}
+          onChange={(id) => onSelect(id as ActiveView)}
+          options={items.map((item) => ({ value: item.id, label: `${item.label} (${item.count})` }))}
+        />
       </div>
 
       <aside className="hidden lg:flex flex-col gap-3 sticky top-4">

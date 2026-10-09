@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle, Loader2 } from 'lucide-react';
+import { CheckboxBox } from './CheckboxBox';
 
 /** Чекбокс + кнопка для сдачи через внешнюю форму/контест (без API). */
 export function ExternalSubmitConfirm({
@@ -27,11 +28,10 @@ export function ExternalSubmitConfirm({
   return (
     <div className="space-y-3">
       <label className="flex items-start gap-2.5 cursor-pointer group">
-        <input
-          type="checkbox"
+        <CheckboxBox
           checked={checked}
           onChange={(e) => setChecked(e.target.checked)}
-          className="mt-0.5 rounded border-white/20 bg-slate-900 text-blue-500 focus:ring-blue-500/40"
+          className="mt-0.5"
         />
         <span className="text-sm text-slate-300 group-hover:text-slate-200 leading-relaxed">
           {checkboxLabel}

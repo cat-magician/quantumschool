@@ -101,6 +101,8 @@ export default function StudentDashboard() {
   const [showEnrollmentWelcome, setShowEnrollmentWelcome] = useState(false);
   const [homeworkPendingCount, setHomeworkPendingCount] = useState(0);
   const [contentPageId, setContentPageId] = useState<string | null>(null);
+  // Страницу открыли из расписания — «назад» возвращает в расписание.
+  const [backToSchedule, setBackToSchedule] = useState(false);
   const displayName = profile ? profileDisplayName(profile) : 'Участник';
   const accountSubtitle = profileAccountLabel(profile, user?.email);
   const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
@@ -252,6 +254,7 @@ export default function StudentDashboard() {
       openLockedEnrollmentInfo();
       return;
     }
+    setBackToSchedule(false);
     setTab(id);
     setContentPageId(null);
     if (id !== 'learning') setLearningExpanded(false);
@@ -283,6 +286,7 @@ export default function StudentDashboard() {
 
   const openLearning = (sub: LearningSubTab, pageId?: string | null) => {
     if (!isEnrolled) return;
+    setBackToSchedule(false);
     // Повторный клик по активной подвкладке — назад к списку карточек
     if (
       pageId == null
@@ -768,10 +772,26 @@ export default function StudentDashboard() {
               contentPageId={contentPageId}
               onContentPageChange={setContentPageId}
               onOpenHomeworkPage={openHomeworkPage}
+              {...(backToSchedule && contentPageId
+                ? {
+                  backLabel: 'К расписанию',
+                  onBack: () => {
+                    setBackToSchedule(false);
+                    setContentPageId(null);
+                    setLearningExpanded(false);
+                    setTab('schedule');
+                  },
+                }
+                : {})}
             />
           )}
           {tab === 'schedule' && isEnrolled && (
-            <StudentScheduleTab onOpenContent={(sub, pageId) => openLearning(sub, pageId)} />
+            <StudentScheduleTab
+              onOpenContent={(sub, pageId) => {
+                openLearning(sub, pageId);
+                setBackToSchedule(true);
+              }}
+            />
           )}
           {tab === 'progress' && isEnrolled && (
             <StudentProgressTab onOpenHomework={openHomeworkPage} />

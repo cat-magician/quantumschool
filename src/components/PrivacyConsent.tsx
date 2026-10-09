@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CheckboxBox } from './CheckboxBox';
 
 interface PrivacyConsentProps {
   consent: boolean;
@@ -18,15 +19,11 @@ export default function PrivacyConsent({
   return (
     <div className="space-y-3">
       <label className="flex items-start gap-3 cursor-pointer group">
-        <input
-          type="checkbox"
+        <CheckboxBox
           checked={consent}
           onChange={(e) => onConsentChange(e.target.checked)}
-          className={`mt-1 w-4 h-4 rounded focus:ring-blue-500/30 ${
-            isDark
-              ? 'border-white/20 bg-white/5 text-violet-500'
-              : 'border-slate-300 text-blue-600 focus:ring-blue-500/30'
-          }`}
+          tone={isDark ? 'dark' : 'light'}
+          className="mt-0.5"
           required
         />
         <span className={`text-sm leading-relaxed transition-colors ${

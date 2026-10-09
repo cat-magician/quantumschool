@@ -8,6 +8,7 @@ import {
   SUBMISSION_STATUS_LABELS,
 } from '../lib/homeworkUtils';
 import { SubmitAcceptedBanner } from './ExternalSubmitConfirm';
+import { CheckboxBox } from './CheckboxBox';
 
 function formatSubmissionWhen(iso: string | null | undefined) {
   if (!iso) return null;
@@ -120,11 +121,10 @@ export default function HomeworkSubmissionSection({
 
         {needsSubmit && (
           <label className="flex items-start gap-2.5 cursor-pointer group">
-            <input
-              type="checkbox"
+            <CheckboxBox
               checked={confirmChecked}
               onChange={(e) => setConfirmChecked(e.target.checked)}
-              className="mt-0.5 rounded border-white/20 bg-slate-900 text-blue-500 focus:ring-blue-500/40"
+              className="mt-0.5"
             />
             <span className="text-sm text-slate-300 group-hover:text-slate-200 leading-relaxed">
               Я отправил ответ в форме или контесте выше

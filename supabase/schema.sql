@@ -3958,3 +3958,32 @@ $$;
 
 REVOKE ALL ON FUNCTION public.touch_last_seen() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.touch_last_seen() TO authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- Занятие видно ученикам вместе со своей страницей
+-- ══════════════════════════════════════════════════════════════
+--
+-- Лекция или семинар со страницей — одно занятие: карточка в расписании
+-- показывает то, что на странице (обложку, время, ссылку), и ведёт на неё.
+-- Пока страница черновик, ученики не видят ни её, ни карточку — так
+-- «Черновик — ученики не видят» в редакторе правда и для расписания.
+-- События без страницы (вебинар, экзамен, консультация, старые занятия)
+-- видны, как раньше.
+
+DROP POLICY IF EXISTS "Enrolled students read schedule events" ON public.schedule_events;
+CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_profiles
+      WHERE id = auth.uid() AND is_enrolled = true
+    )
+    AND (group_ids = '{}' OR group_ids && (SELECT private.my_group_ids()))
+    AND (
+      lesson_page_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM public.lesson_pages lp
+        WHERE lp.id = schedule_events.lesson_page_id AND lp.is_published
+      )
+    )
+  );

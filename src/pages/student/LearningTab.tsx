@@ -9,11 +9,16 @@ export default function StudentLearningTab({
   contentPageId,
   onContentPageChange,
   onOpenHomeworkPage,
+  backLabel,
+  onBack,
 }: {
   subTab: LearningSubTab;
   contentPageId?: string | null;
   onContentPageChange?: (pageId: string | null) => void;
   onOpenHomeworkPage?: (pageId: string) => void;
+  /** Страницу открыли не из списка (из расписания) — «назад» ведёт туда. */
+  backLabel?: string;
+  onBack?: () => void;
 }) {
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const [openHomeworkId, setOpenHomeworkId] = useState<string | null>(null);
@@ -54,7 +59,8 @@ export default function StudentLearningTab({
     return (
       <StudentLessonPageView
         pageId={openLessonId}
-        onBack={closeLesson}
+        onBack={onBack ?? closeLesson}
+        backLabel={backLabel}
         onOpenHomework={openHomework}
       />
     );
@@ -64,7 +70,8 @@ export default function StudentLearningTab({
     return (
       <StudentHomeworkPageView
         pageId={openHomeworkId}
-        onBack={closeHomework}
+        onBack={onBack ?? closeHomework}
+        backLabel={backLabel}
       />
     );
   }

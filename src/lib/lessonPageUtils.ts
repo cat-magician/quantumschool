@@ -1,4 +1,6 @@
-import type { LessonBlockContent, LessonBlockType, LessonPageType } from './types';
+import type {
+  LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType, ScheduleEvent,
+} from './types';
 
 export const LESSON_TYPE_LABELS: Record<LessonPageType, string> = {
   lecture: 'Лекция',
@@ -56,4 +58,58 @@ export function formatLessonDate(dateStr: string) {
 
 export function lessonDateInputValue(dateStr: string) {
   return dateStr.slice(0, 10);
+}
+
+/** Пустой блок ученику не показываем: на опубликованной странице он выглядел бы недоделкой. */
+export function isLessonBlockEmpty(block: Pick<LessonPageBlock, 'block_type' | 'content'>): boolean {
+  const c = block.content ?? {};
+  switch (block.block_type) {
+    case 'recording':
+      return !c.url?.trim();
+    case 'text':
+      return !c.body?.trim();
+    case 'materials':
+      return !c.pdf_url?.trim() && !c.body?.trim();
+    case 'homework_link':
+      return !c.homework_page_id?.trim() && !c.url?.trim();
+    default:
+      return true;
+  }
+}
+
+/** Время занятия со страницы: у страницы в расписании — её событие. */
+export type LessonEventTime = Pick<ScheduleEvent, 'id' | 'scheduled_at' | 'duration_minutes'>;
+
+export type LessonPageWithEvent = LessonPage & {
+  schedule_events?: LessonEventTime[] | LessonEventTime | null;
+};
+
+/** Списку лекций и семинаров — со временем занятия из расписания. */
+export const LESSON_LIST_SELECT = '*, schedule_events(id, scheduled_at, duration_minutes)';
+
+export function lessonEventTime(page: LessonPageWithEvent): LessonEventTime | null {
+  const raw = page.schedule_events;
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return raw ?? null;
+}
+
+/**
+ * Предстоящие занятия — ближайшее сверху, прошедшие — свежее сверху, как в
+ * расписании. Без времени в расписании занятие длится весь свой день.
+ */
+export function splitLessonsByTime<T extends LessonPageWithEvent>(pages: T[], now = Date.now()) {
+  const items = pages.map((page) => {
+    const event = lessonEventTime(page);
+    const start = event
+      ? new Date(event.scheduled_at).getTime()
+      : new Date(`${page.lesson_date.slice(0, 10)}T00:00:00`).getTime();
+    const end = event
+      ? start + event.duration_minutes * 60_000
+      : new Date(`${page.lesson_date.slice(0, 10)}T23:59:59`).getTime();
+    return { page, event, start, end };
+  });
+  return {
+    upcoming: items.filter((x) => x.end > now).sort((a, b) => a.start - b.start),
+    past: items.filter((x) => x.end <= now).sort((a, b) => b.start - a.start),
+  };
 }

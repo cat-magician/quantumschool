@@ -311,7 +311,8 @@ export default function AvatarUploadModal({
                 step={0.01}
                 value={zoom}
                 onChange={(e) => handleZoomChange(Number(e.target.value))}
-                className="flex-1 accent-blue-500"
+                className="range-site flex-1"
+                style={{ '--range-fill': `${((zoom - 1) / 2) * 100}%` } as React.CSSProperties}
                 aria-label="Масштаб"
               />
             </div>

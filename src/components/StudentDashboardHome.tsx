@@ -14,7 +14,7 @@ import {
   type StudentNextAction,
 } from '../lib/studentHomeActions';
 import { selectionVerdict } from '../lib/selectionDisplayUtils';
-import { rememberStudentSchedule, STUDENT_SCHEDULE_SELECT } from '../lib/scheduleCache';
+import { rememberStudentSchedule, STUDENT_SCHEDULE_SELECT, visibleStudentEvents } from '../lib/scheduleCache';
 import { loadStudentHomework } from '../lib/studentHomeworkData';
 import { HOME_GUIDE } from '../lib/dashboardHelpCopy';
 import { formatEventDate, formatEventTime } from '../lib/scheduleUtils';
@@ -60,10 +60,11 @@ export default function StudentDashboardHome({
       loadStudentHomework(userId),
     ]).then(([eventsRes, homework]) => {
       if (cancelled) return;
-      const events = (eventsRes.data ?? []) as ScheduleEvent[];
+      const events = visibleStudentEvents((eventsRes.data ?? []) as ScheduleEvent[]);
       rememberStudentSchedule(userId, {
         ...(eventsRes.data ? { events } : {}),
         homework: homework.pages,
+        submissions: homework.submissions,
       });
       setNextEvent(nextScheduleEvent(events));
       setHwProgress(buildEnrolledHomeworkProgress(userId, homework.pages, homework.submissions));

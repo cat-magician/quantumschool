@@ -36,6 +36,17 @@ import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPrev
 import StudentPagePreviewBanner from '../../components/StudentPagePreviewBanner';
 import BlockPlaceholder from '../../components/BlockPlaceholder';
 import ImageSourceInput from '../../components/ImageSourceInput';
+import { FormDatetime, type DatetimePreset } from '../../components/DateTimeControls';
+
+/** Срок сдачи — обычно конец дня; 23:59 есть в списке времени отдельно. */
+const DUE_TIME = '23:59';
+const DUE_TIME_SUGGESTIONS = [DUE_TIME] as const;
+const DUE_PRESETS: readonly DatetimePreset[] = [
+  { label: 'Завтра', days: 1 },
+  { label: 'Через 3 дня', days: 3 },
+  { label: 'Через неделю', days: 7 },
+  { label: 'Через 2 недели', days: 14 },
+];
 type EditorBlock = {
   id: string;
   block_type: HomeworkBlockType;
@@ -90,10 +101,15 @@ function blocksFromRows(rows: HomeworkPageBlock[]): EditorBlock[] {
 export default function HomeworkPagesTab({
   openPageId,
   onPageOpened,
+  backLabel = 'К списку',
+  onBack,
 }: {
   /** Открыть это ДЗ сразу — например, по карточке дедлайна в расписании. */
   openPageId?: string;
   onPageOpened?: () => void;
+  /** Куда ведёт «назад» из редактора, если пришли не из списка (из расписания). */
+  backLabel?: string;
+  onBack?: () => void;
 } = {}) {
   const { user } = useAuth();
   const { confirm } = useAppDialog();
@@ -186,6 +202,10 @@ export default function HomeworkPagesTab({
   };
 
   const closeEditor = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
     setEditor(null);
     setPreviewMode(false);
     loadList();
@@ -416,7 +436,7 @@ export default function HomeworkPagesTab({
           className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          К списку
+          {backLabel}
         </button>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -466,18 +486,22 @@ export default function HomeworkPagesTab({
                   placeholder="Например: ДЗ 1 — Базовые кубиты"
                 />
               </label>
-              <label className="block space-y-1.5">
-                <span className="text-xs text-slate-500">Срок сдачи (необязательно)</span>
-                <input
-                  type="datetime-local"
+              <div className="space-y-1.5">
+                <span className="block text-xs text-slate-500">Срок сдачи (необязательно)</span>
+                <FormDatetime
                   value={editor.due_at}
-                  onChange={(e) => setEditor({ ...editor, due_at: e.target.value })}
-                  className="w-full max-w-xs px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm [color-scheme:dark]"
+                  onChange={(due_at) => setEditor({ ...editor, due_at })}
+                  defaultTime={DUE_TIME}
+                  timeSuggestions={DUE_TIME_SUGGESTIONS}
+                  presets={DUE_PRESETS}
+                  clearLabel="Без срока"
+                  warnPast={!editor.id}
+                  className="max-w-xl"
                 />
                 <p className="text-[11px] text-slate-600">
                   Со сроком задание само появится в расписании — у учеников после публикации.
                 </p>
-              </label>
+              </div>
               <div className="block space-y-1.5">
                 <span className="text-xs text-slate-500">Кому задано</span>
                 <GroupMultiSelect
@@ -488,7 +512,7 @@ export default function HomeworkPagesTab({
                 <p className="text-[11px] text-slate-600">Задание, его срок и проверка — только для этих групп</p>
               </div>
               <label className="block space-y-1.5">
-                <span className="text-xs text-slate-500">Максимальный балл</span>
+                <span className="block text-xs text-slate-500">Максимальный балл</span>
                 <input
                   type="text"
                   inputMode="decimal"
