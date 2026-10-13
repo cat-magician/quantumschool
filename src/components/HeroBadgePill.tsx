@@ -14,10 +14,11 @@ export default function HeroBadgePill({ text, emptyLabel, className = '' }: Hero
 
   return (
     <div
-      className={`inline-flex max-w-full items-center gap-3 px-4 sm:px-6 py-3 bg-white/10 backdrop-blur-sm rounded-full text-blue-300 text-sm sm:text-base font-semibold tracking-wide ${className}`}
+      className={`inline-flex max-w-full items-center gap-3 px-4 sm:px-6 py-3 bg-white/10 sm:backdrop-blur-sm rounded-full text-blue-300 text-sm sm:text-base font-semibold tracking-wide ${className}`}
     >
       <Atom className="w-5 h-5 flex-shrink-0" />
-      <span className="text-center break-words">{display}</span>
+      {/* balance — чтобы на телефоне последнее слово не висело одно в строке. */}
+      <span className="text-center break-words text-balance">{display}</span>
     </div>
   );
 }

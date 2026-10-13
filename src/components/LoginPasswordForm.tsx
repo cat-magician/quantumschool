@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
@@ -49,6 +49,19 @@ const TONES = {
 type FieldErrors = Partial<Record<'name' | 'login' | 'password' | 'recoveryEmail', string>>;
 
 /**
+ * Enter в поле, после которого есть незаполненное, ведёт в него, а не
+ * отправляет форму: на телефоне кнопка «Далее» на клавиатуре иначе
+ * отправляла пустой пароль и показывала ошибку.
+ */
+function focusNextOnEnter(next: RefObject<HTMLInputElement>) {
+  return (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || !next.current || next.current.value) return;
+    e.preventDefault();
+    next.current.focus();
+  };
+}
+
+/**
  * Вход и регистрация по придуманному логину — запасной путь к кабинету, когда
  * Яндекс ID недоступен. Технический адрес для Supabase собирается в
  * AuthContext, здесь пользователь видит только логин.
@@ -77,6 +90,8 @@ export default function LoginPasswordForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
+  const loginRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   if (!isLoginAuthEnabled()) return null;
 
@@ -165,7 +180,7 @@ export default function LoginPasswordForm({
             type="button"
             aria-pressed={mode === value}
             onClick={() => switchMode(value)}
-            className={`h-9 rounded-lg text-sm font-medium transition-colors ${mode === value ? s.switchOn : s.switchOff}`}
+            className={`h-11 sm:h-9 rounded-lg text-sm font-medium transition-colors ${mode === value ? s.switchOn : s.switchOff}`}
           >
             {title}
           </button>
@@ -182,6 +197,9 @@ export default function LoginPasswordForm({
               id={`${fieldId}-name`}
               type="text"
               autoComplete="name"
+              autoCapitalize="words"
+              enterKeyHint="next"
+              onKeyDown={focusNextOnEnter(loginRef)}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Иван Иванов"
@@ -198,11 +216,14 @@ export default function LoginPasswordForm({
           </label>
           <input
             id={`${fieldId}-login`}
+            ref={loginRef}
             type="text"
             autoComplete="username"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="next"
+            onKeyDown={focusNextOnEnter(passwordRef)}
             maxLength={isSignUp ? LOGIN_MAX_LENGTH : 254}
             value={login}
             onChange={(e) => setLogin(normalizeLogin(e.target.value))}
@@ -227,8 +248,15 @@ export default function LoginPasswordForm({
           <div className="relative">
             <input
               id={`${fieldId}-password`}
+              ref={passwordRef}
               type={showPassword ? 'text' : 'password'}
               autoComplete={isSignUp ? 'new-password' : 'current-password'}
+              // Показанный пароль — обычное текстовое поле: без этого телефон
+              // делал первую букву заглавной и «исправлял» пароль.
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint={isSignUp ? 'next' : 'go'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={isSignUp ? `Минимум ${PASSWORD_MIN_LENGTH} символов` : ''}
@@ -256,6 +284,7 @@ export default function LoginPasswordForm({
               id={`${fieldId}-recovery`}
               type="email"
               autoComplete="email"
+              enterKeyHint="go"
               value={recoveryEmail}
               onChange={(e) => setRecoveryEmail(e.target.value)}
               placeholder="ivan@example.com"

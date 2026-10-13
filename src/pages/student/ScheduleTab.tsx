@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Calendar, Clock, Loader2 } from 'lucide-react';
+import { ArrowRight, Calendar, ChevronDown, Clock, Loader2, X } from 'lucide-react';
 import MeetingLinkButton from '../../components/MeetingLinkButton';
 import MonthCalendar from '../../components/MonthCalendar';
 import { EVENT_TONES } from '../../lib/scheduleTones';
@@ -95,6 +95,8 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
   const [loading, setLoading] = useState(() => cachedStudentSchedule(userId) === null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  // Только для телефона: там календарь раскрывается кнопкой над списком.
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,8 +324,36 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
         </section>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_300px] gap-6">
-        <div className="space-y-6 min-w-0">
+      <div className="grid lg:grid-cols-[1fr_300px] gap-4 lg:gap-6">
+        {/* На телефоне колонки встают друг под друга, и календарь оказывался под
+            всем списком: до него не долистать, а выбранный день фильтровал
+            список, которого уже не видно. Там он — по кнопке над списком. */}
+        <div className="lg:hidden order-first flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCalendarOpen((open) => !open)}
+            aria-expanded={calendarOpen}
+            className="inline-flex items-center gap-2 min-h-11 px-4 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-slate-200 hover:bg-white/10 transition-colors"
+          >
+            <Calendar className="w-4 h-4 text-blue-400" aria-hidden />
+            {selectedDate
+              ? capitalize(new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(selectedDate))
+              : 'Календарь'}
+            <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${calendarOpen ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <X className="w-4 h-4" aria-hidden />
+              Все даты
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-6 min-w-0 lg:col-start-1 lg:row-start-1">
           {!hasEvents ? (
             <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center">
               <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
@@ -348,7 +378,7 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
           )}
         </div>
 
-        <div className="space-y-4 min-w-0 lg:sticky lg:top-6 lg:self-start">
+        <div className={`space-y-4 min-w-0 order-first lg:order-none lg:col-start-2 lg:row-start-1 lg:block lg:sticky lg:top-20 lg:self-start ${calendarOpen ? '' : 'hidden'}`}>
           <MonthCalendar
             events={entries}
             month={calendarMonth}
@@ -364,7 +394,7 @@ export default function StudentScheduleTab({ onOpenContent }: { onOpenContent?: 
             <button
               type="button"
               onClick={() => setSelectedDate(null)}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors w-full text-center"
+              className="hidden lg:block text-xs text-slate-500 hover:text-slate-300 transition-colors w-full text-center py-2"
             >
               Показать все даты
             </button>

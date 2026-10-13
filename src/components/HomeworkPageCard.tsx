@@ -5,6 +5,19 @@ import { DEFAULT_HOMEWORK_MAX_SCORE, formatHomeworkScoreShort, SUBMISSION_STATUS
 import HomeworkDueBadge from './HomeworkDueBadge';
 import { useTimeView } from '../lib/timeView';
 
+function PublishStatusPill({ published, className = '' }: { published: boolean; className?: string }) {
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-md border ${
+      published
+        ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+        : 'text-slate-400 bg-white/5 border-white/10'
+    } ${className}`}
+    >
+      {published ? 'Опубликовано' : 'Черновик'}
+    </span>
+  );
+}
+
 export default function HomeworkPageCard({
   page,
   onClick,
@@ -31,14 +44,14 @@ export default function HomeworkPageCard({
       <button
         type="button"
         onClick={onClick}
-        className="flex-1 flex items-center gap-4 px-5 py-4 text-left min-w-0"
+        className="flex-1 flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 text-left min-w-0"
       >
-        <div className="w-12 h-12 rounded-xl bg-violet-600/20 flex items-center justify-center shrink-0">
-          <BookOpen className="w-6 h-6 text-violet-400" />
+        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-violet-600/20 flex items-center justify-center shrink-0">
+          <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-violet-400" />
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-white truncate group-hover:text-violet-300 transition-colors">
+          <div className="font-semibold text-white line-clamp-2 break-words group-hover:text-violet-300 transition-colors">
             {page.title}
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -50,32 +63,25 @@ export default function HomeworkPageCard({
                 {submission.score !== null && ` · ${formatHomeworkScoreShort(submission.score, maxScore)}`}
               </span>
             )}
+            {showPublishStatus && <PublishStatusPill published={page.is_published} className="sm:hidden" />}
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {showPublishStatus && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-md border ${
-              page.is_published
-                ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
-                : 'text-slate-400 bg-white/5 border-white/10'
-            }`}
-            >
-              {page.is_published ? 'Опубликовано' : 'Черновик'}
-            </span>
-          )}
-          {!hasActions && (
-            <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400" />
-          )}
+          {showPublishStatus && <PublishStatusPill published={page.is_published} className="hidden sm:inline-flex" />}
+          <ChevronRight className={`w-4 h-4 text-slate-600 group-hover:text-slate-400 ${hasActions ? 'sm:hidden' : ''}`} />
         </div>
       </button>
 
+      {/* Как у карточки лекции: на телефоне публикация и удаление — на самой
+          странице задания, здесь они отнимали ширину у названия. */}
       {hasActions && (
-        <div className="flex items-center gap-1 px-2 sm:px-3 border-l border-white/5 shrink-0">
+        <div className="hidden sm:flex items-center gap-1 px-3 border-l border-white/5 shrink-0">
           {onTogglePublish && (
             <button
               type="button"
               title={page.is_published ? 'Снять с публикации' : 'Опубликовать'}
+              aria-label={page.is_published ? 'Снять с публикации' : 'Опубликовать'}
               disabled={actionBusy}
               onClick={(e) => {
                 e.stopPropagation();
@@ -100,6 +106,7 @@ export default function HomeworkPageCard({
             <button
               type="button"
               title="Удалить"
+              aria-label="Удалить"
               disabled={actionBusy}
               onClick={(e) => {
                 e.stopPropagation();

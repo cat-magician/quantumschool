@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Bell, Loader2 } from 'lucide-react';
 import {
   countUnreadNotifications,
@@ -29,7 +29,7 @@ function NotificationRow({
             {item.title}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">{item.body}</p>
-          <p className="text-[10px] text-slate-600 mt-1.5">
+          <p className="text-[11px] text-slate-500 mt-1.5">
             {new Intl.DateTimeFormat('ru-RU', {
               day: 'numeric',
               month: 'short',
@@ -76,12 +76,19 @@ function NotificationRow({
 export default function NotificationsPanel({
   profile,
   userId,
+  anchorRef,
   onClose,
   onReadStateChange,
   onNavigate,
 }: {
   profile: UserProfile;
   userId: string;
+  /**
+   * Кнопка, которая открывает панель. Нажатие по ней — не «снаружи»: иначе
+   * панель закрывалась на mousedown и тут же открывалась её же кликом, и
+   * на телефоне колокольчиком её было не закрыть.
+   */
+  anchorRef?: RefObject<HTMLElement>;
   onClose: () => void;
   /** Список, который панель только что загрузила и пометила прочитанным. */
   onReadStateChange?: (items: AppNotification[]) => void;
@@ -125,13 +132,22 @@ export default function NotificationsPanel({
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (anchorRef?.current?.contains(target)) return;
+      if (panelRef.current && !panelRef.current.contains(target)) {
         onClose();
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [onClose]);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose, anchorRef]);
 
   const unreadCount = countUnreadNotifications(userId, items);
   const newInThisSession = wasNewIds.size;

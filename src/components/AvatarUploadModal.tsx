@@ -202,13 +202,13 @@ export default function AvatarUploadModal({
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors disabled:opacity-50"
+          className="absolute top-2 right-2 sm:top-3 sm:right-3 w-11 h-11 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors disabled:opacity-50"
           aria-label="Закрыть"
         >
           <X className="w-4 h-4 text-slate-400" />
         </button>
 
-        <h2 id="avatar-modal-title" className="text-lg font-bold text-white pr-10">
+        <h2 id="avatar-modal-title" className="text-lg font-bold text-white pr-12">
           {step === 'pick' ? 'Фото профиля' : 'Подгонка'}
         </h2>
         <p className="text-xs text-slate-500 mt-1">{AVATAR_HINT}</p>
@@ -250,12 +250,15 @@ export default function AvatarUploadModal({
               <div className="w-12 h-12 mx-auto rounded-2xl bg-white/5 flex items-center justify-center mb-3">
                 <Upload className="w-6 h-6 text-slate-400" />
               </div>
-              <p className="text-sm text-white font-medium">Перетащите файл сюда</p>
-              <p className="text-xs text-slate-500 mt-1">или выберите на устройстве</p>
+              <p className="text-sm text-white font-medium">
+                <span className="hidden sm:inline">Перетащите файл сюда</span>
+                <span className="sm:hidden">Фото из галереи или камеры</span>
+              </p>
+              <p className="hidden sm:block text-xs text-slate-500 mt-1">или выберите на устройстве</p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-3 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
               >
                 <ImagePlus className="w-4 h-4" />
                 Выбрать файл
@@ -316,7 +319,7 @@ export default function AvatarUploadModal({
                 aria-label="Масштаб"
               />
             </div>
-            <p className="text-xs text-slate-500 text-center">Перетащите фото и настройте масштаб</p>
+            <p className="text-xs text-slate-500 text-center">Сдвиньте фото пальцем или мышью и настройте масштаб</p>
 
             <div className="flex gap-2">
               <button

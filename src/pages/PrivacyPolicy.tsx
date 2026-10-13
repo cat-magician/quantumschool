@@ -1,22 +1,27 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Mail, MapPin } from 'lucide-react';
 import { OPERATOR, PRIVACY_POLICY_DATE, PRIVACY_POLICY_VERSION } from '../lib/privacy';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 
 export default function PrivacyPolicy() {
+  useScrollToHash();
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex items-center gap-4">
-          <Link to="/" className="flex items-center gap-2 text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-6 flex items-center gap-4">
+          <Link to="/" className="flex items-center gap-2 min-h-11 pr-3 text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors">
             <ArrowLeft className="w-4 h-4" />
             На главную
           </Link>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
-        <article className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 sm:p-12 prose prose-slate max-w-none">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Политика конфиденциальности</h1>
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
+        {/* На телефоне — поуже поля и заголовок: «конфиденциальности» в text-3xl
+            не помещалось в строку и уезжало за край. */}
+        <article className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-12 max-w-none">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2 break-words hyphens-auto">Политика конфиденциальности</h1>
           <p className="text-slate-500 text-sm mb-8">
             Версия {PRIVACY_POLICY_VERSION} · действует с {PRIVACY_POLICY_DATE}
           </p>
@@ -175,7 +180,8 @@ function Section({ title, children, id }: { title: string; children: React.React
   return (
     <section className="mb-8" id={id}>
       <h2 className="text-xl font-bold text-slate-900 mb-3">{title}</h2>
-      <div className="text-slate-600 leading-relaxed space-y-3 text-[15px]">{children}</div>
+      {/* Плагина typography нет, prose ничего не делал — маркеры списков задаём сами. */}
+      <div className="text-slate-600 leading-relaxed space-y-3 text-[15px] break-words [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1">{children}</div>
     </section>
   );
 }

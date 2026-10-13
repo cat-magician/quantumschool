@@ -1,16 +1,16 @@
 import gsap from 'gsap';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import { useLayoutEffect, useRef, useState } from 'react';
+import { BRAND_LINE_1, BRAND_LINE_2, BrandHeadingLines } from './QuantumBrandText';
 
 gsap.registerPlugin(DrawSVGPlugin);
 
-const BRAND_LINE_1 = 'Квантовый';
-const BRAND_LINE_2 = 'кружок';
-
-const GRADIENT = 'linear-gradient(90deg, #60a5fa, #a855f7, #7c3aed)';
-
 const CYAN = '#67e8f9';
 const VIOLET = '#a78bfa';
+
+/** Дольше шрифт не ждём: на медленной сети заголовок первого экрана иначе
+    оставался невидимым секундами. Пришедший позже шрифт поправит геометрию. */
+const FONT_WAIT_MS = 2000;
 
 /* Only properties the timeline animates — never 'all', otherwise the
    React-applied inline gradient styles on the chars get wiped too. */
@@ -31,27 +31,6 @@ type Geom = {
   l2R: number;
   u: number; /* detail size unit, scales with block height */
 };
-
-function GradientChars({ text }: { text: string }) {
-  const n = text.length;
-  return (
-    <>
-      {text.split('').map((ch, i) => (
-        <span
-          key={i}
-          className="quantum-brand-char"
-          style={{
-            backgroundImage: GRADIENT,
-            backgroundSize: `${n * 100}% 100%`,
-            backgroundPosition: n > 1 ? `${(i / (n - 1)) * 100}% 0` : '0 0',
-          }}
-        >
-          {ch}
-        </span>
-      ))}
-    </>
-  );
-}
 
 function StrokePath({ d, color, width = 1.2, className }: { d: string; color: string; width?: number; className?: string }) {
   return (
@@ -74,6 +53,8 @@ export default function QuantumBrandTitle() {
   const flashRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [geom, setGeom] = useState<Geom | null>(null);
+  /* После вступления схема уже погашена — перемерять незачем. */
+  const introDoneRef = useRef(false);
 
   /* Measure the rendered title and derive pixel geometry.
      Glyph edges are only trustworthy once the brand font (Unbounded 900) is
@@ -97,16 +78,28 @@ export default function QuantumBrandTitle() {
     let raf = 0;
 
     const measure = () => {
+      if (introDoneRef.current) return;
       const rootRect = root.getBoundingClientRect();
-      const c1 = title.querySelectorAll('.qb-l1 .quantum-brand-char');
-      const c2 = title.querySelectorAll('.qb-l2 .quantum-brand-char');
+      const c1 = title.querySelectorAll<HTMLElement>('.qb-l1 .quantum-brand-char');
+      const c2 = title.querySelectorAll<HTMLElement>('.qb-l2 .quantum-brand-char');
       if (!c1.length || !c2.length || rootRect.height < 10 || rootRect.width < 10) return;
 
-      const x = (px: number) => px - rootRect.left;
-      const f1 = c1[0].getBoundingClientRect();
-      const e1 = c1[c1.length - 1].getBoundingClientRect();
-      const f2 = c2[0].getBoundingClientRect();
-      const e2 = c2[c2.length - 1].getBoundingClientRect();
+      /* Края букв — по offset*, а не getBoundingClientRect: во время
+         вступления буквы увеличены (scale 1.9), и замер в этот момент
+         запоминал раздутые края. Потом скрытие адресной строки на телефоне
+         давало resize, «правильный» замер расходился с ним, и вступление
+         проигрывалось заново — заголовок пропадал на пять секунд. */
+      const offsetX = (el: HTMLElement) => {
+        let px = 0;
+        let node: HTMLElement | null = el;
+        while (node && node !== root) {
+          px += node.offsetLeft;
+          node = node.offsetParent as HTMLElement | null;
+        }
+        return px;
+      };
+      const leftOf = (el: HTMLElement) => offsetX(el);
+      const rightOf = (el: HTMLElement) => offsetX(el) + el.offsetWidth;
 
       /* Vertical rail centers come from the LINE boxes, not the glyph boxes:
          Unbounded 900's per-glyph rect is the full em (~144px) and would push
@@ -133,10 +126,10 @@ export default function QuantumBrandTitle() {
         inset,
         yA,
         yB,
-        l1L: inset + x(f1.left),
-        l1R: inset + x(e1.right),
-        l2L: inset + x(f2.left),
-        l2R: inset + x(e2.right),
+        l1L: inset + leftOf(c1[0]),
+        l1R: inset + rightOf(c1[c1.length - 1]),
+        l2L: inset + leftOf(c2[0]),
+        l2R: inset + rightOf(c2[c2.length - 1]),
         u,
       };
 
@@ -172,29 +165,28 @@ export default function QuantumBrandTitle() {
     };
 
     let ro: ResizeObserver | null = null;
-    const onResize = () => scheduleMeasure();
 
     /* Keep the title hidden until the brand font is in, then measure and
-       start watching for any later layout change. */
+       start watching for any later layout change. Ширину заголовка ловит
+       ResizeObserver; window.resize не слушаем — на телефоне он приходит от
+       адресной строки, которая на заголовок не влияет. */
     gsap.set(title, { opacity: 0 });
-    Promise.all([
+    const fontsIn = Promise.all([
       document.fonts.load('900 1rem Unbounded').catch(() => undefined),
       document.fonts.ready,
-    ])
-      .catch(() => undefined)
-      .then(() => {
-        if (cancelled) return;
-        scheduleMeasure();
-        ro = new ResizeObserver(scheduleMeasure);
-        ro.observe(title);
-        window.addEventListener('resize', onResize);
-      });
+    ]).catch(() => undefined);
+    const giveUp = new Promise((resolve) => { window.setTimeout(resolve, FONT_WAIT_MS); });
+    Promise.race([fontsIn, giveUp]).then(() => {
+      if (cancelled) return;
+      scheduleMeasure();
+      ro = new ResizeObserver(scheduleMeasure);
+      ro.observe(title);
+    });
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
-      window.removeEventListener('resize', onResize);
       gsap.set(title, { clearProps: 'opacity' });
     };
   }, []);
@@ -248,7 +240,12 @@ export default function QuantumBrandTitle() {
     gsap.set(flash, { opacity: 0, scale: 0.5 });
 
     const tl = gsap.timeline({
-      onComplete: () => glow.classList.add('quantum-brand-glow-alive'),
+      onComplete: () => {
+        introDoneRef.current = true;
+        glow.classList.add('quantum-brand-glow-alive');
+        /* will-change держал 15 слоёв на всё время жизни страницы. */
+        allChars.forEach((ch) => { (ch as HTMLElement).style.willChange = 'auto'; });
+      },
     });
 
     /* 1 — side circuits assemble */
@@ -498,12 +495,7 @@ export default function QuantumBrandTitle() {
       />
 
       <h1 ref={titleRef} className="relative font-brand text-center" aria-label={`${BRAND_LINE_1} ${BRAND_LINE_2}`}>
-        <span className="qb-l1 quantum-brand-charline quantum-brand-line-size" aria-hidden>
-          <GradientChars text={BRAND_LINE_1} />
-        </span>
-        <span className="qb-l2 quantum-brand-charline quantum-brand-line-size quantum-brand-line-size-tight" aria-hidden>
-          <GradientChars text={BRAND_LINE_2} />
-        </span>
+        <BrandHeadingLines />
       </h1>
     </div>
   );

@@ -103,7 +103,7 @@ export default function InstructorCardPreview({
                   <button
                     type="button"
                     onClick={() => setExpanded((v) => !v)}
-                    className="mt-2 text-cyan-600 hover:text-cyan-700 text-xs font-medium transition-colors duration-200"
+                    className="mt-1 -mb-2 py-2 pr-3 text-cyan-600 hover:text-cyan-700 text-xs font-medium transition-colors duration-200"
                   >
                     {expanded ? 'Свернуть' : 'Читать далее'}
                   </button>

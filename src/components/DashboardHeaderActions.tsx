@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import DashboardSiteHomeLink from './DashboardSiteHomeLink';
 import UserAvatar from './UserAvatar';
@@ -25,6 +25,7 @@ export default function DashboardHeaderActions({
 }) {
   const [bellOpen, setBellOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const bellAreaRef = useRef<HTMLDivElement>(null);
 
   // Счётчик грузим при открытии кабинета (и при смене профиля) — один раз.
   useEffect(() => {
@@ -47,13 +48,16 @@ export default function DashboardHeaderActions({
 
   return (
     <div className="relative flex items-center gap-2">
-      <DashboardSiteHomeLink compact />
-      <div>
+      {/* На телефоне домик в шапке путали с «Главной» кабинета, а он уводит
+          на сайт; ссылка на сайт есть в меню. */}
+      <DashboardSiteHomeLink compact className="hidden sm:inline-flex" />
+      <div ref={bellAreaRef}>
         <button
           type="button"
           onClick={() => setBellOpen((v) => !v)}
-          className="relative flex items-center gap-1 h-9 rounded-xl bg-white/5 hover:bg-white/10 px-2.5 transition-colors"
+          className="relative flex items-center justify-center gap-1 h-10 min-w-10 sm:h-9 rounded-xl bg-white/5 hover:bg-white/10 px-2.5 transition-colors"
           aria-label={unreadCount > 0 ? `Уведомления: ${unreadCount} новых` : 'Уведомления'}
+          aria-expanded={bellOpen}
         >
           <Bell className="w-4 h-4 text-slate-400 shrink-0" />
           {unreadCount > 0 && (
@@ -66,6 +70,7 @@ export default function DashboardHeaderActions({
           <NotificationsPanel
             profile={profile}
             userId={userId}
+            anchorRef={bellAreaRef}
             onClose={() => setBellOpen(false)}
             onReadStateChange={recountUnread}
             onNavigate={(action) => {
@@ -80,14 +85,14 @@ export default function DashboardHeaderActions({
         <button
           type="button"
           onClick={onOpenProfile}
-          className="lg:hidden w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors overflow-hidden p-0"
+          className="lg:hidden w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors overflow-hidden p-0"
           aria-label="Профиль"
         >
           <UserAvatar
             displayName={profileDisplayName(profile)}
             avatarUrl={profile.avatar_url}
             size="xs"
-            className="w-9 h-9"
+            className="w-10 h-10"
           />
         </button>
       )}

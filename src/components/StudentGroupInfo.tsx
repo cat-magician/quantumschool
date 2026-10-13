@@ -5,10 +5,12 @@ import type { StudentGroupContext } from '../lib/groupUtils';
 export default function StudentGroupInfo({ context }: { context: StudentGroupContext }) {
   const teacherLabel = context.teachers.length > 1 ? 'Наставники' : 'Наставник';
 
+  // На телефоне — без значков, группа и наставник рядом: карточка стоит над
+  // каждым разделом, и в два этажа она занимала полэкрана над расписанием.
   return (
-    <div className="mb-6 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-4 px-4 py-3 rounded-2xl bg-slate-900/60 border border-white/5">
+    <div className="mb-4 sm:mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 sm:gap-4 px-4 py-3 rounded-2xl bg-slate-900/60 border border-white/5">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center shrink-0">
+        <div className="hidden sm:flex w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/20 items-center justify-center shrink-0">
           <Users className="w-4 h-4 text-blue-300" />
         </div>
         <div className="min-w-0">
@@ -21,7 +23,7 @@ export default function StudentGroupInfo({ context }: { context: StudentGroupCon
         <>
           <div className="hidden sm:block w-px h-9 bg-white/10" />
           <div className="flex items-center gap-3 min-w-0 sm:flex-1">
-            <div className="flex -space-x-2 shrink-0">
+            <div className="hidden sm:flex -space-x-2 shrink-0">
               {context.teachers.slice(0, 3).map((t) => (
                 <UserAvatar
                   key={t.id}

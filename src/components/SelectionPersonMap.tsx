@@ -620,7 +620,7 @@ export default function SelectionPersonMap({
       )}
 
       {onSave && (unsavedCount > 0 || saveMessage) && (
-        <div className="sticky bottom-4 z-30 flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-slate-900/95 border border-white/10 backdrop-blur-sm">
+        <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] lg:bottom-4 z-20 flex flex-wrap items-center gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/95 border border-white/10 sm:backdrop-blur-sm">
           <button
             type="button"
             onClick={onSave}
@@ -630,7 +630,7 @@ export default function SelectionPersonMap({
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Сохранить связи ({unsavedCount})
           </button>
-          <p className="text-xs text-slate-500 min-w-0 flex-1">
+          <p className="hidden sm:block text-xs text-slate-500 min-w-0 flex-1">
             Сюда входят и привязки из карты, и точные совпадения разбора.
           </p>
           {saveMessage && <p className="text-xs text-slate-300">{saveMessage}</p>}

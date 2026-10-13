@@ -40,7 +40,7 @@ export default function AchievementBadgeWithHint({
 
       <div
         role="tooltip"
-        className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-30 w-56 -translate-x-1/2 opacity-0 invisible translate-y-1 group-hover/badge:opacity-100 group-hover/badge:visible group-hover/badge:translate-y-0 group-focus-within/badge:opacity-100 group-focus-within/badge:visible group-focus-within/badge:translate-y-0 transition-all duration-200"
+        className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-0 sm:left-1/2 z-30 w-48 sm:w-56 sm:-translate-x-1/2 opacity-0 invisible translate-y-1 group-hover/badge:opacity-100 group-hover/badge:visible group-hover/badge:translate-y-0 group-focus-within/badge:opacity-100 group-focus-within/badge:visible group-focus-within/badge:translate-y-0 transition-all duration-200"
       >
         <div className="rounded-xl border border-white/10 bg-slate-900/95 px-3 py-2.5 shadow-xl shadow-black/40 backdrop-blur-sm text-left">
           <div className="text-xs font-semibold text-white">{def.title}</div>
@@ -51,7 +51,7 @@ export default function AchievementBadgeWithHint({
             <p className="mt-1.5 text-[10px] text-slate-500">Ещё не получено</p>
           )}
         </div>
-        <div className="mx-auto h-2 w-2 rotate-45 border-b border-r border-white/10 bg-slate-900/95 -mt-1" />
+        <div className="ml-5 sm:mx-auto h-2 w-2 rotate-45 border-b border-r border-white/10 bg-slate-900/95 -mt-1" />
       </div>
     </div>
   );

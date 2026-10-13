@@ -64,7 +64,7 @@ export default function LessonPageView({
       <header className="min-w-0 space-y-4 xl:col-start-1">
         {cover && (
           <div className="w-full overflow-hidden rounded-2xl border border-white/5 bg-slate-900 aspect-[21/9]">
-            <LessonCoverImage url={cover} className="h-full w-full object-cover" />
+            <LessonCoverImage url={cover} className="h-full w-full object-cover" eager />
           </div>
         )}
         <div>
@@ -83,7 +83,9 @@ export default function LessonPageView({
       {event && (
         <aside className="xl:sticky xl:top-20 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:self-start">
           <div className="space-y-4 rounded-2xl border border-white/5 bg-slate-900/60 p-4 sm:p-5">
-            <dl className="grid gap-3 text-sm sm:grid-cols-3 xl:grid-cols-1">
+            {/* На телефоне дата и длительность рядом, время — строкой ниже во всю
+                ширину: в нём ещё и московское время, в половину оно не влезает. */}
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 xl:grid-cols-1">
               <div className="flex items-start gap-2.5">
                 <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" aria-hidden />
                 <div className="min-w-0">
@@ -91,7 +93,7 @@ export default function LessonPageView({
                   <dd className="text-white">{capitalize(formatEventDate(event.scheduled_at, timeView))}</dd>
                 </div>
               </div>
-              <div className="flex items-start gap-2.5">
+              <div className="order-last col-span-2 flex items-start gap-2.5 sm:order-none sm:col-span-1">
                 <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" aria-hidden />
                 <div>
                   <dt className="text-xs text-slate-500">Время</dt>

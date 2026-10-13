@@ -283,7 +283,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
           </p>
         </section>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <SummaryCard icon={Users} label="Учеников в срезе" value={String(summary.students)} compact />
           <SummaryCard icon={TrendingUp} label="Средний прогресс" value={`${summary.avgProgress}%`} compact />
           <SummaryCard

@@ -5,10 +5,13 @@ export default function LessonCoverImage({
   url,
   className,
   onError,
+  eager = false,
 }: {
   url: string;
   className?: string;
   onError?: () => void;
+  /** Картинка первого экрана (обложка открытой страницы) — без отложенной загрузки. */
+  eager?: boolean;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,6 +53,8 @@ export default function LessonCoverImage({
       src={src}
       alt=""
       className={className}
+      loading={eager ? 'eager' : 'lazy'}
+      decoding="async"
       onError={() => onError?.()}
     />
   );

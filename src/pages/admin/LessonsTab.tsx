@@ -21,6 +21,7 @@ import {
   LESSON_TYPE_LABELS,
   createDefaultBlocks,
   defaultBlockContent,
+  isLessonBlockEmpty,
   lessonDateInputValue,
   splitLessonsByTime,
   type LessonPageWithEvent,
@@ -485,9 +486,21 @@ export default function LessonsTab({
     setEditor({ ...editor, blocks });
   };
 
-  const removeBlock = (id: string) => {
+  const removeBlock = async (id: string) => {
     if (!editor) return;
-    setEditor({ ...editor, blocks: editor.blocks.filter((b) => b.id !== id) });
+    // Блок с содержимым — только после вопроса: корзина рядом со стрелками,
+    // и на телефоне запись или конспект пропадали от промаха.
+    const block = editor.blocks.find((b) => b.id === id);
+    if (block && !isLessonBlockEmpty(block)) {
+      const ok = await confirm({
+        title: 'Удалить блок?',
+        message: 'Его содержимое пропадёт со страницы после сохранения.',
+        confirmLabel: 'Удалить',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setEditor((prev) => (prev ? { ...prev, blocks: prev.blocks.filter((b) => b.id !== id) } : prev));
   };
 
   const addBlock = (type: LessonBlockType) => {
@@ -521,7 +534,7 @@ export default function LessonsTab({
       <button
         type="button"
         onClick={closeEditor}
-        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        className="inline-flex items-center gap-2 min-h-11 -my-3 pr-3 text-sm text-slate-400 hover:text-white transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         {backLabel}
@@ -733,7 +746,7 @@ export default function LessonsTab({
                 total={editor.blocks.length}
                 homeworkPages={homeworkPages}
                 onMove={moveBlock}
-                onRemove={() => removeBlock(block.id)}
+                onRemove={() => { void removeBlock(block.id); }}
                 onContentChange={(patch) => updateBlockContent(block.id, patch)}
               />
             ))
@@ -890,8 +903,9 @@ function BlockEditor({
             type="button"
             onClick={() => onMove(index, -1)}
             disabled={index === 0}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30"
+            className="p-3 sm:p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30"
             title="Выше"
+            aria-label="Переместить блок выше"
           >
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
@@ -899,16 +913,18 @@ function BlockEditor({
             type="button"
             onClick={() => onMove(index, 1)}
             disabled={index === total - 1}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30"
+            className="p-3 sm:p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30"
             title="Ниже"
+            aria-label="Переместить блок ниже"
           >
             <ArrowDown className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="p-1.5 rounded-lg hover:bg-rose-500/10 text-slate-500 hover:text-rose-300"
+            className="ml-3 sm:ml-0 p-3 sm:p-1.5 rounded-lg hover:bg-rose-500/10 text-slate-500 hover:text-rose-300"
             title="Удалить блок"
+            aria-label="Удалить блок"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>

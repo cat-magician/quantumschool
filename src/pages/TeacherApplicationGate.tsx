@@ -36,7 +36,7 @@ export default function TeacherApplicationGate() {
     : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+    <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center p-4 sm:p-6">
       <div className="max-w-md w-full bg-slate-900/80 border border-white/10 rounded-2xl p-8 text-center">
         <div className="mb-4 flex justify-center">
           <GraduationCap className="w-12 h-12 text-violet-400" />
@@ -79,7 +79,7 @@ export default function TeacherApplicationGate() {
             {signingOut ? 'Выходим…' : 'Выйти'}
           </button>
           <DashboardSiteHomeLink className="justify-center" />
-          <p className="text-[11px] text-slate-600 leading-relaxed">
+          <p className="text-xs text-slate-500 leading-relaxed">
             Статус обновляется автоматически раз в минуту. Для отбора войдите с главной страницы или нажмите кнопку выше.
           </p>
         </div>

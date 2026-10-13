@@ -411,9 +411,24 @@ export default function HomeworkPagesTab({
     setEditor({ ...editor, blocks });
   };
 
-  const removeBlock = (id: string) => {
+  const removeBlock = async (id: string) => {
     if (!editor) return;
-    setEditor({ ...editor, blocks: editor.blocks.filter((b) => b.id !== id) });
+    // Как в редакторе занятия: блок с содержимым удаляем только после вопроса.
+    const block = editor.blocks.find((b) => b.id === id);
+    const content = block?.content ?? {};
+    const hasContent = Boolean(
+      content.body?.trim() || content.url?.trim() || content.caption?.trim() || content.form_id?.trim(),
+    );
+    if (hasContent) {
+      const ok = await confirm({
+        title: 'Удалить блок?',
+        message: 'Его содержимое пропадёт со страницы после сохранения.',
+        confirmLabel: 'Удалить',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setEditor((prev) => (prev ? { ...prev, blocks: prev.blocks.filter((b) => b.id !== id) } : prev));
   };
 
   const addBlock = (type: HomeworkBlockType) => {
@@ -447,7 +462,7 @@ export default function HomeworkPagesTab({
       <button
         type="button"
         onClick={closeEditor}
-        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        className="inline-flex items-center gap-2 min-h-11 -my-3 pr-3 text-sm text-slate-400 hover:text-white transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         {backLabel}
@@ -611,7 +626,7 @@ export default function HomeworkPagesTab({
                     index={index}
                     total={editor.blocks.length}
                     onMove={moveBlock}
-                    onRemove={() => removeBlock(block.id)}
+                    onRemove={() => { void removeBlock(block.id); }}
                     onContentChange={(patch) => updateBlockContent(block.id, patch)}
                   />
                 ))
@@ -746,13 +761,13 @@ function BlockEditor({
           {HOMEWORK_BLOCK_LABELS[block.block_type]}
         </span>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => onMove(index, -1)} disabled={index === 0} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30" title="Выше">
+          <button type="button" onClick={() => onMove(index, -1)} disabled={index === 0} className="p-3 sm:p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30" title="Выше" aria-label="Переместить блок выше">
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={() => onMove(index, 1)} disabled={index === total - 1} className="p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30" title="Ниже">
+          <button type="button" onClick={() => onMove(index, 1)} disabled={index === total - 1} className="p-3 sm:p-1.5 rounded-lg hover:bg-white/5 text-slate-500 disabled:opacity-30" title="Ниже" aria-label="Переместить блок ниже">
             <ArrowDown className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={onRemove} className="p-1.5 rounded-lg hover:bg-rose-500/10 text-slate-500 hover:text-rose-300" title="Удалить блок">
+          <button type="button" onClick={onRemove} className="ml-3 sm:ml-0 p-3 sm:p-1.5 rounded-lg hover:bg-rose-500/10 text-slate-500 hover:text-rose-300" title="Удалить блок" aria-label="Удалить блок">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>

@@ -103,19 +103,29 @@ export default function ProfilePage() {
   }, [user, profile]);
 
   const goBack = () => {
+    // Пришли из кабинета в этой же вкладке — шаг назад по истории: там уже
+    // нужный раздел. Переход вперёд на /dashboard оставлял профиль позади, и
+    // системная «Назад» на телефоне из кабинета снова открывала профиль.
+    if (location.key !== 'default') {
+      navigate(-1);
+      return;
+    }
+
+    // Профиль открыли сразу (ссылкой, после привязки Яндекс ID) — кабинета в
+    // истории нет, заменяем адрес, а не добавляем шаг.
     const params = new URLSearchParams(location.search);
     if (params.get('tab')) {
-      navigate(dashboardPathFromProfileSearch(params));
+      navigate(dashboardPathFromProfileSearch(params), { replace: true });
       return;
     }
 
     if (returnTo) {
       const target = dashboardPathWithState(returnTo);
-      navigate(`${target.pathname}${target.search}`, { state: target.state });
+      navigate(`${target.pathname}${target.search}`, { state: target.state, replace: true });
       return;
     }
 
-    navigate('/dashboard');
+    navigate('/dashboard', { replace: true });
   };
 
   const saveProfile = async () => {
@@ -147,7 +157,7 @@ export default function ProfilePage() {
 
   if (loading || !user || !profile) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
       </div>
     );
@@ -161,12 +171,12 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <header className="sticky top-0 z-10 bg-slate-950/90 backdrop-blur-md border-b border-white/5">
+      <header className="sticky top-0 z-10 bg-slate-950/95 lg:bg-slate-950/90 lg:backdrop-blur-md border-b border-white/5">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={goBack}
-            className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 min-h-11 pr-3 text-sm text-slate-400 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             Назад
@@ -187,7 +197,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setAvatarModalOpen(true)}
-                className="absolute -bottom-1 -right-1 w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 border-2 border-slate-900 flex items-center justify-center transition-colors"
+                className="absolute -bottom-2 -right-2 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 border-2 border-slate-900 flex items-center justify-center transition-colors"
                 title="Изменить фото"
                 aria-label="Изменить фото"
               >

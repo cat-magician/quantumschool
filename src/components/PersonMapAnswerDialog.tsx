@@ -64,7 +64,7 @@ export function MapDialogShell({
           && box.left <= event.clientX && event.clientX <= box.right;
         if (!inside) dialog.close();
       }}
-      className="w-[calc(100%-2rem)] max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-slate-900 border border-white/10 text-slate-200 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+      className="w-[calc(100%-2rem)] max-w-xl max-h-[min(85dvh,calc(100vh-2rem))] overflow-y-auto overscroll-contain rounded-2xl bg-slate-900 border border-white/10 text-slate-200 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
     >
       <div className="p-5 space-y-4">
         <div className="flex items-start justify-between gap-3">
@@ -79,7 +79,7 @@ export function MapDialogShell({
             type="button"
             onClick={() => ref.current?.close()}
             aria-label="Закрыть"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="-m-1.5 p-3 sm:m-0 sm:p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>

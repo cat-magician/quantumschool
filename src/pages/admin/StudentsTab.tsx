@@ -286,6 +286,16 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
   };
 
   const removeStudent = async (memberId: string) => {
+    const member = groups.flatMap((g) => g.members).find((m) => m.id === memberId);
+    const ok = await confirm({
+      title: 'Убрать из группы?',
+      message: member?.profile?.display_name
+        ? `«${member.profile.display_name}» больше не будет в этой группе. Вернуть можно из списка зачисленных.`
+        : 'Участник больше не будет в этой группе. Вернуть можно из списка зачисленных.',
+      confirmLabel: 'Убрать',
+      danger: true,
+    });
+    if (!ok) return;
     const snapshot = groups;
     setGroups((prev) => prev.map((g) => ({
       ...g,
@@ -520,8 +530,9 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                       <button
                         type="button"
                         onClick={() => removeTeacherFromGroup(activeGroup.id, t.id)}
-                        className="text-amber-400/70 hover:text-rose-400"
+                        className="-m-2 p-2 text-amber-400/70 hover:text-rose-400"
                         title="Снять с группы"
+                        aria-label={`Снять ${t.display_name} с группы`}
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -561,9 +572,10 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
                   trailing={(
                     <button
                       type="button"
-                      onClick={() => removeStudent(m.id)}
-                      className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors flex-shrink-0"
+                      onClick={() => { void removeStudent(m.id); }}
+                      className="p-3 sm:p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors flex-shrink-0"
                       title="Убрать из группы"
+                      aria-label="Убрать из группы"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -704,7 +716,7 @@ function GroupNavigation({
         />
       </div>
 
-      <aside className="hidden lg:flex flex-col gap-3 sticky top-4">
+      <aside className="hidden lg:flex flex-col gap-3 sticky top-20">
         {isSuperAdmin && (
           <button
             type="button"

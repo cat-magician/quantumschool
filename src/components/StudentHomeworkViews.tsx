@@ -222,7 +222,7 @@ export function StudentHomeworkPageView({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-2 min-h-11 -my-3 pr-3 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           {backLabel}
@@ -241,7 +241,7 @@ export function StudentHomeworkPageView({
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        className="inline-flex items-center gap-2 min-h-11 -my-3 pr-3 text-sm text-slate-400 hover:text-white transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         {backLabel}

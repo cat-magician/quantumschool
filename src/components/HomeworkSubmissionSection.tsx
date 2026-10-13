@@ -46,8 +46,8 @@ export default function HomeworkSubmissionSection({
       type="button"
       onClick={preview || locked || !canSubmit ? undefined : onSubmit}
       disabled={preview || saving || locked || !canSubmit}
-      className={`inline-flex items-center gap-2 rounded-xl text-sm font-semibold transition-colors ${
-        compact ? 'px-4 py-2' : 'px-5 py-2.5'
+      className={`inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors ${
+        compact ? 'px-4 py-2' : 'px-5 py-3 sm:py-2.5'
       } ${
         locked
           ? 'bg-emerald-600/15 text-emerald-300 border border-emerald-500/25 cursor-default'
@@ -69,7 +69,7 @@ export default function HomeworkSubmissionSection({
 
   return (
     <>
-      <section className="space-y-4 pt-4 border-t border-white/5 pb-24 lg:pb-4">
+      <section className="space-y-4 pt-4 border-t border-white/5 pb-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-300">Подтверждение сдачи</h3>
           <p className="text-sm text-slate-500 mt-1 leading-relaxed max-w-none">
@@ -132,12 +132,16 @@ export default function HomeworkSubmissionSection({
           </label>
         )}
 
-        <div className="hidden lg:flex flex-wrap gap-3">
+        {/* На телефоне кнопки — сразу под галочкой, во всю ширину, «Отправить»
+            сверху. Закреплённая внизу панель там мешала: висела с первой
+            секунды, хотя без галочки в конце страницы не нажималась, и
+            перекрывала меню кабинета. */}
+        <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <button
             type="button"
             onClick={preview || locked ? undefined : onSaveDraft}
             disabled={preview || saving || locked}
-            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+            className={`inline-flex items-center justify-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl text-sm font-medium transition-colors ${
               locked
                 ? 'bg-white/5 text-slate-500 border border-white/5 cursor-default'
                 : 'bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-50'
@@ -157,7 +161,7 @@ export default function HomeworkSubmissionSection({
       </section>
 
       {needsSubmit && (
-        <div className="fixed bottom-[4.5rem] lg:bottom-0 left-0 right-0 z-30 lg:left-64 px-4 py-3 bg-slate-950/95 border-t border-white/10 backdrop-blur-md">
+        <div className="hidden lg:block fixed bottom-0 right-0 z-30 left-64 px-4 py-3 bg-slate-950/95 border-t border-white/10 backdrop-blur-md">
           <div className="max-w-3xl mx-auto flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
@@ -166,7 +170,7 @@ export default function HomeworkSubmissionSection({
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white/5 hover:bg-white/10 text-slate-300 disabled:opacity-50"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              <span className="hidden sm:inline">Черновик</span>
+              Черновик
             </button>
             {submitButton(true)}
           </div>

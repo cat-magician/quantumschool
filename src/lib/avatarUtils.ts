@@ -4,9 +4,9 @@ export const AVATAR_BUCKET = 'avatars';
 export const AVATAR_MAX_BYTES = 512 * 1024;
 export const AVATAR_OUTPUT_SIZE = 256;
 export const AVATAR_CROP_UI_SIZE = 280;
-export const AVATAR_INPUT_MAX_BYTES = 2 * 1024 * 1024;
+export const AVATAR_INPUT_MAX_BYTES = 15 * 1024 * 1024;
 export const AVATAR_ACCEPT = 'image/jpeg,image/png,image/webp';
-export const AVATAR_HINT = 'JPG, PNG или WebP · до 2 МБ · до 512 КБ после сохранения';
+export const AVATAR_HINT = 'JPG, PNG или WebP · до 15 МБ · до 512 КБ после сохранения';
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -35,7 +35,7 @@ export function validateAvatarInput(file: File): string | null {
     return 'Поддерживаются JPG, PNG и WebP';
   }
   if (file.size > AVATAR_INPUT_MAX_BYTES) {
-    return 'Файл слишком большой (до 2 МБ)';
+    return 'Файл слишком большой (до 15 МБ)';
   }
   return null;
 }

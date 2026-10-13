@@ -1,13 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#2563eb" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Цвет панели браузера на телефоне — как тёмный верх страницы и кабинет. -->
+    <meta name="theme-color" content="#0f172a" />
+    <!-- viewport-fit=cover включает env(safe-area-inset-*): без него нижнее меню
+         кабинета на iPhone не отступает от полоски «домой». -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Квантовый кружок - Онлайн-школа МФТИ и РКЦ по квантовым технологиям</title>
     <!-- Соединение с Supabase открываем, пока качается JS: первый же запрос
          (вход, профиль) не ждёт DNS и TLS. Адрес подставляет Vite при сборке. -->
@@ -16,6 +19,10 @@
          любой странице — грузим их сразу, остальные наборы по мере надобности. -->
     <link rel="preload" href="/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <!-- Заголовок первого экрана скрыт, пока не придёт этот шрифт (13 КБ):
+         без предзагрузки он запрашивался последним, и на телефоне главная
+         надпись появлялась позже всего остального. -->
+    <link rel="preload" href="/fonts/unbounded-900-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
     <meta name="description" content="Онлайн-школа МФТИ и Российского квантового центра по квантовым технологиям для школьников." />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Квантовый кружок" />

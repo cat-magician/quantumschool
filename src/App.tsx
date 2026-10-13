@@ -9,7 +9,7 @@ import LoginPasswordForm from './components/LoginPasswordForm';
 import { isLoginAuthEnabled } from './lib/loginAuthConfig';
 import StudentCabinetLink from './components/StudentCabinetLink';
 import YandexSignInButton from './components/YandexSignInButton';
-import QuantumBrandTitle from './components/QuantumBrandTitle';
+import { QuantumBrandTitleFallback } from './components/QuantumBrandText';
 import HeroQuantumDecor from './components/HeroQuantumDecor';
 import HeroBadgePill from './components/HeroBadgePill';
 import InstructorCardPreview from './components/InstructorCardPreview';
@@ -38,14 +38,19 @@ import {
 // без лишнего шага «сначала чанк маршрута, потом чанк кабинета».
 import Dashboard from './pages/Dashboard';
 import { lazyChunk } from './lib/lazyChunk';
+import { useTouchScrollLock } from './hooks/useTouchScrollLock';
+import { useScrollToHash } from './hooks/useScrollToHash';
 
 const ProfilePage = lazyChunk(() => import('./pages/ProfilePage'));
+// Анимация заголовка тянет GSAP (~30 КБ gzip) — отдельным чанком, чтобы его
+// не качали и не разбирали телефоны тех, кто сразу открывает кабинет.
+const QuantumBrandTitle = lazyChunk(() => import('./components/QuantumBrandTitle'));
 const PrivacyPolicy = lazyChunk(() => import('./pages/PrivacyPolicy'));
 const TeacherJoin = lazyChunk(() => import('./pages/TeacherJoin'));
 
 function RouteFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-screen min-h-svh flex items-center justify-center bg-slate-50">
       <div className="w-10 h-10 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
     </div>
   );
@@ -90,6 +95,10 @@ function App() {
 
   const [showAuth, setShowAuth] = useState(false);
 
+  // Ключевые даты и преподаватели приходят с сервера и сдвигают разделы ниже —
+  // к якорю идём, когда они уже на месте.
+  useScrollToHash(onLanding && !loading);
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
@@ -133,9 +142,20 @@ function Header({
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useTouchScrollLock(isMenuOpen);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isMenuOpen, setIsMenuOpen]);
 
   const actionBase =
     'inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200';
@@ -149,8 +169,8 @@ function Header({
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? 'bg-white/95 backdrop-blur-md shadow-lg' : 'bg-transparent'
+      className={`fixed top-0 left-0 right-0 z-50 pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] transition-[background-color,box-shadow] duration-300 ${
+        scrolled ? 'bg-white/95 lg:backdrop-blur-md shadow-lg' : 'bg-transparent'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -213,6 +233,7 @@ function Header({
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="lg:hidden w-11 h-11 rounded-xl flex items-center justify-center hover:bg-black/5"
             aria-label={isMenuOpen ? 'Закрыть меню' : 'Открыть меню'}
+            aria-expanded={isMenuOpen}
           >
             {isMenuOpen ? (
               <X className={`w-6 h-6 ${scrolled ? 'text-slate-900' : 'text-white'}`} />
@@ -224,7 +245,16 @@ function Header({
       </div>
 
       {isMenuOpen && (
-        <div className="lg:hidden bg-white border-t">
+        <>
+        {/* Нажатие мимо меню его закрывает; страница под ним не листается. */}
+        <div
+          className="lg:hidden fixed inset-x-0 top-20 bottom-0 -z-10 bg-slate-950/50 touch-none"
+          onClick={() => setIsMenuOpen(false)}
+          aria-hidden
+        />
+        {/* В альбомной ориентации меню выше экрана — без прокрутки нижние
+            кнопки («Войти», «Записаться») были недостижимы. */}
+        <div className="lg:hidden bg-white border-t max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain">
           <div className="px-4 py-6 space-y-4">
             {[
               { name: 'Главная', href: '#home' },
@@ -236,7 +266,7 @@ function Header({
                 key={item.name}
                 href={item.href}
                 onClick={() => setIsMenuOpen(false)}
-                className="block text-slate-700 hover:text-cyan-600 font-medium py-2"
+                className="block text-slate-700 hover:text-cyan-600 font-medium py-2.5"
               >
                 {item.name}
               </a>
@@ -293,6 +323,7 @@ function Header({
             </div>
           </div>
         </div>
+        </>
       )}
     </header>
   );
@@ -303,7 +334,7 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
   return (
     <section
       id="home"
-      className="relative min-h-screen flex items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950"
+      className="relative min-h-screen min-h-svh flex items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950"
     >
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-1/3 left-1/3 w-[500px] h-[500px] bg-blue-500/15 rounded-full blur-3xl animate-pulse-slow" />
@@ -343,7 +374,9 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
 
         <HeroQuantumDecor />
 
-        <div className="absolute bottom-0 right-0 w-[140px] sm:w-[280px] md:w-[340px] lg:w-[400px] h-auto opacity-90 pointer-events-none max-sm:opacity-50 max-sm:translate-x-2 animate-bounce" style={{ animationDuration: '4s' }} aria-hidden>
+        {/* На телефоне кота нет: в узком первом экране он ложился на текст
+            «Семинары со студентами…» и на подсказку прокрутки. */}
+        <div className="hidden sm:block absolute bottom-0 right-0 sm:w-[280px] md:w-[340px] lg:w-[400px] h-auto opacity-90 pointer-events-none animate-bounce" style={{ animationDuration: '4s' }} aria-hidden>
           <img src={publicAsset('/image.svg')} alt="" className="w-full h-auto" loading="lazy" decoding="async" />
         </div>
       </div>
@@ -352,7 +385,9 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
         <div className="flex flex-col items-center gap-7 sm:gap-9 md:gap-10">
           <HeroBadgePill text={heroBadgeText} className="animate-fade-in max-w-full" />
 
-          <QuantumBrandTitle />
+          <Suspense fallback={<QuantumBrandTitleFallback />}>
+            <QuantumBrandTitle />
+          </Suspense>
 
           <div className="flex flex-col items-center gap-4 sm:gap-5 w-full max-w-2xl">
             <div className="space-y-1 sm:space-y-1.5 animate-slide-up w-full">
@@ -598,39 +633,39 @@ function Timeline() {
   ];
 
   return (
-    <section className="py-28 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 relative overflow-hidden">
+    <section className="py-16 sm:py-28 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/3 w-[500px] h-[500px] bg-blue-500/8 rounded-full blur-3xl" />
         <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-cyan-500/8 rounded-full blur-3xl" />
         <div className="absolute top-1/2 left-0 w-[300px] h-[300px] bg-blue-700/10 rounded-full blur-3xl" />
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 sm:px-10 lg:px-16 relative z-10">
-        <div className="text-center mb-20">
+      <div className="max-w-6xl mx-auto px-4 sm:px-10 lg:px-16 relative z-10">
+        <div className="text-center mb-10 sm:mb-20">
           <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 rounded-full text-blue-300 text-sm font-medium mb-5 backdrop-blur-sm">
             <Calendar className="w-4 h-4" />
             <span>Учебный год 2026–2027</span>
           </div>
-          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-5">Ключевые этапы</h2>
+          <h2 className="text-3xl sm:text-5xl font-bold text-white mb-5">Ключевые этапы</h2>
           <p className="text-slate-400 text-lg max-w-xl mx-auto leading-relaxed">
             Путь от регистрации до выпуска — весь учебный год с первого взгляда
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 lg:gap-8">
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
           {steps.map((step, i) => (
             <div
               key={i}
-              className={`group relative p-8 rounded-3xl bg-white/5 border ${step.border} backdrop-blur-sm hover:bg-white/8 transition-all duration-400`}
+              className={`group relative p-5 sm:p-8 rounded-3xl bg-white/5 border ${step.border} sm:backdrop-blur-sm hover:bg-white/8 transition-colors duration-300`}
             >
               <div className={`absolute -top-px left-8 right-8 h-px bg-gradient-to-r ${step.accent} opacity-60`} />
 
-              <div className="flex items-start gap-5 mb-6">
-                <div className={`flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br ${step.accent} flex items-center justify-center text-white text-xl font-bold shadow-lg`}>
+              <div className="flex items-start gap-4 sm:gap-5 mb-5 sm:mb-6">
+                <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br ${step.accent} flex items-center justify-center text-white text-lg sm:text-xl font-bold shadow-lg`}>
                   {step.num}
                 </div>
-                <div>
-                  <div className={`inline-block text-xs font-semibold px-3 py-1 rounded-full border ${step.tag} mb-2`}>
+                <div className="min-w-0">
+                  <div className={`inline-block whitespace-nowrap text-xs font-semibold px-3 py-1 rounded-full border ${step.tag} mb-2`}>
                     {step.period}
                   </div>
                   <h3 className="text-xl font-bold text-white leading-tight">{step.title}</h3>
@@ -675,9 +710,9 @@ function About() {
   ];
 
   return (
-    <section id="about" className="py-24 bg-white">
+    <section id="about" className="py-16 sm:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-16 items-start">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-start">
           {/* Left */}
           <div className="lg:pt-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full text-blue-600 text-sm font-medium mb-6">
@@ -698,7 +733,7 @@ function About() {
           </div>
 
           {/* Right — Program card */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-4 sm:p-6">
             <h3 className="text-xl font-bold text-slate-900 mb-5">Программа школы</h3>
 
             <div className="space-y-4">
@@ -709,9 +744,9 @@ function About() {
                     <Users className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
                       <span className="text-lg font-bold text-blue-600">Лекции</span>
-                      <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">10 лекций</span>
+                      <span className="whitespace-nowrap text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">10 лекций</span>
                     </div>
                     <p className="text-slate-600 text-sm leading-relaxed mb-3">
                       Онлайн-лекции от ведущих учёных и экспертов о квантовых технологиях и современных исследованиях.
@@ -736,9 +771,9 @@ function About() {
                     <Award className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
                       <span className="text-lg font-bold text-cyan-600">Семинары</span>
-                      <span className="text-xs font-medium text-cyan-600 bg-cyan-50 border border-cyan-200 rounded-full px-2 py-0.5">10 семинаров</span>
+                      <span className="whitespace-nowrap text-xs font-medium text-cyan-600 bg-cyan-50 border border-cyan-200 rounded-full px-2 py-0.5">10 семинаров</span>
                     </div>
                     <p className="text-slate-600 text-sm leading-relaxed mb-3">
                       Практические занятия и личные консультации с наставником в небольших группах.
@@ -836,14 +871,14 @@ function Features() {
   ];
 
   return (
-    <section className="py-24 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+    <section className="py-16 sm:py-24 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="text-center mb-16">
+        <div className="text-center mb-10 sm:mb-16">
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
             Почему выбирают Квантовый кружок?
           </h2>
@@ -852,13 +887,13 @@ function Features() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 hover:border-cyan-500/50 hover:bg-white/10 transition-all duration-300"
+              className="group p-5 sm:p-8 rounded-2xl bg-white/5 sm:backdrop-blur-sm border border-white/10 hover:border-cyan-500/50 hover:bg-white/10 transition-colors duration-300"
             >
-              <div className="text-4xl mb-4">{feature.icon}</div>
+              <div className="text-3xl sm:text-4xl mb-3 sm:mb-4">{feature.icon}</div>
               <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
               <p className="text-slate-400">{feature.desc}</p>
             </div>
@@ -1021,7 +1056,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
     !loading && visibleInstructors.length > (layout?.visibleCount ?? INSTRUCTOR_MAX_VISIBLE);
 
   return (
-    <section id="instructors" className="py-24 bg-slate-100/90">
+    <section id="instructors" className="py-16 sm:py-24 bg-slate-100/90">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-2">
@@ -1036,7 +1071,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
           <div className="flex items-start gap-1.5">
             <div
               ref={scrollRef}
-              className="instructor-carousel-scroll min-w-0 flex-1 scroll-smooth snap-x snap-proximity sm:snap-mandatory pt-2 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0"
+              className="instructor-carousel-scroll min-w-0 flex-1 scroll-smooth snap-x snap-proximity sm:snap-mandatory scroll-pl-4 sm:scroll-pl-0 pt-2 pb-4 -mx-4 px-4 sm:mx-0 sm:px-0"
               style={layout?.constrainViewport ? { maxWidth: layout.viewportWidth } : undefined}
             >
               <div className="instructor-carousel-track gap-5 pr-4 sm:pr-2">
@@ -1063,7 +1098,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
                 type="button"
                 onClick={() => scroll('left')}
                 disabled={!canScrollCarousel}
-                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
+                className="w-11 h-11 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors duration-200 disabled:opacity-40"
                 aria-label="Предыдущий преподаватель"
               >
                 <ChevronRight className="w-5 h-5 rotate-180" />
@@ -1072,7 +1107,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
                 type="button"
                 onClick={() => scroll('right')}
                 disabled={!canScrollCarousel}
-                className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
+                className="w-11 h-11 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors duration-200 disabled:opacity-40"
                 aria-label="Следующий преподаватель"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -1085,7 +1120,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
               type="button"
               onClick={() => scroll('left')}
               disabled={!canScrollCarousel}
-              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
+              className="w-11 h-11 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors duration-200 disabled:opacity-40"
               aria-label="Предыдущий преподаватель"
             >
               <ChevronRight className="w-5 h-5 rotate-180" />
@@ -1094,7 +1129,7 @@ function Instructors({ instructors, loading }: { instructors: Instructor[]; load
               type="button"
               onClick={() => scroll('right')}
               disabled={!canScrollCarousel}
-              className="w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 disabled:opacity-40"
+              className="w-11 h-11 flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors duration-200 disabled:opacity-40"
               aria-label="Следующий преподаватель"
             >
               <ChevronRight className="w-5 h-5" />
@@ -1111,9 +1146,9 @@ function ApplicationForm() {
   const { user } = useAuth();
 
   return (
-    <section id="contact" className="py-24 bg-slate-50">
+    <section id="contact" className="py-16 sm:py-24 bg-slate-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-16">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16">
           <div>
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full text-blue-600 text-sm font-medium mb-4">
               <UserPlus className="w-4 h-4" />
@@ -1138,9 +1173,9 @@ function ApplicationForm() {
                 <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-700 rounded-xl flex items-center justify-center text-white flex-shrink-0">
                   <Mail className="w-6 h-6" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-sm text-slate-500">Email</div>
-                  <div className="text-slate-900 font-medium">quantumschool@rqc.ru</div>
+                  <a href="mailto:quantumschool@rqc.ru" className="text-slate-900 font-medium break-all hover:text-blue-700">quantumschool@rqc.ru</a>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -1160,7 +1195,7 @@ function ApplicationForm() {
               className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#FC3F1D]/[0.07] via-amber-50/40 to-transparent"
               aria-hidden
             />
-            <div className="relative p-8 sm:p-10">
+            <div className="relative p-5 sm:p-10">
               {user ? (
                 <div className="text-center py-4 space-y-5">
                   <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto">
@@ -1239,7 +1274,7 @@ function Footer() {
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-x-5 gap-y-2 text-sm text-slate-400">
             <a
               href="mailto:quantumschool@rqc.ru"
-              className="inline-flex items-center gap-2 hover:text-blue-400 transition-colors break-all"
+              className="inline-flex items-center gap-2 min-h-11 sm:min-h-0 hover:text-blue-400 transition-colors break-all"
             >
               <Mail className="w-4 h-4 flex-shrink-0" />
               quantumschool@rqc.ru
@@ -1253,11 +1288,11 @@ function Footer() {
 
         <div className="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-400">
           <p>© 2026 Квантовый кружок</p>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <a href={appHref('/privacy')} className="hover:text-blue-400 transition-colors">
+          <div className="flex flex-wrap items-center gap-x-4">
+            <a href={appHref('/privacy')} className="inline-flex items-center min-h-11 sm:min-h-0 hover:text-blue-400 transition-colors">
               Политика конфиденциальности
             </a>
-            <a href={appHref('/privacy#contacts')} className="hover:text-blue-400 transition-colors">
+            <a href={appHref('/privacy#contacts')} className="inline-flex items-center min-h-11 sm:min-h-0 hover:text-blue-400 transition-colors">
               Обработка персональных данных
             </a>
           </div>

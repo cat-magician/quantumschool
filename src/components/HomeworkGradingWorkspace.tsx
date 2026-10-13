@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle,
   ChevronLeft,
@@ -227,6 +227,15 @@ export default function HomeworkGradingWorkspace({
     setSelectedSubmissionId(queueForPage[nextIndex]!.id);
   }, [selectedIndex, queueForPage]);
 
+  /* На телефоне очередь и работа стоят друг под другом: выбрали ученика
+     или перешли к следующему — показываем его работу, а не оставляем
+     человека в списке гадать, что поменялось ниже. */
+  const panelRef = useRef<HTMLDivElement>(null);
+  const revealPanel = () => {
+    if (window.matchMedia('(min-width: 1024px)').matches) return;
+    window.requestAnimationFrame(() => panelRef.current?.scrollIntoView({ block: 'start' }));
+  };
+
   const handleSave = async (advance: boolean) => {
     if (!selectedSubmission) return;
     const ok = await onSaveGrade(selectedSubmission, advance);
@@ -235,8 +244,20 @@ export default function HomeworkGradingWorkspace({
     const stillHere = queueForPage.filter((s) => s.id !== selectedSubmission.id);
     const nextUngraded = stillHere.find((s) => !submissionHasGrade(s));
     const next = nextUngraded ?? stillHere[0];
-    if (next) setSelectedSubmissionId(next.id);
+    if (next) {
+      setSelectedSubmissionId(next.id);
+      revealPanel();
+    }
   };
+
+  useEffect(() => {
+    if (!previewPageId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewPageId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [previewPageId]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -409,7 +430,7 @@ export default function HomeworkGradingWorkspace({
                 key={id}
                 type="button"
                 onClick={() => onGradingFilterChange(id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                className={`px-3 py-2.5 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                   gradingFilter === id
                     ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
                     : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
@@ -427,7 +448,7 @@ export default function HomeworkGradingWorkspace({
               onChange={(e) => setStudentQuery(e.target.value)}
               placeholder="Поиск по ученику…"
               aria-label="Поиск по ученику"
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950/80 border border-white/10 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+              className="w-full pl-9 pr-3 py-2.5 sm:py-1.5 rounded-lg bg-slate-950/80 border border-white/10 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
             />
           </div>
         </div>
@@ -445,7 +466,7 @@ export default function HomeworkGradingWorkspace({
         </div>
       ) : (
         <div className="grid lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] gap-4 items-start">
-          <aside className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden flex flex-col max-h-[min(70vh,36rem)] lg:sticky lg:top-20">
+          <aside className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden flex flex-col max-h-[40vh] lg:max-h-[min(70vh,36rem)] lg:sticky lg:top-20">
             <div className="shrink-0 px-3 py-2.5 border-b border-white/5 bg-slate-950/40">
               <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
                 Очередь
@@ -456,7 +477,7 @@ export default function HomeworkGradingWorkspace({
                 </p>
               )}
             </div>
-            <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-site divide-y divide-white/5">
+            <ul className="flex-1 min-h-0 overflow-y-auto lg:overscroll-contain scrollbar-site divide-y divide-white/5">
               {queueForPage.map((s, index) => {
                 const active = s.id === selectedSubmissionId;
                 const hasGrade = submissionHasGrade(s);
@@ -467,7 +488,10 @@ export default function HomeworkGradingWorkspace({
                   <li key={s.id}>
                     <button
                       type="button"
-                      onClick={() => setSelectedSubmissionId(s.id)}
+                      onClick={() => {
+                        setSelectedSubmissionId(s.id);
+                        revealPanel();
+                      }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
                         active
                           ? 'bg-violet-600/15 border-l-2 border-l-violet-400'
@@ -507,12 +531,12 @@ export default function HomeworkGradingWorkspace({
                 );
               })}
             </ul>
-            <div className="shrink-0 px-3 py-2 border-t border-white/5 text-[10px] text-slate-600">
+            <div className="hidden lg:block shrink-0 px-3 py-2 border-t border-white/5 text-[10px] text-slate-500">
               ↑↓ или j/k — переключить ученика
             </div>
           </aside>
 
-          <div className="min-w-0 space-y-3">
+          <div ref={panelRef} className="min-w-0 space-y-3 scroll-mt-20">
             {selectedSubmission && selectedIndex >= 0 && (
               <>
                 <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
@@ -529,7 +553,7 @@ export default function HomeworkGradingWorkspace({
                       type="button"
                       onClick={() => goToSubmission(-1)}
                       disabled={selectedIndex <= 0}
-                      className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-30"
+                      className="p-3 sm:p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-30"
                       aria-label="Предыдущий ученик"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -538,7 +562,7 @@ export default function HomeworkGradingWorkspace({
                       type="button"
                       onClick={() => goToSubmission(1)}
                       disabled={selectedIndex >= queueForPage.length - 1}
-                      className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-30"
+                      className="p-3 sm:p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-30"
                       aria-label="Следующий ученик"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -568,14 +592,23 @@ export default function HomeworkGradingWorkspace({
       )}
 
       {previewPageId && pageMetaMap[previewPageId] && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-3xl max-h-[min(90vh,48rem)] overflow-y-auto scrollbar-site rounded-2xl bg-slate-950 border border-white/10 p-5 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between gap-3 mb-4">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 sm:backdrop-blur-sm"
+          onClick={() => setPreviewPageId(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Условие задания"
+            className="w-full max-w-3xl max-h-[min(90dvh,calc(100vh-2rem),48rem)] overflow-y-auto overscroll-contain scrollbar-site rounded-2xl bg-slate-950 border border-white/10 px-5 pb-5 sm:px-6 sm:pb-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 -mx-5 sm:-mx-6 px-5 sm:px-6 pt-3 pb-3 mb-3 flex items-center justify-between gap-3 bg-slate-950 border-b border-white/5">
               <h3 className="text-lg font-semibold text-white">Условие задания</h3>
               <button
                 type="button"
                 onClick={() => setPreviewPageId(null)}
-                className="text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5"
+                className="min-h-11 text-sm text-slate-300 hover:text-white px-4 rounded-lg bg-white/5 hover:bg-white/10"
               >
                 Закрыть
               </button>
@@ -632,10 +665,10 @@ function SubmissionGradePanel({
 
   return (
     <article className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden">
-      <header className="flex items-start gap-3 p-4 pb-3 border-b border-white/5 bg-slate-950/20">
+      <header className="flex flex-wrap items-start gap-3 p-4 pb-3 border-b border-white/5 bg-slate-950/20">
         <UserAvatar displayName={name} avatarUrl={s.student?.avatar_url} size="md" />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-white">{name}</p>
+          <p className="font-semibold text-white break-words">{name}</p>
           {studentSubtitle && (
             <p className="text-xs text-slate-500 truncate">{studentSubtitle}</p>
           )}
@@ -646,12 +679,12 @@ function SubmissionGradePanel({
             <p className="text-xs text-slate-600">Оценено {gradedWhen}</p>
           )}
         </div>
-        <div className="flex flex-wrap gap-2 justify-end shrink-0">
+        <div className="basis-full sm:basis-auto flex flex-wrap gap-2 justify-start sm:justify-end sm:shrink-0">
           {pageMeta && onOpenPreview && (
             <button
               type="button"
               onClick={onOpenPreview}
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-white/5 text-slate-300 border border-white/10 hover:text-white hover:bg-white/10"
+              className="inline-flex items-center gap-1 text-xs sm:text-[11px] px-3 py-2 sm:px-2 sm:py-1 rounded-md bg-white/5 text-slate-300 border border-white/10 hover:text-white hover:bg-white/10"
             >
               <Eye className="w-3 h-3" />
               Условие
@@ -663,7 +696,7 @@ function SubmissionGradePanel({
               href={link.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-violet-500/10 text-violet-200 border border-violet-500/20 hover:bg-violet-500/20"
+              className="inline-flex items-center gap-1 text-xs sm:text-[11px] px-3 py-2 sm:px-2 sm:py-1 rounded-md bg-violet-500/10 text-violet-200 border border-violet-500/20 hover:bg-violet-500/20"
             >
               <ExternalLink className="w-3 h-3" />
               {link.label}

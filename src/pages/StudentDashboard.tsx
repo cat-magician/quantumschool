@@ -75,10 +75,10 @@ const SELECTION_HEADER: Record<SelectionSubTab, string> = {
   results: 'Результаты',
 };
 
-const LEARNING_SUB_NAV: { id: LearningSubTab; label: string; icon: typeof Presentation }[] = [
-  { id: 'lectures', label: 'Лекции', icon: Presentation },
-  { id: 'seminars', label: 'Семинары', icon: Presentation },
-  { id: 'homework', label: 'Домашние задания', icon: BookOpen },
+const LEARNING_SUB_NAV: { id: LearningSubTab; label: string; shortLabel: string; icon: typeof Presentation }[] = [
+  { id: 'lectures', label: 'Лекции', shortLabel: 'Лекции', icon: Presentation },
+  { id: 'seminars', label: 'Семинары', shortLabel: 'Семинары', icon: Presentation },
+  { id: 'homework', label: 'Домашние задания', shortLabel: 'Задания', icon: BookOpen },
 ];
 
 const LEARNING_HEADER: Record<LearningSubTab, string> = {
@@ -106,6 +106,8 @@ export default function StudentDashboard() {
   const displayName = profile ? profileDisplayName(profile) : 'Участник';
   const accountSubtitle = profileAccountLabel(profile, user?.email);
   const [groupContext, setGroupContext] = useState<StudentGroupContext | null>(null);
+  /** Что было в адресе и в состоянии при прошлой синхронизации адреса. */
+  const urlSyncRef = useRef<{ stateKey: string; search: string } | null>(null);
 
   const closeMobileNav = () => setMobileNavOpen(false);
 
@@ -232,8 +234,30 @@ export default function StudentDashboard() {
 
     const params = studentDashboardStateToSearchParams(normalized);
 
+    // Адрес сменился снаружи («Назад», ссылка), а состояние ещё старое: его
+    // догонит эффект выше. Записать сейчас — значит вернуть в историю ту
+    // страницу, с которой только что ушли, и «Назад» пошла бы по кругу.
+    const stateKey = params.toString();
+    const search = searchParams.toString();
+    const previous = urlSyncRef.current;
+    urlSyncRef.current = { stateKey, search };
+    if (previous && previous.stateKey === stateKey && previous.search !== search) return;
+
     if (!dashboardSearchParamsEqual(params, searchParams)) {
-      setSearchParams(params, { replace: true });
+      // Переход по кабинету — новый шаг истории: системная «Назад» на телефоне
+      // (жест, кнопка Android, «назад» в Telegram) возвращает к прошлому
+      // разделу, а не уводит с сайта. Если адрес лишь уточняется (пустой,
+      // устаревший, без подвкладки) — заменяем, иначе «Назад» зациклится.
+      // Пустой адрес — это главная кабинета, а не «ещё не разобранный».
+      const urlState = normalizeStudentDashboardState(
+        parseStudentDashboardSearchParams(searchParams) ?? defaultStudentDashboardState(),
+        isEnrolled,
+      );
+      const navigation = !dashboardSearchParamsEqual(studentDashboardStateToSearchParams(urlState), params);
+      setSearchParams(params, { replace: !navigation });
+      // Новый раздел — с начала: иначе он открывался на высоте прокрутки
+      // прошлого и, например, пропускал «Ближайшее занятие».
+      if (navigation) window.scrollTo({ top: 0, behavior: 'instant' });
     }
   }, [tab, selectionSubTab, learningSubTab, contentPageId, isEnrolled, viewReady, searchParams, setSearchParams, user?.id]);
 
@@ -382,7 +406,7 @@ export default function StudentDashboard() {
             if (item.id === 'selection') {
               return (
                 <div key={item.id} className="space-y-1 pt-1">
-                  <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                  <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     Отборочный этап
                   </p>
                   {selectionSubNav.map((sub) => {
@@ -556,7 +580,11 @@ export default function StudentDashboard() {
                   : undefined,
             onClick: openHome,
           },
-          ...navItems.map((item) => ({
+          // В нижней полосе — только то, куда ходят каждый день: у зачисленного
+          // «Отбор» сводится к «Результатам» и живёт в меню, у незачисленного
+          // закрытые разделы там же, с замком. Иначе пять-шесть вкладок не
+          // помещались, и открытая оказывалась за краем экрана.
+          ...navItems.filter((item) => (isEnrolled ? item.id !== 'selection' : !item.locked)).map((item) => ({
             id: item.id,
             label: item.label,
             shortLabel:
@@ -592,7 +620,7 @@ export default function StudentDashboard() {
           if (item.id === 'selection') {
             return (
               <div key={item.id} className="space-y-1 pt-1">
-                <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Отборочный этап
                 </p>
                 {selectionSubNav.map((sub) => (
@@ -700,7 +728,7 @@ export default function StudentDashboard() {
       </DashboardMobileNav>
 
       <main className="flex-1 lg:ml-64 min-h-screen min-w-0">
-        <header className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-white/5 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 min-w-0">
+        <header className="sticky top-0 z-10 bg-slate-950/95 lg:bg-slate-950/80 lg:backdrop-blur-md border-b border-white/5 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 min-w-0">
           <button
             type="button"
             onClick={openHome}
@@ -734,7 +762,9 @@ export default function StudentDashboard() {
           />
         )}
 
-        {tab === 'learning' && isEnrolled && (
+        {/* На открытой лекции или задании подразделы не нужны — есть «Назад»,
+            а на телефоне они отодвигали запись занятия на экран вниз. */}
+        {tab === 'learning' && isEnrolled && !contentPageId && (
           <MobileSubNavBar
             items={LEARNING_SUB_NAV}
             activeId={learningSubTab}
@@ -742,8 +772,10 @@ export default function StudentDashboard() {
           />
         )}
 
-        <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
-          {isEnrolled && groupContext && tab !== 'home' && <StudentGroupInfo context={groupContext} />}
+        <div className="p-4 sm:p-6 lg:p-8 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
+          {isEnrolled && groupContext && tab !== 'home' && !contentPageId && (
+            <StudentGroupInfo context={groupContext} />
+          )}
           {tab === 'home' && profile && user && (
             <div className="space-y-6">
               <StudentDashboardHome
@@ -920,7 +952,7 @@ function SelectionTab({
             </p>
           </div>
 
-          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-3 sm:p-8 overflow-visible">
             {!profile.questionnaire_submitted_at && questionnairePublished && (
               <ExternalFormHint />
             )}
@@ -971,7 +1003,7 @@ function SelectionTab({
             </p>
           </div>
 
-          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-3 sm:p-8 overflow-visible">
             {!stage1Done && essayPublished && (
               <ExternalFormHint />
             )}
@@ -1032,7 +1064,7 @@ function SelectionTab({
             <SectionHint text={SECTION_HINT.student.selectionStage2} className="mt-2" />
           </div>
 
-          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 sm:p-8 overflow-visible">
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-3 sm:p-8 overflow-visible">
             <h3 className="font-semibold text-white mb-5">Контест</h3>
             {!stage2Done && contestPublished && (
               <ExternalFormHint />

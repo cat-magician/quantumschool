@@ -20,6 +20,19 @@ function CoverPlaceholder({ lessonType }: { lessonType: LessonPageType }) {
   );
 }
 
+function PublishStatusPill({ published, className = '' }: { published: boolean; className?: string }) {
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-md border shrink-0 ${
+      published
+        ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+        : 'text-amber-200 bg-amber-500/10 border-amber-500/25'
+    } ${className}`}
+    >
+      {published ? 'Опубликовано' : 'Черновик'}
+    </span>
+  );
+}
+
 export default function LessonPageCard({
   page,
   event,
@@ -64,7 +77,7 @@ export default function LessonPageCard({
         onClick={onClick}
         className="flex-1 flex items-stretch gap-0 text-left min-w-0"
       >
-        <div className={`w-28 sm:w-32 shrink-0 relative min-h-[5.5rem] ${past ? 'opacity-55 saturate-50' : ''}`}>
+        <div className={`w-20 sm:w-32 shrink-0 relative min-h-[5.5rem] ${past ? 'opacity-55 saturate-50' : ''}`}>
           {showCover ? (
             <LessonCoverImage
               url={coverUrl}
@@ -79,7 +92,9 @@ export default function LessonPageCard({
 
         <div className="flex-1 flex items-center gap-3 min-w-0 py-3 pr-3 pl-4 sm:pl-5 border-l border-white/5">
           <div className="flex-1 min-w-0">
-            <div className={`font-semibold truncate group-hover:text-blue-300 transition-colors ${past ? 'text-slate-300' : 'text-white'}`}>
+            {/* Две строки, а не одна: на телефоне в строку влезало ~18 знаков,
+                и «Лекция 7. Алгорит…» не отличалась от «Лекции 8». */}
+            <div className={`font-semibold line-clamp-2 break-words group-hover:text-blue-300 transition-colors ${past ? 'text-slate-300' : 'text-white'}`}>
               {page.title}
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
@@ -91,6 +106,7 @@ export default function LessonPageCard({
                 <span>{formatLessonDate(page.lesson_date)}</span>
               )}
               {live && <LiveChip />}
+              {showStatus && <PublishStatusPill published={page.is_published} className="sm:hidden" />}
               {event === null && showStatus && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 text-slate-500">
                   не в расписании
@@ -99,25 +115,17 @@ export default function LessonPageCard({
             </div>
           </div>
 
-          {showStatus && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-md border shrink-0 ${
-              page.is_published
-                ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
-                : 'text-amber-200 bg-amber-500/10 border-amber-500/25'
-            }`}
-            >
-              {page.is_published ? 'Опубликовано' : 'Черновик'}
-            </span>
-          )}
+          {showStatus && <PublishStatusPill published={page.is_published} className="hidden sm:inline-flex" />}
 
-          {!hasActions && (
-            <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0" />
-          )}
+          <ChevronRight className={`w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0 ${hasActions ? 'sm:hidden' : ''}`} />
         </div>
       </button>
 
+      {/* На телефоне кнопок на карточке нет: они отнимали у названия почти всю
+          ширину, а публикация снималась одним случайным касанием. Опубликовать,
+          снять и удалить можно на самой странице. */}
       {hasActions && (
-        <div className="flex items-center gap-1 px-2 sm:px-3 border-l border-white/5 shrink-0">
+        <div className="hidden sm:flex items-center gap-1 px-3 border-l border-white/5 shrink-0">
           {onTogglePublish && (
             <button
               type="button"

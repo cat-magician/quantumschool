@@ -150,11 +150,14 @@ export default function StudentDashboardHome({
       )}
 
       {isEnrolled && (
-        <section className="grid sm:grid-cols-2 gap-3">
+        // grid-cols-1, а не неявная колонка: та растягивалась по длинному
+        // названию занятия (truncate не переносит), и карточки уезжали за
+        // правый край телефона.
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => onAction({ label: '', description: '', tab: 'learning', learningSub: 'homework', emphasis: 'secondary' })}
-            className="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-left hover:bg-slate-900/80 transition-colors"
+            className="min-w-0 rounded-xl border border-white/10 bg-slate-900/60 p-4 text-left hover:bg-slate-900/80 transition-colors"
           >
             <p className="text-xs text-slate-500 mb-1">Домашние задания</p>
             {loading ? (
@@ -168,7 +171,7 @@ export default function StudentDashboardHome({
           <button
             type="button"
             onClick={() => onAction({ label: '', description: '', tab: 'schedule', emphasis: 'secondary' })}
-            className="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-left hover:bg-slate-900/80 transition-colors"
+            className="min-w-0 rounded-xl border border-white/10 bg-slate-900/60 p-4 text-left hover:bg-slate-900/80 transition-colors"
           >
             <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5" />
@@ -217,7 +220,7 @@ export default function StudentDashboardHome({
                     <button
                       type="button"
                       onClick={() => onOpenHomework(page.pageId)}
-                      className="w-full flex items-center justify-between gap-2 text-sm py-1.5 px-2 -mx-2 rounded-lg hover:bg-white/5 transition-colors text-left group"
+                      className="w-full flex items-center justify-between gap-2 text-sm py-2.5 px-2 -mx-2 rounded-lg hover:bg-white/5 transition-colors text-left group"
                     >
                       <span className="text-slate-300 truncate group-hover:text-white">{page.title}</span>
                       <span className={`shrink-0 text-xs ${statusClass}`}>
@@ -254,7 +257,7 @@ export default function StudentDashboardHome({
       )}
 
       {verdict === 'waiting' && (
-        <p className="text-xs text-slate-600 flex items-start gap-2 px-1">
+        <p className="text-xs text-slate-500 flex items-start gap-2 px-1">
           <FlaskConical className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           Этапы 1 и 2 можно проходить параллельно — главное подтвердить отправку кнопкой на странице этапа.
         </p>

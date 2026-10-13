@@ -1824,7 +1824,7 @@ export default function SelectionMatchingTab() {
             </div>
           )}
 
-          <div className="sticky bottom-4 flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-slate-900/95 border border-white/10 backdrop-blur-sm">
+          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] lg:bottom-4 z-20 flex flex-wrap items-center gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/95 border border-white/10 sm:backdrop-blur-sm">
             <button
               type="button"
               onClick={() => { void save(); }}
@@ -1834,7 +1834,7 @@ export default function SelectionMatchingTab() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Сохранить связи ({drafts.length})
             </button>
-            <p className="text-xs text-slate-500 min-w-0 flex-1">
+            <p className="hidden sm:block text-xs text-slate-500 min-w-0 flex-1">
               В базу уйдут только точные совпадения и подтверждённые вами строки.
               Почта из анкеты попадёт в профиль участника.
             </p>

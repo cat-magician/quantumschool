@@ -8,16 +8,16 @@ import { markTeacherLoginCorridor } from '../lib/loginCorridor';
 
 export default function TeacherJoin() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+    <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center p-4 sm:p-6">
       <div className="max-w-md w-full">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-slate-400 hover:text-white text-sm font-medium transition-colors mb-4"
+          className="inline-flex items-center gap-2 min-h-11 pr-3 text-slate-400 hover:text-white text-sm font-medium transition-colors mb-2"
         >
           <ArrowLeft className="w-4 h-4" />
           На главную
         </Link>
-        <div className="bg-slate-900 border border-white/10 rounded-3xl p-8">
+        <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-8">
           <div className="flex justify-center mb-6">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-violet-700 rounded-2xl flex items-center justify-center">
               <Atom className="w-7 h-7 text-white" />

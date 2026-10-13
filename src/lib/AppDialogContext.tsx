@@ -146,7 +146,7 @@ function ToastBanner({
       <button
         type="button"
         onClick={onClose}
-        className="p-1 rounded-lg hover:bg-white/10 text-current/70 transition-colors flex-shrink-0"
+        className="-m-2 p-2.5 rounded-lg hover:bg-white/10 text-current/70 transition-colors flex-shrink-0"
         aria-label="Закрыть"
       >
         <X className="w-4 h-4" />

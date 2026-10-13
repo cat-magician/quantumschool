@@ -31,6 +31,7 @@ export default function VideoEmbed({ url }: { url: string }) {
       <iframe
         src={resolved.embedUrl}
         title="Запись занятия"
+        loading="lazy"
         className="absolute inset-0 w-full h-full"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen

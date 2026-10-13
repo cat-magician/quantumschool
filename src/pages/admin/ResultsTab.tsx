@@ -21,6 +21,7 @@ import {
   type SelectionVerdict,
 } from '../../lib/selectionDisplayUtils';
 import { removeUserFromAllGroups } from '../../lib/groupUtils';
+import { useAppDialog } from '../../lib/AppDialogContext';
 import SelectionFilterBar from '../../components/SelectionFilterBar';
 import { downloadSelectionCsv } from '../../lib/selectionExport';
 import {
@@ -99,6 +100,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
   const [infoStudentId, setInfoStudentId] = useState<string | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const { confirm } = useAppDialog();
 
   const load = async () => {
     setLoading(true);
@@ -184,7 +186,21 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
 
   /** Повторное нажатие на принятое решение снимает его. */
   const toggleDecision = async (s: StudentRow, decision: Decision) => {
-    const next = selectionVerdict(getDraft(s)) === decision ? 'waiting' : decision;
+    const current = selectionVerdict(getDraft(s));
+    const next = current === decision ? 'waiting' : decision;
+    // Снять зачисление — значит убрать ученика из всех групп, и повторное
+    // «Зачислить» их не вернёт. На телефоне кнопки рядом, промахнуться легко,
+    // поэтому спрашиваем.
+    if (current === 'accepted' && next !== 'accepted') {
+      const ok = await confirm({
+        title: 'Снять зачисление?',
+        message: `У участника «${profileDisplayName(getDraft(s))}» пропадёт доступ к обучению, `
+          + 'а место в группах будет удалено. Если зачислить снова, группу придётся назначить заново.',
+        confirmLabel: 'Снять зачисление',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     await persistStudent(s, {
       is_enrolled: next === 'accepted',
       selection_waitlisted: next === 'waitlist',
@@ -262,8 +278,8 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-500">Ученики не найдены</div>
       ) : (
-        <div className="overflow-x-auto">
-        <div className="space-y-3 min-w-[42rem]">
+        <div className="md:overflow-x-auto">
+        <div className="space-y-3 md:min-w-[42rem]">
           <div className={`hidden md:grid ${RESULTS_ROW_GRID} px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500`}>
             <span>Участник</span>
             <span>Эссе</span>
@@ -326,7 +342,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                   />
 
                   <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 md:col-start-4 shrink-0">
-                    <div role="group" aria-label="Решение" className="flex items-center gap-2">
+                    <div role="group" aria-label="Решение" className="flex items-center gap-3 sm:gap-2">
                       {DECISION_BUTTONS.map(({ decision, label, activeLabel, icon: Icon, idleClass, activeClass }) => {
                         const active = verdict === decision;
                         return (
@@ -338,7 +354,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                             aria-label={label}
                             aria-pressed={active}
                             title={active ? `${activeLabel} — нажмите ещё раз, чтобы снять` : label}
-                            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors disabled:opacity-50 ${
+                            className={`flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-xl border transition-colors disabled:opacity-50 ${
                               active ? activeClass : idleClass
                             }`}
                           >

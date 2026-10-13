@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, ExternalLink, FileText, Loader2 } from 'lucide-react';
 import { isYandexDiskUrl } from '../lib/yandexDiskImageUtils';
+import { TOUCH_POINTER_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import {
   pdfViewerTitle,
   resolveLessonDocument,
@@ -53,9 +54,15 @@ export default function PdfDocumentViewer({
     };
   }, [rawUrl, title]);
 
+  const touch = useMediaQuery(TOUCH_POINTER_QUERY);
   const openUrl = doc?.sourceUrl ?? rawUrl;
   const downloadUrl = doc?.downloadUrl ?? rawUrl;
-  const canEmbed = doc?.kind === 'pdf' || doc?.kind === 'office';
+  // PDF во фрейме телефоны не показывают: Chrome и Яндекс Браузер на Android
+  // оставляют пустое окно или сразу качают файл, iPhone рисует одну первую
+  // страницу без прокрутки. Там — кнопки в системный просмотрщик. Документы
+  // Office идут через веб-просмотрщик Microsoft, он на телефоне работает.
+  const pdfOnTouch = doc?.kind === 'pdf' && touch;
+  const canEmbed = (doc?.kind === 'pdf' && !touch) || doc?.kind === 'office';
   const loadingHint = isYandexDiskUrl(rawUrl) ? 'Получаем файл с Яндекс.Диска…' : 'Загрузка документа…';
 
   return (
@@ -72,7 +79,7 @@ export default function PdfDocumentViewer({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className={`items-center gap-2 shrink-0 ${pdfOnTouch ? 'hidden' : 'flex'}`}>
           <a
             href={openUrl}
             target="_blank"
@@ -95,7 +102,7 @@ export default function PdfDocumentViewer({
         </div>
       </div>
 
-      <div className="relative bg-slate-100 min-h-[420px] max-h-[min(75vh,900px)]">
+      <div className={`relative bg-slate-100 max-h-[min(75vh,900px)] ${pdfOnTouch && !loading && !error ? '' : 'min-h-[420px]'}`}>
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-500">
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
@@ -126,6 +133,33 @@ export default function PdfDocumentViewer({
             className="block w-full h-[min(75vh,900px)] min-h-[420px] border-0 bg-white"
             allow="fullscreen"
           />
+        )}
+
+        {!loading && !error && pdfOnTouch && (
+          <div className="flex flex-col gap-2.5 p-4">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Откроется в просмотрщике телефона — там удобнее листать и увеличивать.
+            </p>
+            <a
+              href={openUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 min-h-12 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[15px] font-semibold transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Открыть конспект
+            </a>
+            <a
+              href={downloadUrl}
+              download={doc?.fileName}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 min-h-12 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[15px] font-medium transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Скачать
+            </a>
+          </div>
         )}
 
         {!loading && !error && doc?.kind === 'download_only' && (

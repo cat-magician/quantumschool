@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { profileAccountLabel, profileDisplayName } from '../lib/profileUtils';
@@ -80,6 +80,8 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const [selectionExpanded, setSelectionExpanded] = useState(false);
   const ungradedCount = useAdminUngradedCount(isSuperAdmin);
   const [viewReady, setViewReady] = useState(false);
+  /** Что было в адресе и в состоянии при прошлой синхронизации адреса. */
+  const urlSyncRef = useRef<{ stateKey: string; search: string } | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [contentListResetKey, setContentListResetKey] = useState(0);
   // Страница, которую открыть во вкладке «Лекции»/«Семинары»/«ДЗ» по карточке из расписания.
@@ -157,8 +159,24 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       normalizeAdminDashboardState({ tab, selectionSubTab }, isSuperAdmin),
     );
 
+    // Как в кабинете ученика: адрес сменился снаружи («Назад»), а состояние
+    // ещё старое — его догонит эффект выше, писать сейчас нельзя.
+    const stateKey = params.toString();
+    const search = searchParams.toString();
+    const previous = urlSyncRef.current;
+    urlSyncRef.current = { stateKey, search };
+    if (previous && previous.stateKey === stateKey && previous.search !== search) return;
+
     if (!dashboardSearchParamsEqual(params, searchParams)) {
-      setSearchParams(params, { replace: true });
+      // Переход по разделам — шаг истории, чтобы «Назад» на телефоне
+      // возвращала в прошлый раздел; уточнение адреса — замена.
+      const urlState = normalizeAdminDashboardState(
+        parseAdminDashboardSearchParams(searchParams) ?? defaultAdminDashboardState(),
+        isSuperAdmin,
+      );
+      const navigation = !dashboardSearchParamsEqual(adminDashboardStateToSearchParams(urlState), params);
+      setSearchParams(params, { replace: !navigation });
+      if (navigation) window.scrollTo({ top: 0, behavior: 'instant' });
     }
   }, [tab, selectionSubTab, isSuperAdmin, viewReady, searchParams, setSearchParams]);
 
@@ -467,7 +485,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       </DashboardMobileNav>
 
       <main className="flex-1 lg:ml-64 min-h-screen min-w-0">
-        <header className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-white/5 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 min-w-0">
+        <header className="sticky top-0 z-10 bg-slate-950/95 lg:bg-slate-950/80 lg:backdrop-blur-md border-b border-white/5 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 min-w-0">
           <button
             type="button"
             onClick={openHome}
@@ -497,7 +515,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           />
         )}
 
-        <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-8">
+        <div className="p-4 sm:p-6 lg:p-8 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
           {tab === 'home' && (
             <AdminDashboardHome
               isSuperAdmin={isSuperAdmin}

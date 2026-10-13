@@ -83,9 +83,19 @@
 }
 
 
+/*
+  Боковой выход за экран режем через clip, а не hidden: hidden сразу на html
+  и body делает body прокручиваемым блоком, и position: sticky внутри (шапка
+  кабинета, шапка профиля) перестаёт прилипать. hidden — запасной вариант
+  для браузеров без clip (Safari до 16).
+*/
 html {
   scroll-behavior: smooth;
   overflow-x: hidden;
+  overflow-x: clip;
+  /* Виден при «резиновой» прокрутке на телефоне и по бокам в альбомной
+     ориентации: верх и низ страниц тёмные, белые полосы там режут глаз. */
+  background-color: #0f172a;
 }
 
 body {
@@ -93,6 +103,27 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  overflow-x: clip;
+  /* С viewport-fit=cover в альбомной ориентации iPhone вырез и скруглённые
+     углы оказываются сбоку — текст от них отодвигаем. */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+a, button, label, summary, input, select, textarea, [role='button'] {
+  touch-action: manipulation;
+}
+
+/*
+  iOS Safari увеличивает страницу, когда фокус попадает в поле с текстом
+  мельче 16px, и обратно сам не возвращает. На телефонах поля не мельче
+  16px; крупные (text-base и больше) остаются как есть. Специфичность
+  выше одиночного класса, поэтому text-sm у самого поля тоже перебивается.
+*/
+@media (max-width: 639px), (pointer: coarse) {
+  :is(input, textarea, select):not([type='checkbox'], [type='radio'], [type='range'], [type='file'], .text-base, .text-lg, .text-xl, .text-2xl, .text-3xl) {
+    font-size: 16px;
+  }
 }
 
 @layer components {
@@ -206,6 +237,15 @@ body {
   .scrollbar-site::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  /* Лента, которую листают пальцем: полоса прокрутки там только мешает. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer utilities {
@@ -301,6 +341,17 @@ body {
     padding-block: 0.04em;
   }
 
+  /* Заглушка заголовка, пока грузится анимация: скрыта, как и он сам до
+     старта, но если чанк так и не придёт — проявится через пару секунд. */
+  .quantum-brand-fallback {
+    opacity: 0;
+    animation: quantum-brand-fallback-reveal 0.4s ease-out 2.5s forwards;
+  }
+
+  @keyframes quantum-brand-fallback-reveal {
+    to { opacity: 1; }
+  }
+
   .quantum-brand-char {
     display: inline-block;
     color: transparent;
@@ -327,11 +378,15 @@ body {
   }
 
   /* Горизонтальная лента карусели — свайп пальцем на мобиле */
+  /* touch-action: pan-x здесь было нельзя: лента во всю ширину и в полэкрана
+     высотой, и вертикальный свайп по карточке не прокручивал страницу —
+     посетитель «застревал» на преподавателях. Браузер сам различает
+     горизонтальный и вертикальный жест. */
   .instructor-carousel-scroll {
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-x;
+    touch-action: pan-x pan-y;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
   }
@@ -354,5 +409,26 @@ body {
       bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)) !important;
       z-index: 15 !important;
     }
+  }
+}
+
+/*
+  Кто включил в системе «уменьшить движение», не должен видеть плавающие
+  точки, пульсирующие пятна и подпрыгивающего кота — раньше это уважала
+  только подсветка заголовка. Анимации доигрывают мгновенно, прокрутка
+  к якорю — без плавности.
+*/
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

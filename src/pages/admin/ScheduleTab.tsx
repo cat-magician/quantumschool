@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Calendar, Clock, FilePlus2, Loader2, Plus, Trash2, X,
+  Calendar, ChevronDown, Clock, FilePlus2, Loader2, Plus, Trash2, X,
 } from 'lucide-react';
 import { normalizeMeetingUrl } from '../../lib/meetingLinkUtils';
 import MeetingLinkButton from '../../components/MeetingLinkButton';
@@ -93,6 +93,8 @@ export default function ScheduleTab({
   const [pageBusyId, setPageBusyId] = useState<string | null>(null);
   const [listError, setListError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  // Только для телефона: календарь раскрывается кнопкой над списком.
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
@@ -378,8 +380,35 @@ export default function ScheduleTab({
         </p>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_300px] gap-6">
-        <div className="space-y-4 min-w-0">
+      <div className="grid lg:grid-cols-[1fr_300px] gap-4 lg:gap-6">
+        {/* На телефоне календарь стоял под всей историей занятий, а выбранный
+            в нём день фильтровал список, которого уже не видно. */}
+        <div className="lg:hidden order-first flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCalendarOpen((open) => !open)}
+            aria-expanded={calendarOpen}
+            className="inline-flex items-center gap-2 min-h-11 px-4 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-slate-200 hover:bg-white/10 transition-colors"
+          >
+            <Calendar className="w-4 h-4 text-blue-400" aria-hidden />
+            {selectedDate
+              ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(selectedDate)
+              : 'Календарь'}
+            <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${calendarOpen ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            >
+              <X className="w-4 h-4" aria-hidden />
+              Все даты
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-4 min-w-0 lg:col-start-1 lg:row-start-1">
           <div className="flex flex-wrap gap-2">
             {([
               ['all', 'Все'],
@@ -438,7 +467,7 @@ export default function ScheduleTab({
           )}
         </div>
 
-        <div className="space-y-4 min-w-0 lg:sticky lg:top-6 lg:self-start">
+        <div className={`space-y-4 min-w-0 order-first lg:order-none lg:col-start-2 lg:row-start-1 lg:block lg:sticky lg:top-20 lg:self-start ${calendarOpen ? '' : 'hidden'}`}>
           <MonthCalendar
             events={entries}
             month={calendarMonth}
@@ -454,7 +483,7 @@ export default function ScheduleTab({
             <p className="text-xs text-slate-500 text-center leading-snug">{refHint}</p>
           )}
           {upcomingPreview.length > 0 && (
-            <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-2">
+            <div className="hidden lg:block bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-2">
               <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-1">Ближайшие</p>
               {upcomingPreview.map((e) => (
                 <button
@@ -481,7 +510,7 @@ export default function ScheduleTab({
             <button
               type="button"
               onClick={() => setSelectedDate(null)}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              className="hidden lg:block text-xs text-slate-500 hover:text-slate-300 transition-colors"
             >
               {filter === 'all' ? 'Сбросить фильтр по дате' : 'Вернуться к сегодня'}
             </button>
@@ -496,7 +525,7 @@ export default function ScheduleTab({
           role="presentation"
         >
           <div
-            className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto overscroll-contain scrollbar-site"
+            className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto overscroll-contain scrollbar-site"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -509,7 +538,7 @@ export default function ScheduleTab({
               <button
                 onClick={closeForm}
                 aria-label="Закрыть"
-                className="p-2 rounded-lg hover:bg-white/5 text-slate-400"
+                className="p-3 -m-1 sm:p-2 sm:m-0 rounded-lg hover:bg-white/5 text-slate-400"
               >
                 <X className="w-5 h-5" />
               </button>

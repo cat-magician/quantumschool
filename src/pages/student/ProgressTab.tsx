@@ -90,7 +90,7 @@ export default function StudentProgressTab({
 
   return (
     <div className="max-w-3xl space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
         <StatCard label="Проверено" value={String(stats.graded)} icon={CheckCircle} />
         <StatCard label="На проверке" value={String(stats.submitted)} icon={Send} />
         <StatCard label="Средняя" value={stats.avg !== null ? `${formatHomeworkScoreValue(stats.avg)}/10` : '—'} icon={BarChart3} />
@@ -111,7 +111,7 @@ export default function StudentProgressTab({
             showHints
             wrap
           />
-          <p className="text-[11px] text-slate-500 mt-3">Наведите на значок, чтобы узнать, как получить достижение</p>
+          <p className="text-xs text-slate-500 mt-3">Нажмите на значок, чтобы узнать, как получить достижение</p>
         </div>
       )}
 
@@ -134,7 +134,7 @@ export default function StudentProgressTab({
       {homeworkPages.length > 0 ? (
         <div className="space-y-1.5">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-0.5">Домашние задания</h3>
-          <div className="max-h-[min(50vh,18rem)] overflow-y-auto space-y-1.5 pr-0.5">
+          <div className="lg:max-h-[min(50vh,18rem)] lg:overflow-y-auto space-y-1.5 lg:pr-0.5">
             {homeworkPages.map((p) => {
               const row = (
                 <>
@@ -216,7 +216,7 @@ function StatCard({ label, value, icon: Icon }: { label: string; value: string; 
       <Icon className="w-4 h-4 text-blue-400" />
       <div>
         <div className="text-lg font-bold text-white leading-none">{value}</div>
-        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">{label}</div>
+        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide break-words">{label}</div>
       </div>
     </div>
   );
