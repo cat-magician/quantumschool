@@ -8,6 +8,10 @@ import PrivacyConsentGate from '../components/PrivacyConsentGate';
 import { profileNeedsPrivacyConsent } from '../lib/profileUtils';
 import { shouldShowTeacherApplicationGate } from '../lib/loginCorridor';
 import { lazyChunk } from '../lib/lazyChunk';
+import { isYandexOAuthEnabled } from '../lib/yandexAuthConfig';
+import { isLoginAuthEnabled } from '../lib/loginAuthConfig';
+import YandexSignInButton from '../components/YandexSignInButton';
+import LoginPasswordForm from '../components/LoginPasswordForm';
 
 // Кабинеты ученика и сотрудника — отдельные чанки: ученику незачем качать код
 // админки, а это больше трети прежнего общего чанка.
@@ -39,7 +43,7 @@ function rememberDashboardKind(kind: DashboardKind) {
 
 function DashboardSpinner() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+    <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center">
       <div className="w-10 h-10 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
     </div>
   );
@@ -80,28 +84,42 @@ export default function Dashboard() {
   }
 
   if (!user && oauthError) {
+    const yandex = isYandexOAuthEnabled();
+    const loginPassword = isLoginAuthEnabled();
+
+    // Войти можно прямо отсюда: повторный вход в этом же браузере обычно
+    // проходит, а вход по паролю от Яндекса вообще не зависит.
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-slate-900/80 border border-rose-500/20 rounded-2xl p-8">
-          <AlertCircle className="w-12 h-12 text-rose-400 mx-auto mb-4" />
+      <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center px-4 py-8 sm:p-6">
+        <div className="max-w-md w-full bg-slate-900/80 border border-rose-500/20 rounded-2xl p-5 sm:p-8">
+          <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 text-rose-400 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-white mb-3 text-center">Не удалось войти</h2>
-          <p className="text-slate-300 text-sm leading-relaxed mb-6">{oauthError}</p>
-          <div className="flex flex-col gap-3">
-            <Link
-              to="/"
-              onClick={clearOAuthError}
-              className="flex items-center justify-center px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors"
-            >
-              На главную
-            </Link>
-            <Link
-              to="/#contact"
-              onClick={clearOAuthError}
-              className="text-center text-sm text-slate-500 hover:text-slate-300"
-            >
-              Попробовать снова
-            </Link>
-          </div>
+          <p role="alert" className="text-slate-300 text-sm leading-relaxed mb-6">{oauthError}</p>
+
+          {yandex && (
+            <YandexSignInButton
+              label="Войти с Яндекс ID ещё раз"
+              errorClassName="text-rose-400"
+            />
+          )}
+
+          {yandex && loginPassword && (
+            <div className="flex items-center gap-3 my-6">
+              <span className="h-px flex-1 bg-white/10" />
+              <span className="text-xs text-slate-500 uppercase tracking-wide">или</span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+          )}
+
+          <LoginPasswordForm tone="dark" onSuccess={clearOAuthError} />
+
+          <Link
+            to="/"
+            onClick={clearOAuthError}
+            className="mt-4 flex items-center justify-center min-h-11 text-sm text-slate-500 hover:text-slate-300"
+          >
+            На главную
+          </Link>
         </div>
       </div>
     );
@@ -135,8 +153,8 @@ export default function Dashboard() {
            Возможно, не применена схема Supabase.`;
 
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-slate-900/80 border border-white/10 rounded-2xl p-8 text-center">
+      <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center p-4 sm:p-6">
+        <div className="max-w-md w-full bg-slate-900/80 border border-white/10 rounded-2xl p-5 sm:p-8 text-center">
           <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-white mb-2">{title}</h2>
           <p className="text-slate-400 text-sm mb-6 leading-relaxed">{message}</p>
@@ -167,10 +185,10 @@ export default function Dashboard() {
               {signingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
               {signingOut ? 'Выходим…' : staleSession ? 'Войти заново' : 'Выйти'}
             </button>
-            <Link to="/" className="text-sm text-slate-500 hover:text-slate-300">На главную</Link>
+            <Link to="/" className="flex items-center justify-center min-h-11 text-sm text-slate-500 hover:text-slate-300">На главную</Link>
           </div>
           {profileError && (
-            <p className="mt-5 text-[11px] text-slate-600 leading-relaxed break-words">
+            <p className="mt-5 text-xs text-slate-500 leading-relaxed break-words">
               Техническая причина: {profileError.detail}
             </p>
           )}

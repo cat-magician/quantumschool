@@ -17,7 +17,11 @@ import {
   clearLoginCorridor,
 } from './loginCorridor';
 import {
+  OAUTH_OTHER_BROWSER_ERROR,
+  OAUTH_TIMEOUT_ERROR,
+  clearOAuthCodeFromUrl,
   consumeOAuthErrorFromUrl,
+  describeOAuthExchangeError,
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
 } from './oauthCallbackUtils';
@@ -388,16 +392,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Код на сессию меняет сам supabase-js (detectSessionInUrl), затем шлёт SIGNED_IN.
     const awaitingOAuth = !urlOAuthError && hasOAuthCodeInUrl();
 
+    // Сдаёмся — убираем код из адреса: пока он там, кабинет крутит спиннер
+    // и сообщение об ошибке так и не увидеть.
+    const failOAuthReturn = (message: string) => {
+      consumeOAuthReturnPending();
+      clearOAuthCodeFromUrl();
+      setOauthError(message);
+      finishInit();
+    };
+
     if (awaitingOAuth) {
       oauthTimer = window.setTimeout(() => {
         if (!mounted) return;
-        consumeOAuthReturnPending();
-        setOauthError(
-          'Вход через Яндекс не завершился: сервис авторизации отвечает слишком долго. '
-          + 'Попробуйте ещё раз через пару минут.',
-        );
-        setInitializing(false);
+        failOAuthReturn(OAUTH_TIMEOUT_ERROR);
       }, OAUTH_CALLBACK_TIMEOUT_MS);
+    }
+
+    // Если обмен кода не удался или его не с чем было делать (вход начинали в
+    // другом браузере), supabase-js не шлёт SIGNED_IN и молчит об этом —
+    // причину отдаёт только initialize(). Раньше кабинет ждал SIGNED_IN
+    // бесконечно: на телефоне это и выглядело как «вход не работает».
+    if (awaitingOAuth && !isAccountLinkReturn) {
+      void supabase.auth.initialize().then(async ({ error }) => {
+        // Код обменян — supabase-js уже убрал его из адреса, SIGNED_IN в пути.
+        if (!mounted || !hasOAuthCodeInUrl()) return;
+
+        if (error) {
+          failOAuthReturn(describeOAuthExchangeError(error));
+          return;
+        }
+
+        // Ошибки нет, а код на месте: PKCE-ключа к нему в этом браузере нет.
+        // Если здесь уже был вход, он остаётся — просто чистим адрес.
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        if (data.session) {
+          clearOAuthCodeFromUrl();
+          return;
+        }
+        failOAuthReturn(OAUTH_OTHER_BROWSER_ERROR);
+      });
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
@@ -406,6 +440,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authUser = applySession(nextSession);
 
       if (authUser) {
+        // Вошёл — прежняя ошибка входа больше не про него. Иначе после выхода
+        // кабинет снова показал бы её вместо главной.
+        if (event === 'SIGNED_IN') setOauthError(null);
         setProfile((prev) => (prev?.id === authUser.id ? prev : null));
         scheduleProfileFetch(authUser, event);
         if (redirectAfterOAuthIfNeeded()) return;

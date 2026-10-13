@@ -1,3 +1,5 @@
+import { isNetworkErrorMessage } from './oauthCallbackUtils';
+
 /**
  * Вход по придуманному логину поверх Supabase Auth.
  *
@@ -124,6 +126,9 @@ export function translateLoginAuthError(message: string): string {
   }
   if (lower.includes('for security purposes') || lower.includes('rate limit') || lower.includes('too many')) {
     return 'Слишком много попыток подряд. Подождите минуту и попробуйте снова';
+  }
+  if (isNetworkErrorMessage(message)) {
+    return 'Нет связи с сервером входа. Проверьте интернет и попробуйте ещё раз';
   }
 
   if (

@@ -13,16 +13,16 @@ const SIZES = {
     gap: 'gap-3',
   },
   lg: {
-    frame: 'h-[4.25rem]',
-    label: 'text-[17px]',
+    frame: 'min-h-[4.25rem]',
+    label: 'text-base sm:text-[17px]',
     logo: 'w-10 h-10',
     spinner: 'w-6 h-6',
     radius: 'rounded-2xl',
     gap: 'gap-3.5',
   },
   xl: {
-    frame: 'h-20',
-    label: 'text-lg',
+    frame: 'min-h-20',
+    label: 'text-base sm:text-lg',
     logo: 'w-12 h-12',
     spinner: 'w-7 h-7',
     radius: 'rounded-2xl',
@@ -55,6 +55,7 @@ export default function YandexSignInButton({
   teacherApplication = false,
   className = '',
   errorClassName = 'text-rose-600',
+  hintClassName = 'text-slate-500',
   size = 'md',
 }: {
   label?: string;
@@ -62,6 +63,7 @@ export default function YandexSignInButton({
   teacherApplication?: boolean;
   className?: string;
   errorClassName?: string;
+  hintClassName?: string;
   size?: keyof typeof SIZES;
 }) {
   const { signInWithYandex } = useAuth();
@@ -125,15 +127,23 @@ export default function YandexSignInButton({
         type="button"
         onClick={handleClick}
         disabled={disabled || loading}
-        className={`w-full ${s.frame} ${s.radius} px-6 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${s.gap} bg-white border border-black/10 hover:border-black/20 hover:bg-[#fafafa] text-black shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.06)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.08),0_12px_28px_rgba(0,0,0,0.1)] active:scale-[0.99]`}
+        className={`w-full ${s.frame} ${s.radius} px-4 sm:px-6 py-2 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center ${s.gap} bg-white border border-black/10 hover:border-black/20 hover:bg-[#fafafa] text-black shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.06)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.08),0_12px_28px_rgba(0,0,0,0.1)] active:scale-[0.99]`}
       >
         {loading ? (
           <Loader2 className={`${s.spinner} animate-spin text-slate-500`} />
         ) : (
           <YandexIdLogo className={s.logo} />
         )}
-        <span className={`${s.label} leading-none tracking-tight`}>{label}</span>
+        {/* leading-tight, а не none: на телефоне длинная подпись переносится,
+            и строки с leading-none наезжали друг на друга. */}
+        <span className={`${s.label} leading-tight tracking-tight text-left`}>{label}</span>
       </button>
+      {/* С апреля 2026 Яндекс по требованию регулятора не пускает с включённым
+          VPN, на телефонах — особенно строго: человек застревает на странице
+          Яндекса и думает, что сломан наш вход. Сказать надо до перехода. */}
+      <p className={`mt-2 text-xs leading-relaxed text-center ${hintClassName}`}>
+        Если включён VPN, Яндекс может не пустить — на время входа выключите его.
+      </p>
       {error && (
         <p className={`mt-2 text-sm ${errorClassName}`}>
           {error}
