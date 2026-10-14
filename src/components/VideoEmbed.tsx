@@ -7,7 +7,7 @@ export default function VideoEmbed({ url }: { url: string }) {
   if (!resolved) {
     return (
       <p className="text-sm text-slate-500 bg-slate-950/40 border border-white/5 rounded-xl px-4 py-3">
-        Укажите ссылку на запись (YouTube, Rutube, VK Video или другой сервис).
+        Укажите ссылку на запись или код встраивания (YouTube, Rutube, VK Видео или другой сервис).
       </p>
     );
   }
@@ -33,7 +33,8 @@ export default function VideoEmbed({ url }: { url: string }) {
         title="Запись занятия"
         loading="lazy"
         className="absolute inset-0 w-full h-full"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture; screen-wake-lock; clipboard-write; web-share"
+        referrerPolicy="strict-origin-when-cross-origin"
         allowFullScreen
       />
     </div>

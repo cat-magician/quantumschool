@@ -936,7 +936,7 @@ function BlockEditor({
           <input
             value={block.content.url ?? ''}
             onChange={(e) => onContentChange({ url: e.target.value })}
-            placeholder="Ссылка на YouTube, Rutube, VK Video…"
+            placeholder="Ссылка или код встраивания: YouTube, Rutube, VK Видео…"
             className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
           />
           {block.content.url?.trim() && (
