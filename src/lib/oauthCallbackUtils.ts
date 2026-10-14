@@ -1,6 +1,9 @@
 import { oauthDashboardRedirectPath } from './yandexAuthUtils';
 
-/** Параметры OAuth-возврата: код приходит в ?query=, ошибка — в #hash. */
+/**
+ * Параметры OAuth-возврата. Сессия при входе (implicit) и ошибка приходят
+ * в #hash, код (старый PKCE-вход, начатый до перехода на implicit) — в ?query=.
+ */
 function readOAuthParams(): URLSearchParams {
   const fromSearch = new URLSearchParams(window.location.search);
   if (fromSearch.has('code') || fromSearch.has('error')) return fromSearch;
@@ -19,11 +22,43 @@ export function hasOAuthCodeInUrl(): boolean {
   return readOAuthParams().has('code');
 }
 
-/** Убрать код из адреса: пока он там, кабинет считает, что вход ещё идёт. */
-export function clearOAuthCodeFromUrl() {
+/** Яндекс вернул человека с готовой сессией в адресе (implicit). */
+export function hasOAuthTokenInUrl(): boolean {
+  return readOAuthParams().has('access_token');
+}
+
+/**
+ * Забрать сессию, с которой Яндекс вернул человека (#access_token=…), и сразу
+ * убрать её из адреса через replaceState. Сам supabase-js делал это через
+ * location.hash = '': в истории оставалась запись с токенами, и первая
+ * «Назад» после входа вела на ту же страницу.
+ */
+export function takeOAuthSessionFromUrl(): { access_token: string; refresh_token: string } | null {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const access_token = hash.get('access_token');
+  const refresh_token = hash.get('refresh_token');
+  if (!access_token || !refresh_token) return null;
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+  return { access_token, refresh_token };
+}
+
+/** В адресе возврат от Яндекса, который ещё нужно превратить во вход. */
+export function hasOAuthReturnInUrl(): boolean {
+  return hasOAuthCodeInUrl() || hasOAuthTokenInUrl();
+}
+
+/**
+ * Убрать из адреса код и токены возврата: пока они там, кабинет считает, что
+ * вход ещё идёт. replaceState, а не location.hash = '': токены не должны
+ * остаться в истории за кнопкой «Назад».
+ */
+export function clearOAuthReturnFromUrl() {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has('code')) return;
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const hashHasReturn = hashParams.has('access_token') || hashParams.has('refresh_token');
+  if (!url.searchParams.has('code') && !hashHasReturn) return;
   url.searchParams.delete('code');
+  if (hashHasReturn) url.hash = '';
   // Состояние истории не трогаем: в нём React Router хранит свой индекс.
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
 }
@@ -31,15 +66,11 @@ export function clearOAuthCodeFromUrl() {
 const OAUTH_SUPPORT_EMAIL = 'quantumschool@rqc.ru';
 
 /**
- * Код из адреса supabase-js меняет на сессию только там, где нажимали
- * «Войти»: в этом браузере лежит PKCE-ключ к коду. На телефоне возврат от
- * Яндекса нередко открывается в другом месте — в приложении Яндекса, во
- * встроенном браузере Telegram, в браузере по умолчанию, — и ключа там нет.
- * Повторный вход отсюда же проходит: ключ ляжет уже в этот браузер.
+ * Код в адресе — от PKCE-входа, начатого до перехода на implicit (или в
+ * другом браузере). Обменять его здесь нечем; повторный вход проходит:
+ * теперь сессия приходит прямо в адресе и подхватывается любым браузером.
  */
-export const OAUTH_OTHER_BROWSER_ERROR =
-  'Яндекс вернул вас не в тот браузер, где вы нажимали «Войти». На телефоне так бывает, '
-  + 'когда ссылку перехватывает приложение Яндекса или другой браузер. Войдите ещё раз прямо здесь.';
+export const OAUTH_STALE_CODE_ERROR = 'Ссылка для входа устарела. Войдите ещё раз.';
 
 export const OAUTH_TIMEOUT_ERROR =
   'Вход через Яндекс не завершился: сервис авторизации отвечает слишком долго. '
@@ -68,7 +99,7 @@ export function describeOAuthExchangeError(error: {
   }
 
   if (error.code === 'bad_code_verifier' || lower.includes('code verifier')) {
-    return OAUTH_OTHER_BROWSER_ERROR;
+    return OAUTH_STALE_CODE_ERROR;
   }
 
   if (error.code === 'flow_state_not_found' || error.code === 'flow_state_expired'
@@ -79,6 +110,17 @@ export function describeOAuthExchangeError(error: {
   console.error('OAuth code exchange error:', error.name, error.code, error.message);
   return 'Не удалось завершить вход через Яндекс ID. Попробуйте ещё раз или войдите '
     + `по логину и паролю. Если не выходит — напишите на ${OAUTH_SUPPORT_EMAIL}`;
+}
+
+/** Коротко и без перевода — строка «для поддержки» на экране ошибки входа. */
+export function oauthErrorDetail(error: {
+  name?: string;
+  code?: string;
+  status?: number;
+  message: string;
+}): string {
+  const head = [error.name, error.code, error.status].filter(Boolean).join(' · ');
+  return `${head}${head ? ': ' : ''}${error.message}`.slice(0, 200);
 }
 
 /**

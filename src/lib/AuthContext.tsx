@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import type { PostgrestError, Provider, User, Session } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { oauthUrlSession, supabase } from './supabase';
 import type { UserProfile } from './types';
 import {
   markOAuthReturnPending,
@@ -17,13 +17,15 @@ import {
   clearLoginCorridor,
 } from './loginCorridor';
 import {
-  OAUTH_OTHER_BROWSER_ERROR,
+  OAUTH_STALE_CODE_ERROR,
   OAUTH_TIMEOUT_ERROR,
-  clearOAuthCodeFromUrl,
+  clearOAuthReturnFromUrl,
   consumeOAuthErrorFromUrl,
   describeOAuthExchangeError,
   hasOAuthCallbackInUrl,
   hasOAuthCodeInUrl,
+  hasOAuthReturnInUrl,
+  oauthErrorDetail as describeOAuthErrorDetail,
 } from './oauthCallbackUtils';
 import {
   dashboardPathname, profilePathname, oauthDashboardRedirectPath, yandexDisplayName, yandexLogin,
@@ -115,6 +117,8 @@ interface AuthContextValue {
   refreshProfile: () => Promise<void>;
   recordPrivacyConsent: () => Promise<{ error: string | null }>;
   oauthError: string | null;
+  /** Техническая причина ошибки входа — мелкой строкой «для поддержки». */
+  oauthErrorDetail: string | null;
   clearOAuthError: () => void;
   /** Почему профиль не загрузился; null — загрузился или его просто нет. */
   profileError: ProfileLoadError | null;
@@ -142,6 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const [oauthErrorDetail, setOauthErrorDetail] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<ProfileLoadError | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
@@ -359,9 +364,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     // Supabase уважает redirectTo только если адрес есть в Redirect URLs,
-    // иначе возвращает на Site URL — дотягиваем до кабинета вручную.
+    // иначе возвращает на Site URL — дотягиваем до кабинета вручную. Пометки
+    // о входе в другом браузере нет, поэтому смотрим и на сессию из адреса
+    // (кроме профиля: туда возвращает привязка Яндекс ID).
+    // Разовая проверка: после неё на главной не должно перекидывать в кабинет
+    // от каждого продления токена.
+    let redirectForUrlSession = oauthUrlSession !== null
+      && window.location.pathname !== profilePathname();
     const redirectAfterOAuthIfNeeded = (): boolean => {
-      if (!consumeOAuthReturnPending()) return false;
+      const pending = consumeOAuthReturnPending() || redirectForUrlSession;
+      redirectForUrlSession = false;
+      if (!pending) return false;
       if (window.location.pathname === dashboardPathname()) return false;
       window.location.replace(oauthDashboardRedirectPath());
       return true;
@@ -370,11 +383,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Возврат после привязки Яндекс ID к уже существующему аккаунту: человек
     // нажал кнопку в профиле, туда же его и возвращаем. Только успешный код —
     // ошибки по-прежнему уезжают на /dashboard, где живёт экран с текстом.
+    // (Сессию из адреса supabase.ts забрал ещё до этого — её здесь не видно.)
     const isAccountLinkReturn = window.location.pathname === profilePathname()
       && hasOAuthCodeInUrl();
 
     // Supabase при ошибке или если redirectTo не в allowlist шлёт на Site URL (/),
-    // а экран ошибки и обмен code→session настроены на /dashboard.
+    // а экран ошибки настроен на /dashboard.
     if (hasOAuthCallbackInUrl() && !isAccountLinkReturn
       && window.location.pathname !== dashboardPathname()) {
       window.location.replace(
@@ -389,48 +403,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setOauthError(urlOAuthError);
     }
 
-    // Код на сессию меняет сам supabase-js (detectSessionInUrl), затем шлёт SIGNED_IN.
-    const awaitingOAuth = !urlOAuthError && hasOAuthCodeInUrl();
+    // Вход по сессии из адреса идёт в supabase.ts (oauthUrlSession), удачный
+    // приходит SIGNED_IN. Код в адресе — след старого PKCE-входа.
+    const awaitingOAuth = !urlOAuthError && (oauthUrlSession !== null || hasOAuthReturnInUrl());
 
-    // Сдаёмся — убираем код из адреса: пока он там, кабинет крутит спиннер
-    // и сообщение об ошибке так и не увидеть.
-    const failOAuthReturn = (message: string) => {
+    // Сдаёмся — убираем возврат из адреса: пока он там, кабинет крутит
+    // спиннер и сообщение об ошибке так и не увидеть.
+    const failOAuthReturn = (message: string, detail: string) => {
       consumeOAuthReturnPending();
-      clearOAuthCodeFromUrl();
+      clearOAuthReturnFromUrl();
       setOauthError(message);
+      setOauthErrorDetail(detail);
       finishInit();
     };
 
     if (awaitingOAuth) {
       oauthTimer = window.setTimeout(() => {
         if (!mounted) return;
-        failOAuthReturn(OAUTH_TIMEOUT_ERROR);
+        failOAuthReturn(OAUTH_TIMEOUT_ERROR, 'timeout');
       }, OAUTH_CALLBACK_TIMEOUT_MS);
     }
 
-    // Если обмен кода не удался или его не с чем было делать (вход начинали в
-    // другом браузере), supabase-js не шлёт SIGNED_IN и молчит об этом —
-    // причину отдаёт только initialize(). Раньше кабинет ждал SIGNED_IN
-    // бесконечно: на телефоне это и выглядело как «вход не работает».
-    if (awaitingOAuth && !isAccountLinkReturn) {
-      void supabase.auth.initialize().then(async ({ error }) => {
-        // Код обменян — supabase-js уже убрал его из адреса, SIGNED_IN в пути.
+    // Сессию из адреса не приняли (токен не тот, нет связи) — SIGNED_IN не
+    // будет, без этого кабинет ждал бы его бесконечно.
+    if (awaitingOAuth && oauthUrlSession) {
+      void oauthUrlSession.then(({ error }) => {
+        if (!mounted || !error) return;
+        failOAuthReturn(describeOAuthExchangeError(error), describeOAuthErrorDetail(error));
+      });
+    }
+
+    // Код в адресе — след PKCE-входа, начатого до перехода на implicit.
+    // Обменять его теперь нечем; если здесь уже был вход, он остаётся.
+    if (awaitingOAuth && !oauthUrlSession && hasOAuthCodeInUrl() && !isAccountLinkReturn) {
+      void supabase.auth.initialize().then(async () => {
         if (!mounted || !hasOAuthCodeInUrl()) return;
-
-        if (error) {
-          failOAuthReturn(describeOAuthExchangeError(error));
-          return;
-        }
-
-        // Ошибки нет, а код на месте: PKCE-ключа к нему в этом браузере нет.
-        // Если здесь уже был вход, он остаётся — просто чистим адрес.
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
         if (data.session) {
-          clearOAuthCodeFromUrl();
+          clearOAuthReturnFromUrl();
           return;
         }
-        failOAuthReturn(OAUTH_OTHER_BROWSER_ERROR);
+        failOAuthReturn(OAUTH_STALE_CODE_ERROR, 'pkce_code_without_verifier');
       });
     }
 
@@ -442,7 +456,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (authUser) {
         // Вошёл — прежняя ошибка входа больше не про него. Иначе после выхода
         // кабинет снова показал бы её вместо главной.
-        if (event === 'SIGNED_IN') setOauthError(null);
+        if (event === 'SIGNED_IN') {
+          setOauthError(null);
+          setOauthErrorDetail(null);
+        }
         setProfile((prev) => (prev?.id === authUser.id ? prev : null));
         scheduleProfileFetch(authUser, event);
         if (redirectAfterOAuthIfNeeded()) return;
@@ -660,12 +677,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSigningOut(false);
   };
 
-  const clearOAuthError = useCallback(() => setOauthError(null), []);
+  const clearOAuthError = useCallback(() => {
+    setOauthError(null);
+    setOauthErrorDetail(null);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user, session, profile, loading, signInWithYandex, signInWithLogin, signUpWithLogin,
-      signOut, signingOut, refreshProfile, recordPrivacyConsent, oauthError, clearOAuthError,
+      signOut, signingOut, refreshProfile, recordPrivacyConsent, oauthError, oauthErrorDetail, clearOAuthError,
       profileError,
     }}
     >

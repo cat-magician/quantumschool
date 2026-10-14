@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AlertCircle, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
-import { hasOAuthCallbackInUrl, hasOAuthCodeInUrl } from '../lib/oauthCallbackUtils';
+import { hasOAuthCallbackInUrl, hasOAuthReturnInUrl } from '../lib/oauthCallbackUtils';
 import TeacherApplicationGate from './TeacherApplicationGate';
 import PrivacyConsentGate from '../components/PrivacyConsentGate';
 import { profileNeedsPrivacyConsent } from '../lib/profileUtils';
@@ -51,7 +51,7 @@ function DashboardSpinner() {
 
 export default function Dashboard() {
   const {
-    user, profile, loading, oauthError, clearOAuthError, signOut, signingOut, refreshProfile,
+    user, profile, loading, oauthError, oauthErrorDetail, clearOAuthError, signOut, signingOut, refreshProfile,
     profileError,
   } = useAuth();
   const navigate = useNavigate();
@@ -79,7 +79,7 @@ export default function Dashboard() {
     navigate('/');
   }, [user, loading, oauthError, navigate]);
 
-  if (loading || (!user && hasOAuthCodeInUrl())) {
+  if (loading || (!user && hasOAuthReturnInUrl())) {
     return <DashboardSpinner />;
   }
 
@@ -120,6 +120,14 @@ export default function Dashboard() {
           >
             На главную
           </Link>
+
+          {/* По этой строке видно, что именно случилось, — если вход так и не
+              удастся, её можно переслать организаторам. */}
+          {oauthErrorDetail && (
+            <p className="mt-3 text-xs text-slate-500 text-center leading-relaxed break-words">
+              Для поддержки: {oauthErrorDetail}
+            </p>
+          )}
         </div>
       </div>
     );
