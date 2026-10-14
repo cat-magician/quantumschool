@@ -863,7 +863,7 @@ function StudentCard({
         >
           <UserAvatar displayName={profileDisplayName(student)} avatarUrl={student.avatar_url} size="md" />
           <div className="min-w-0 flex-1">
-            <div className="font-semibold text-white truncate text-sm leading-snug">{profileDisplayName(student)}</div>
+            <div className="font-semibold text-white line-clamp-2 break-words text-sm leading-snug">{profileDisplayName(student)}</div>
             <div className="text-xs text-slate-500 truncate mt-0.5">{profileAccountLabel(student) ?? '—'}</div>
             {!student.is_enrolled && (
               <div className="mt-1">
@@ -943,7 +943,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`w-full ${wide ? 'max-w-lg' : 'max-w-md'} max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto scrollbar-site bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl`}
+        className={`w-full ${wide ? 'max-w-lg' : 'max-w-md'} max-h-[min(90dvh,calc(100vh-2rem))] overflow-y-auto scrollbar-site bg-slate-900 border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">

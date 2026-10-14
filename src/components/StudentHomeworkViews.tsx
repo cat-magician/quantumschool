@@ -78,7 +78,10 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
+      {/* Фильтр и сортировка переносятся парами: раньше на телефоне «По дате»
+          уезжала на вторую строку одна, отдельно от «По сроку». */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex gap-2" role="group" aria-label="Какие задания показать">
         {([
           ['all', 'Все'],
           ['todo', 'К сдаче'],
@@ -87,7 +90,8 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
             key={id}
             type="button"
             onClick={() => setFilter(id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            aria-pressed={filter === id}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
               filter === id
                 ? 'bg-violet-600/20 text-violet-300 border border-violet-500/30'
                 : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
@@ -96,7 +100,9 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
             {label}
           </button>
         ))}
+        </div>
         <span className="w-px h-8 bg-white/10 self-center hidden sm:block" aria-hidden />
+        <div className="flex gap-2" role="group" aria-label="Порядок">
         {([
           ['deadline', 'По сроку'],
           ['date', 'По дате'],
@@ -105,7 +111,8 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
             key={id}
             type="button"
             onClick={() => setSort(id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            aria-pressed={sort === id}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
               sort === id
                 ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
                 : 'text-slate-400 bg-white/5 hover:text-white border border-transparent'
@@ -114,6 +121,7 @@ export function StudentHomeworkList({ onOpen }: { onOpen: (pageId: string) => vo
             {label}
           </button>
         ))}
+        </div>
       </div>
 
       {visiblePages.length === 0 ? (

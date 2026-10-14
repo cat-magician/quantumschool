@@ -60,7 +60,7 @@ export default function HomeworkCards({
 
   if (loadError) {
     return (
-      <div className="bg-rose-500/10 border border-rose-500/25 rounded-2xl p-6 flex gap-4">
+      <div className="bg-rose-500/10 border border-rose-500/25 rounded-2xl p-4 sm:p-6 flex gap-4">
         <AlertCircle className="w-6 h-6 text-rose-400 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-rose-300 leading-relaxed">{loadError}</p>
       </div>
@@ -78,7 +78,7 @@ export default function HomeworkCards({
 
   return (
     <>
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {assignments.map((a) => {
           const sub = submissions[a.id];
           const overdue = !readOnly && isOverdue(a.due_at) && sub?.status !== 'graded' && sub?.status !== 'submitted';
@@ -87,7 +87,7 @@ export default function HomeworkCards({
               key={a.id}
               type="button"
               onClick={() => openAssignment(a)}
-              className="text-left bg-slate-900/60 border border-white/5 hover:border-blue-500/30 rounded-2xl p-5 transition-colors group"
+              className="text-left bg-slate-900/60 border border-white/5 hover:border-blue-500/30 rounded-2xl p-4 sm:p-5 transition-colors group"
             >
               <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center mb-4">
                 <BookOpen className="w-5 h-5 text-blue-400" />
@@ -123,7 +123,7 @@ export default function HomeworkCards({
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white">{selected.title}</h2>

@@ -99,13 +99,13 @@ export default function HomeworkSubmissionSection({
         {submitError && <p className="text-sm text-rose-400">{submitError}</p>}
 
         {locked && submittedWhen && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span className={`inline-flex px-2 py-0.5 rounded-md border ${SUBMISSION_STATUS_COLORS[submission!.status]}`}>
               {SUBMISSION_STATUS_LABELS[submission!.status]}
             </span>
             <span className="text-slate-400">Отправлено {submittedWhen}</span>
             {submission?.status === 'graded' && gradedWhen && (
-              <span className="text-slate-500">· Оценено {gradedWhen}</span>
+              <span className="text-slate-500">Оценено {gradedWhen}</span>
             )}
           </div>
         )}

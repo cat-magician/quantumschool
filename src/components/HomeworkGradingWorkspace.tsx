@@ -504,7 +504,7 @@ export default function HomeworkGradingWorkspace({
                         size="xs"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm truncate ${active ? 'text-white font-medium' : 'text-slate-200'}`}>
+                        <p className={`text-sm line-clamp-2 break-words ${active ? 'text-white font-medium' : 'text-slate-200'}`}>
                           {name}
                         </p>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">

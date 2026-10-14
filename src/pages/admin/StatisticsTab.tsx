@@ -249,7 +249,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
               </button>
             )}
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FilterSelect
               label="Группа"
               value={groupFilter}
@@ -302,7 +302,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
         </div>
 
         {(gradeBreakdown.length > 1 || groupBreakdown.length > 1) && (
-          <div className="grid lg:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {gradeBreakdown.length > 1 && (
               <BreakdownTable
                 title="По классам"
@@ -490,7 +490,7 @@ function SummaryCard({
   compact?: boolean;
 }) {
   return (
-    <div className={`bg-slate-900/60 border border-white/5 rounded-xl ${compact ? 'p-3.5' : 'p-5'}`}>
+    <div className={`bg-slate-900/60 border border-white/5 rounded-xl ${compact ? 'p-3.5' : 'p-4 sm:p-5'}`}>
       <Icon className={`text-blue-400 mb-2 ${compact ? 'w-4 h-4' : 'w-5 h-5 mb-3'}`} />
       <div className={`font-bold text-white ${compact ? 'text-xl' : 'text-2xl'}`}>{value}</div>
       <div className="text-xs text-slate-500 mt-0.5">{label}</div>
@@ -538,12 +538,12 @@ function BreakdownTable({
         {hint && onRowClick && <span className="text-[10px] text-slate-600">{hint}</span>}
       </div>
       <div className="max-h-52 overflow-y-auto overflow-x-auto scrollbar-site -mx-1 px-1">
-        <table className="w-full text-sm min-w-[18rem]">
+        <table className="w-full text-sm min-w-[16rem]">
         <thead>
-          <tr className="text-left text-xs text-slate-500 uppercase tracking-wider">
-            <th className="pb-1.5 pr-3 font-medium">Название</th>
-            <th className="pb-1.5 pr-3 font-medium">Учеников</th>
-            <th className="pb-1.5 pr-3 font-medium">Прогресс</th>
+          <tr className="text-left text-[11px] sm:text-xs text-slate-500 uppercase sm:tracking-wider">
+            <th className="pb-1.5 pr-2 sm:pr-3 font-medium">Название</th>
+            <th className="pb-1.5 pr-2 sm:pr-3 font-medium">Учеников</th>
+            <th className="pb-1.5 pr-2 sm:pr-3 font-medium">Прогресс</th>
             <th className="pb-1.5 font-medium">Ср. оценка</th>
           </tr>
         </thead>
@@ -559,18 +559,18 @@ function BreakdownTable({
                     active ? 'bg-blue-500/10' : 'hover:bg-white/5'
                   }`}
                 >
-                  <td className="py-2 pr-3 text-white">{r.name}</td>
-                  <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.count}</td>
-                  <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
+                  <td className="py-2 pr-2 sm:pr-3 text-white">{r.name}</td>
+                  <td className="py-2 pr-2 sm:pr-3 text-slate-400 tabular-nums">{r.count}</td>
+                  <td className="py-2 pr-2 sm:pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
                   <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${formatHomeworkScoreValue(r.avgScore)}/10` : '—'}</td>
                 </tr>
               );
             }
             return (
               <tr key={r.key}>
-                <td className="py-2 pr-3 text-white">{r.name}</td>
-                <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.count}</td>
-                <td className="py-2 pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
+                <td className="py-2 pr-2 sm:pr-3 text-white">{r.name}</td>
+                <td className="py-2 pr-2 sm:pr-3 text-slate-400 tabular-nums">{r.count}</td>
+                <td className="py-2 pr-2 sm:pr-3 text-slate-400 tabular-nums">{r.avgProgress}%</td>
                 <td className="py-2 text-slate-400 tabular-nums">{r.avgScore !== null ? `${formatHomeworkScoreValue(r.avgScore)}/10` : '—'}</td>
               </tr>
             );
@@ -599,9 +599,9 @@ function RankRow({
         </span>
         <UserAvatar displayName={snapshot.displayName} avatarUrl={snapshot.avatarUrl} size="chip" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-white truncate">{snapshot.displayName}</div>
+          <div className="text-sm font-medium text-white line-clamp-2 break-words">{snapshot.displayName}</div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-            <span className="text-[11px] text-slate-500 truncate">
+            <span className="min-w-0 text-[11px] text-slate-500 break-words">
               {snapshot.groupName ?? 'Без группы'} · {snapshot.gradeLabel} · {snapshot.gradedCount}/{snapshot.totalPublished} ДЗ
               {' · '}визит {formatLastSeen(snapshot.lastSeenAt)}
             </span>
@@ -632,7 +632,7 @@ function TeacherStudentRow({
       <button type="button" onClick={onToggle} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/5 transition-colors">
         <UserAvatar displayName={snapshot.displayName} avatarUrl={snapshot.avatarUrl} size="chip" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-white truncate">{snapshot.displayName}</div>
+          <div className="text-sm font-medium text-white line-clamp-2 break-words">{snapshot.displayName}</div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
             <span className="text-[11px] text-slate-500">
               {snapshot.gradedCount}/{snapshot.totalPublished} · {snapshot.progressPercent}%

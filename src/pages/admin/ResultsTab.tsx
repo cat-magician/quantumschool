@@ -34,9 +34,13 @@ import {
 
 type StudentRow = UserProfile & { email: string | null };
 
-/** Участник и этапы — фикс. ширина; последняя колонка растягивается, кнопки справа. */
+/**
+ * Таблицей (участник и этапы фикс. ширины, кнопки справа) — только от xl: ей
+ * нужно ~60rem, а с боковым меню столько есть лишь от 1280 px. На планшете —
+ * два на два: участник и решение, под ними этапы. На телефоне — столбиком.
+ */
 const RESULTS_ROW_GRID =
-  'grid-cols-1 md:grid-cols-[14rem_15rem_15rem_1fr] md:gap-x-4 md:items-center';
+  'grid-cols-1 md:grid-cols-2 md:gap-x-4 md:items-center xl:grid-cols-[14rem_15rem_15rem_1fr]';
 
 type Decision = Exclude<SelectionVerdict, 'waiting'>;
 
@@ -278,13 +282,13 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-500">Ученики не найдены</div>
       ) : (
-        <div className="md:overflow-x-auto">
-        <div className="space-y-3 md:min-w-[42rem]">
-          <div className={`hidden md:grid ${RESULTS_ROW_GRID} px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500`}>
+        <div className="xl:overflow-x-auto">
+        <div className="space-y-3 xl:min-w-[58rem]">
+          <div className={`hidden xl:grid ${RESULTS_ROW_GRID} px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500`}>
             <span>Участник</span>
             <span>Эссе</span>
             <span>Задачи</span>
-            <span className="hidden md:block md:text-right md:pr-1">Решение</span>
+            <span className="text-right pr-1">Решение</span>
           </div>
 
           {filtered.map((s) => {
@@ -304,7 +308,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     type="button"
                     data-student-info
                     onClick={() => setInfoStudentId(showInfo ? null : s.id)}
-                    className="flex items-center gap-2.5 min-w-0 max-w-full text-left rounded-xl hover:bg-white/5 px-2 py-1.5 -mx-2 transition-colors md:col-start-1"
+                    className="flex items-center gap-2.5 min-w-0 max-w-full text-left rounded-xl hover:bg-white/5 px-2 py-1.5 -mx-2 transition-colors md:col-start-1 md:row-start-1"
                   >
                     <UserAvatar displayName={profileDisplayName(d)} avatarUrl={d.avatar_url} size="md" />
                     <div className="min-w-0 flex-1">
@@ -319,7 +323,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                   </button>
 
                   <StageField
-                    className="md:col-start-2"
+                    className="md:col-start-1 md:row-start-2 xl:col-start-2 xl:row-start-1"
                     label="Эссе"
                     status={d.stage1_status}
                     score={d.stage1_score}
@@ -330,7 +334,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     scoreDirty={scoreDraft && 'stage1_score' in (drafts[s.id] ?? {})}
                   />
                   <StageField
-                    className="md:col-start-3"
+                    className="md:col-start-2 md:row-start-2 xl:col-start-3 xl:row-start-1"
                     label="Задачи"
                     status={d.stage2_status}
                     score={d.stage2_score}
@@ -341,7 +345,7 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     scoreDirty={scoreDraft && 'stage2_score' in (drafts[s.id] ?? {})}
                   />
 
-                  <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 md:col-start-4 shrink-0">
+                  <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 md:col-start-2 md:row-start-1 xl:col-start-4 shrink-0">
                     <div role="group" aria-label="Решение" className="flex items-center gap-3 sm:gap-2">
                       {DECISION_BUTTONS.map(({ decision, label, activeLabel, icon: Icon, idleClass, activeClass }) => {
                         const active = verdict === decision;
@@ -380,12 +384,12 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                   </div>
 
                   {scoreDraft && (
-                    <p className="text-xs text-amber-400/90 md:col-span-3 md:col-start-2">
+                    <p className="text-xs text-amber-400/90 md:col-span-2 md:col-start-1 xl:col-span-3 xl:col-start-2">
                       Оценка изменена — сохранится, когда уберёте курсор из поля балла
                     </p>
                   )}
                   {saveErrorId === s.id && (
-                    <p className="text-xs text-rose-400 md:col-span-3 md:col-start-2">
+                    <p className="text-xs text-rose-400 md:col-span-2 md:col-start-1 xl:col-span-3 xl:col-start-2">
                       Не удалось сохранить. Попробуйте ещё раз.
                     </p>
                   )}
@@ -475,7 +479,7 @@ function StageField({
     <div className={`flex items-center gap-1.5 flex-nowrap rounded-xl border px-2.5 py-2 w-full min-w-0 ${
       scoreDirty ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/5 bg-white/5'
     } ${className}`}>
-      <span className="text-xs text-slate-500 w-9 shrink-0">{label}</span>
+      <span className="text-xs text-slate-500 w-12 shrink-0">{label}</span>
       <span className={`text-xs px-1.5 py-0.5 rounded-md border shrink-0 whitespace-nowrap ${badgeClass}`}>
         {stageLabel}
       </span>

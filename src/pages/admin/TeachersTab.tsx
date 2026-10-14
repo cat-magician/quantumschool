@@ -247,7 +247,7 @@ export default function TeachersTab() {
             Новых заявок нет
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {applicants.map((a) => (
               <div
                 key={a.id}
@@ -312,7 +312,7 @@ export default function TeachersTab() {
               : 'Никого не найдено по запросу'}
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {visibleTeachers.map((t) => (
               <TeacherCard
                 key={t.profile.id}

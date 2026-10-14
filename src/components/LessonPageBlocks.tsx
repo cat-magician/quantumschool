@@ -46,7 +46,7 @@ export default function LessonPageBlocks({
 
   if (sorted.length === 0) {
     return (
-      <div className="flex items-start gap-3 rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-5">
+      <div className="flex items-start gap-3 rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-4 sm:p-5">
         <Presentation className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" aria-hidden />
         <div>
           <p className="text-sm font-medium text-slate-200">{emptyState.title}</p>

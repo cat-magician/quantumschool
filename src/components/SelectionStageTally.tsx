@@ -107,7 +107,7 @@ export default function SelectionStageTally({
 
       <p className="text-xs text-slate-500">{STAGE_BASIS_HINTS[basis]}</p>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tallies.map((tally) => {
           const done = tally.counts.done;
           const share = tally.total === 0 ? 0 : Math.round((done / tally.total) * 100);

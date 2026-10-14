@@ -37,7 +37,7 @@ export default function TeacherApplicationGate() {
 
   return (
     <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center p-4 sm:p-6">
-      <div className="max-w-md w-full bg-slate-900/80 border border-white/10 rounded-2xl p-8 text-center">
+      <div className="max-w-md w-full bg-slate-900/80 border border-white/10 rounded-2xl p-6 sm:p-8 text-center">
         <div className="mb-4 flex justify-center">
           <GraduationCap className="w-12 h-12 text-violet-400" />
         </div>

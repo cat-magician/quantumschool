@@ -38,7 +38,7 @@ export function ScheduleCardMedia({
   type,
   coverUrl,
   past = false,
-  className = 'w-20 sm:w-36',
+  className = 'w-16 sm:w-36',
 }: {
   type: ScheduleEventType;
   coverUrl?: string | null;
@@ -103,7 +103,7 @@ export function ScheduleCard({
       } ${onOpen ? 'hover:border-blue-500/30 hover:bg-slate-900/80' : ''}`}
     >
       <ScheduleCardMedia type={type} coverUrl={coverUrl} past={past} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-4 sm:p-5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3.5 sm:p-5">
         {(chips || actions) && (
           <div className="flex items-start gap-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{chips}</div>
@@ -113,7 +113,7 @@ export function ScheduleCard({
           </div>
         )}
         <h3
-          className={`line-clamp-2 break-words font-semibold leading-snug transition-colors ${
+          className={`line-clamp-3 sm:line-clamp-2 break-words font-semibold leading-snug transition-colors ${
             past ? 'text-slate-300' : 'text-white'
           } ${onOpen ? 'group-hover:text-blue-200' : ''}`}
         >

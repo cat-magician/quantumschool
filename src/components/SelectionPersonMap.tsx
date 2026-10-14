@@ -497,7 +497,9 @@ export default function SelectionPersonMap({
           <table className="w-full min-w-[76rem] border-collapse text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-slate-500">
-                <th className="sticky left-0 z-20 bg-slate-950 text-left font-semibold px-3 py-2.5 border-r border-white/10">
+                {/* На телефоне закреплённая колонка уже: при 180 px она закрывала
+                    половину экрана, и таблицу почти не было видно. */}
+                <th className="sticky left-0 z-20 bg-slate-950 text-left font-semibold px-3 py-2.5 border-r border-white/10 w-32 sm:w-auto">
                   Участник
                 </th>
                 <th className="text-left font-semibold px-3 py-2.5">Ник / логин</th>
@@ -522,8 +524,8 @@ export default function SelectionPersonMap({
                 const missing = missingStagesLabel(row, query.basis);
                 return (
                   <tr key={row.profile.id} className="border-t border-white/5 align-top">
-                    <td className="sticky left-0 z-10 bg-slate-950 px-3 py-2.5 border-r border-white/10">
-                      <div className="font-medium text-white leading-snug">
+                    <td className="sticky left-0 z-10 bg-slate-950 px-3 py-2.5 border-r border-white/10 max-w-[8rem] sm:max-w-none">
+                      <div className="font-medium text-white leading-snug break-words">
                         {row.profile.display_name?.trim() || 'Участник'}
                       </div>
                       {(row.profile.city || row.profile.grade) && (

@@ -433,14 +433,14 @@ function Hero({ onLoginClick, heroBadgeText }: { onLoginClick: () => void; heroB
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-5 sm:gap-8 max-w-2xl w-full pt-6 sm:pt-8 border-t border-white/[0.08]">
-            <div className="flex items-center gap-3 sm:gap-4 text-slate-300 text-center sm:text-left max-w-xs sm:max-w-none">
+            <div className="flex items-center gap-3 sm:gap-4 text-slate-300 text-left max-w-xs sm:max-w-none">
               <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center flex-shrink-0">
                 <GraduationCap className="w-5 h-5 text-blue-400" />
               </div>
               <span className="text-sm sm:text-base font-medium leading-snug">Лекции от лучших учёных России и мира</span>
             </div>
             <div className="hidden sm:block w-px h-10 bg-white/15 shrink-0" />
-            <div className="flex items-center gap-3 sm:gap-4 text-slate-300 text-center sm:text-left max-w-xs sm:max-w-none">
+            <div className="flex items-center gap-3 sm:gap-4 text-slate-300 text-left max-w-xs sm:max-w-none">
               <div className="w-10 h-10 rounded-full bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center flex-shrink-0">
                 <Users className="w-5 h-5 text-cyan-400" />
               </div>
@@ -508,7 +508,7 @@ function KeyDates({ config }: { config: LandingConfig }) {
           </h2>
         </div>
 
-        <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {config.key_dates.map((item, i) => (
             <li
               key={`${item.date}-${i}`}
@@ -654,20 +654,22 @@ function Timeline() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
           {steps.map((step, i) => (
             <div
               key={i}
-              className={`group relative p-5 sm:p-8 rounded-3xl bg-white/5 border ${step.border} sm:backdrop-blur-sm hover:bg-white/8 transition-colors duration-300`}
+              className={`group relative p-5 sm:p-6 lg:p-8 rounded-3xl bg-white/5 border ${step.border} sm:backdrop-blur-sm hover:bg-white/8 transition-colors duration-300`}
             >
               <div className={`absolute -top-px left-8 right-8 h-px bg-gradient-to-r ${step.accent} opacity-60`} />
 
-              <div className="flex items-start gap-4 sm:gap-5 mb-5 sm:mb-6">
-                <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br ${step.accent} flex items-center justify-center text-white text-lg sm:text-xl font-bold shadow-lg`}>
+              {/* В две колонки (от 768 px) карточка узкая: при отступе 32 px и
+                  плитке 56 px плашка «Октябрь 2026 — Апрель 2027» вылезала за край. */}
+              <div className="flex items-start gap-4 lg:gap-5 mb-5 sm:mb-6">
+                <div className={`flex-shrink-0 w-12 h-12 lg:w-14 lg:h-14 rounded-2xl bg-gradient-to-br ${step.accent} flex items-center justify-center text-white text-lg sm:text-xl font-bold shadow-lg`}>
                   {step.num}
                 </div>
                 <div className="min-w-0">
-                  <div className={`inline-block whitespace-nowrap text-xs font-semibold px-3 py-1 rounded-full border ${step.tag} mb-2`}>
+                  <div className={`inline-block max-w-full text-xs font-semibold px-3 py-1 rounded-full border ${step.tag} mb-2`}>
                     {step.period}
                   </div>
                   <h3 className="text-xl font-bold text-white leading-tight">{step.title}</h3>
@@ -714,7 +716,7 @@ function About() {
   return (
     <section id="about" className="py-16 sm:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
           {/* Left */}
           <div className="lg:pt-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full text-blue-600 text-sm font-medium mb-6">
@@ -734,14 +736,15 @@ function About() {
             </p>
           </div>
 
-          {/* Right — Program card */}
+          {/* Right — Program card. На телефоне значок пунктов — над заголовком:
+              сбоку он отнимал у текста 64 px из 260. */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-4 sm:p-6">
             <h3 className="text-xl font-bold text-slate-900 mb-5">Программа школы</h3>
 
             <div className="space-y-4">
               {/* Лекции */}
               <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                <div className="flex items-start gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
                     <Users className="w-6 h-6 text-white" />
                   </div>
@@ -768,7 +771,7 @@ function About() {
 
               {/* Семинары */}
               <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                <div className="flex items-start gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center">
                     <Award className="w-6 h-6 text-white" />
                   </div>
@@ -795,7 +798,7 @@ function About() {
 
               {/* Итоговый проект */}
               <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                <div className="flex items-start gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
                     <BarChart3 className="w-6 h-6 text-white" />
                   </div>
@@ -889,7 +892,7 @@ function Features() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
           {features.map((feature, index) => (
             <div
               key={index}
@@ -1150,7 +1153,7 @@ function ApplicationForm() {
   return (
     <section id="contact" className="py-16 sm:py-24 bg-slate-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
           <div>
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full text-blue-600 text-sm font-medium mb-4">
               <UserPlus className="w-4 h-4" />

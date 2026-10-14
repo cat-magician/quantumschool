@@ -610,7 +610,7 @@ export default function LessonsTab({
           </button>
         </div>
 
-        <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
+        <div className="space-y-4 bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-5">
           <label className="block space-y-1.5">
             <span className="text-xs text-slate-500">Название</span>
             <input
@@ -638,7 +638,7 @@ export default function LessonsTab({
           </label>
         </div>
 
-        <div className="space-y-5 bg-slate-900/60 border border-white/5 rounded-2xl p-5">
+        <div className="space-y-5 bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-5">
           <div>
             <h3 className="text-sm font-semibold text-white">Занятие</h3>
             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
@@ -815,7 +815,7 @@ export default function LessonsTab({
       <button
         type="button"
         onClick={openCreate}
-        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium"
+        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium"
       >
         <Plus className="w-4 h-4" />
         Создать {lessonType === 'lecture' ? 'лекцию' : 'семинар'}

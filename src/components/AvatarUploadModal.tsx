@@ -241,7 +241,7 @@ export default function AvatarUploadModal({
                 setDropActive(false);
                 handleFiles(e.dataTransfer.files);
               }}
-              className={`rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${
+              className={`rounded-2xl border-2 border-dashed p-6 sm:p-8 text-center transition-colors ${
                 dropActive
                   ? 'border-blue-400 bg-blue-500/10'
                   : 'border-white/10 bg-slate-950/50 hover:border-white/20'

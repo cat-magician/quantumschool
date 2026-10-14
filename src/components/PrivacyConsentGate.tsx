@@ -28,7 +28,7 @@ export default function PrivacyConsentGate() {
 
   return (
     <div className="min-h-screen min-h-svh bg-slate-950 flex items-center justify-center p-4 sm:p-6">
-      <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-3xl p-8 shadow-2xl shadow-violet-900/10">
+      <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-violet-900/10">
         <div className="flex justify-center mb-6">
           <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-violet-700 rounded-2xl flex items-center justify-center">
             <Atom className="w-7 h-7 text-white" />

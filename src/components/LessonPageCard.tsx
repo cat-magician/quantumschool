@@ -77,7 +77,7 @@ export default function LessonPageCard({
         onClick={onClick}
         className="flex-1 flex items-stretch gap-0 text-left min-w-0"
       >
-        <div className={`w-20 sm:w-32 shrink-0 relative min-h-[5.5rem] ${past ? 'opacity-55 saturate-50' : ''}`}>
+        <div className={`w-16 sm:w-32 shrink-0 relative min-h-[5.5rem] ${past ? 'opacity-55 saturate-50' : ''}`}>
           {showCover ? (
             <LessonCoverImage
               url={coverUrl}
@@ -90,11 +90,12 @@ export default function LessonPageCard({
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-900/80 pointer-events-none" />
         </div>
 
-        <div className="flex-1 flex items-center gap-3 min-w-0 py-3 pr-3 pl-4 sm:pl-5 border-l border-white/5">
+        <div className="flex-1 flex items-center gap-3 min-w-0 py-3 pr-3 pl-3.5 sm:pl-5 border-l border-white/5">
           <div className="flex-1 min-w-0">
-            {/* Две строки, а не одна: на телефоне в строку влезало ~18 знаков,
-                и «Лекция 7. Алгорит…» не отличалась от «Лекции 8». */}
-            <div className={`font-semibold line-clamp-2 break-words group-hover:text-blue-300 transition-colors ${past ? 'text-slate-300' : 'text-white'}`}>
+            {/* Не одна строка: на телефоне в строку влезало ~18 знаков,
+                и «Лекция 7. Алгорит…» не отличалась от «Лекции 8». На узком
+                экране — до трёх. */}
+            <div className={`font-semibold line-clamp-3 sm:line-clamp-2 break-words group-hover:text-blue-300 transition-colors ${past ? 'text-slate-300' : 'text-white'}`}>
               {page.title}
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
@@ -117,7 +118,9 @@ export default function LessonPageCard({
 
           {showStatus && <PublishStatusPill published={page.is_published} className="hidden sm:inline-flex" />}
 
-          <ChevronRight className={`w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0 ${hasActions ? 'sm:hidden' : ''}`} />
+          {/* На телефоне стрелки нет, как и в расписании: нажимается вся карточка,
+              а 28 px нужнее названию. */}
+          <ChevronRight className={`hidden w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0 ${hasActions ? '' : 'sm:block'}`} />
         </div>
       </button>
 

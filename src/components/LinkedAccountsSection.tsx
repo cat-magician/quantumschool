@@ -39,7 +39,7 @@ function MethodRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3 border-b border-white/5 last:border-0">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3 border-b border-white/5 last:border-0">
       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
         connected
           ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
@@ -59,10 +59,12 @@ function MethodRow({
             </span>
           )}
         </div>
-        <div className="text-xs text-slate-500 mt-0.5 break-all">{value}</div>
+        <div className="text-xs text-slate-500 mt-0.5 break-words">{value}</div>
       </div>
 
-      {children}
+      {/* На телефоне кнопка — отдельной строкой под текстом: рядом с ней на
+          почту оставалось 100 px, и адрес рвался посреди слова. */}
+      {children && <div className="w-full pl-12 sm:w-auto sm:pl-0">{children}</div>}
     </div>
   );
 }
@@ -149,7 +151,7 @@ export default function LinkedAccountsSection() {
 
   if (loading) {
     return (
-      <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8">
+      <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8">
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="w-4 h-4 animate-spin" />
           Загружаем способы входа…
@@ -160,7 +162,7 @@ export default function LinkedAccountsSection() {
 
   if (!identities) {
     return (
-      <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-2">
+      <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-2">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
           <Link2 className="w-3.5 h-3.5" />
           Способы входа
@@ -184,7 +186,7 @@ export default function LinkedAccountsSection() {
   const hasPassword = !!passwordIdentity || passwordSaved;
 
   return (
-    <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8">
+    <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8">
       <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-2">
         <Link2 className="w-3.5 h-3.5" />
         Способы входа
@@ -227,7 +229,7 @@ export default function LinkedAccountsSection() {
 
       {passwordOpen && (
         <form onSubmit={handleSavePassword} className="py-3 space-y-2 border-b border-white/5">
-          <div className="grid sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input
               type="password"
               autoComplete="new-password"
@@ -248,16 +250,16 @@ export default function LinkedAccountsSection() {
             />
           </div>
           {passwordError && <p className="text-xs text-rose-300">{passwordError}</p>}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <button
               type="submit"
               disabled={busy}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50"
             >
               {busy && <Loader2 className="w-4 h-4 animate-spin" />}
               Сохранить пароль
             </button>
-            <span className="text-xs text-slate-500">Входить будете по адресу {signInEmail}</span>
+            <span className="min-w-0 text-xs text-slate-500 break-words">Входить будете по адресу {signInEmail}</span>
           </div>
         </form>
       )}

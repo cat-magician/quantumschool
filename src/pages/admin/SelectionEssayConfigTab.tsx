@@ -134,7 +134,7 @@ export default function SelectionEssayConfigTab() {
         </p>
       </div>
 
-      <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+      <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-6 space-y-4">
         <label className="block">
           <span className="text-sm font-medium text-slate-300 mb-2 block">Ссылка на форму</span>
           <input

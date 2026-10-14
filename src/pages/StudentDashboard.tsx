@@ -1139,7 +1139,7 @@ function SelectionResults({ profile }: { profile: UserProfile }) {
         <SectionHint text={SECTION_HINT.student.selectionResults} className="mt-2" />
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StudentResultCard
           title="Этап 1: Эссе"
           graded={stage1Graded}
@@ -1239,7 +1239,7 @@ function StudentResultCard({
   submitted: boolean;
 }) {
   return (
-    <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6">
+    <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-5 sm:p-6">
       <h3 className="font-semibold text-white mb-4">{title}</h3>
       {graded ? (
         <p className="inline-flex items-center gap-2 text-sm font-medium text-blue-300">

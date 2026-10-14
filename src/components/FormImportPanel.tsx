@@ -148,8 +148,10 @@ export default function FormImportPanel({
     <div className="rounded-2xl bg-slate-900/60 border border-white/5 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <FileSpreadsheet className="w-5 h-5 text-emerald-400 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm text-white truncate">{fileName}</p>
+        {/* min-w: на телефоне кнопки уходят строкой ниже, а не сжимают имя
+            файла до «Анкет…». */}
+        <div className="min-w-[12rem] flex-1">
+          <p className="text-sm text-white break-words">{fileName}</p>
           <p className="text-xs text-slate-500">
             {table.rows.length} строк, {table.headers.length} колонок
           </p>
@@ -200,7 +202,7 @@ export default function FormImportPanel({
             одна: код участника, ФИО, почта или логин. Если в форме есть код, остальное не
             понадобится.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {MAPPING_FIELDS.map((field) => (
               <div key={field.key} className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">

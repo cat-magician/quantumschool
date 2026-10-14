@@ -186,7 +186,7 @@ export default function ProfilePage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6 pb-12">
-        <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8">
+        <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="relative shrink-0">
               <UserAvatar
@@ -205,7 +205,7 @@ export default function ProfilePage() {
               </button>
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold truncate">{visibleName}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold break-words">{visibleName}</h1>
               <p className="text-sm text-slate-500 mt-1 truncate">{accountLabel}</p>
               <span className={`inline-flex mt-3 px-2.5 py-1 rounded-lg text-xs font-medium border ${roleBadgeClass(profile)}`}>
                 {roleLabel(profile)}
@@ -246,7 +246,7 @@ export default function ProfilePage() {
           </p>
         )}
 
-        <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-1">
+        <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-1">
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <User className="w-3.5 h-3.5" />
             Основное
@@ -285,7 +285,7 @@ export default function ProfilePage() {
         <LinkedAccountsSection />
 
         {showApplicationFields && (
-          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-3">
+          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-3">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <MapPin className="w-3.5 h-3.5" />
               О себе
@@ -323,7 +323,7 @@ export default function ProfilePage() {
         )}
 
         {profile.role === 'student' && !profile.is_enrolled && (
-          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-1">
+          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-1">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Shield className="w-3.5 h-3.5" />
               Отбор
@@ -344,7 +344,7 @@ export default function ProfilePage() {
         )}
 
         {profile.role === 'student' && profile.is_enrolled && (
-          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-1">
+          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-1">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <GraduationCap className="w-3.5 h-3.5" />
               Обучение
@@ -372,7 +372,7 @@ export default function ProfilePage() {
         )}
 
         {isStaff && (
-          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-6 sm:p-8 space-y-1">
+          <section className="rounded-2xl bg-slate-900/60 border border-white/5 p-5 sm:p-8 space-y-1">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <GraduationCap className="w-3.5 h-3.5" />
               {profile.role === 'superadmin' ? 'Доступ и группы' : 'Мои группы'}

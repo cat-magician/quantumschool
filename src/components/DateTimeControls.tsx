@@ -56,6 +56,7 @@ const dayAriaFmt = new Intl.DateTimeFormat('ru-RU', {
   weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
 });
 const dayMonthFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
+const dayMonthShortFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' });
 const weekdayShortFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short' });
 const clockFmt = new Intl.DateTimeFormat('ru-RU', {
   timeZone: SCHOOL_TIME_ZONE,
@@ -89,10 +90,11 @@ function monthWeeks(month: Date): Date[][] {
   return Array.from({ length: 6 }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(start, w * 7 + d)));
 }
 
-/** «пн, 12 октября»; год — только если не текущий. */
-function formatFieldDate(d: Date) {
+/** «пн, 12 октября» или коротко «пн, 12 окт.»; год — только если не текущий. */
+function formatFieldDate(d: Date, month: 'long' | 'short' = 'long') {
   const year = d.getFullYear() === schoolToday().getFullYear() ? '' : ` ${d.getFullYear()}`;
-  return `${weekdayShortFmt.format(d)}, ${dayMonthFmt.format(d)}${year}`;
+  const dayMonth = (month === 'short' ? dayMonthShortFmt : dayMonthFmt).format(d);
+  return `${weekdayShortFmt.format(d)}, ${dayMonth}${year}`;
 }
 
 function CalendarGrid({
@@ -319,7 +321,14 @@ export function FormDate({
       >
         <CalendarDays className="w-4 h-4 text-slate-500 shrink-0" aria-hidden />
         <span className={`flex-1 truncate ${selected ? 'text-white' : 'text-slate-500'}`}>
-          {selected ? formatFieldDate(selected) : placeholder}
+          {/* Рядом со временем на телефоне поле узкое: «пт, 9 октя…» —
+              месяц короче, чтобы дата читалась целиком. */}
+          {selected ? (
+            <>
+              <span className="sm:hidden">{formatFieldDate(selected, 'short')}</span>
+              <span className="hidden sm:inline">{formatFieldDate(selected)}</span>
+            </>
+          ) : placeholder}
         </span>
       </button>
       <DatePanel

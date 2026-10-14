@@ -237,7 +237,7 @@ export default function SelectionStage1ConfigTab() {
       {error && <p className="text-sm text-rose-400">{error}</p>}
       {success && <p className="text-sm text-emerald-400">{success}</p>}
 
-      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-6 space-y-4">
         <div className="flex items-center gap-2">
           <ClipboardList className="w-4 h-4 text-slate-400" />
           <h3 className="font-semibold text-white">Анкета участника</h3>
@@ -292,7 +292,7 @@ export default function SelectionStage1ConfigTab() {
         </div>
       </section>
 
-      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-6 space-y-4">
         <div className="flex items-center gap-2">
           <FileText className="w-4 h-4 text-slate-400" />
           <h3 className="font-semibold text-white">Мотивационное эссе</h3>
@@ -347,7 +347,7 @@ export default function SelectionStage1ConfigTab() {
         </div>
       </section>
 
-      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+      <section className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-6 space-y-4">
         <div className="flex items-center gap-2">
           <Link2 className="w-4 h-4 text-slate-400" />
           <h3 className="font-semibold text-white">Привязка ответов к аккаунту</h3>

@@ -500,7 +500,7 @@ export default function SiteContentTab() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-white mb-1">Плашка в hero-блоке</h3>
           <p className="text-slate-400 text-sm">
@@ -534,7 +534,7 @@ export default function SiteContentTab() {
         </button>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6 space-y-4">
         <div>
           <div className="flex flex-wrap items-center gap-3 mb-1">
             <h3 className="text-lg font-semibold text-white">Ключевые даты на главной</h3>
@@ -658,7 +658,7 @@ export default function SiteContentTab() {
             <p className="text-white font-bold mb-3">
               {keyDatesTitle.trim() || DEFAULT_LANDING_CONFIG.key_dates_title}
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {normalizeKeyDates(keyDateItems).map((item, index) => (
                 <div
                   key={index}
@@ -710,7 +710,7 @@ export default function SiteContentTab() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-white mb-1">Telegram-канал для учеников</h3>
           <p className="text-slate-400 text-sm max-w-2xl">
@@ -777,7 +777,7 @@ export default function SiteContentTab() {
         </button>
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-5 sm:p-6 space-y-4">
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-white mb-1">Преподаватели на сайте</h3>
@@ -957,7 +957,7 @@ function InstructorEditor({
       <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch">
         <div className="flex-1 min-w-0 flex flex-col">
           <div className="space-y-3">
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-slate-300">Имя</span>

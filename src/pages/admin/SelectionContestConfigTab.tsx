@@ -162,7 +162,7 @@ export default function SelectionContestConfigTab() {
         <SectionHint text={SECTION_HINT.admin.selectionContest} className="mt-1.5" />
       </div>
 
-      <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-6 space-y-4">
+      <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 sm:p-6 space-y-4">
         <div>
           <label htmlFor="contest-instructions" className="text-sm font-medium text-slate-300 block">
             Инструкция к контесту

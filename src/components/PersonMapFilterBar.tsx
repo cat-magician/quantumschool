@@ -224,7 +224,7 @@ export default function PersonMapFilterBar({
       {open && (
         <div
           id={panelId}
-          className="grid gap-4 sm:grid-cols-2 p-4 rounded-2xl bg-slate-900/60 border border-white/5"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 p-4 rounded-2xl bg-slate-900/60 border border-white/5"
         >
           <FilterField label="Почта для связи">
             <FormSelect

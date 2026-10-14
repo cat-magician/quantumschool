@@ -1559,7 +1559,7 @@ export default function SelectionMatchingTab() {
                         : 'bg-slate-900/60 border-white/5'
                     }`}
                   >
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
                           {FORM_KIND_LABELS[kind]} · строка {row.entry.rowNumber}
