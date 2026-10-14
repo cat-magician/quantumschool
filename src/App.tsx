@@ -47,6 +47,7 @@ const ProfilePage = lazyChunk(() => import('./pages/ProfilePage'));
 const QuantumBrandTitle = lazyChunk(() => import('./components/QuantumBrandTitle'));
 const PrivacyPolicy = lazyChunk(() => import('./pages/PrivacyPolicy'));
 const TeacherJoin = lazyChunk(() => import('./pages/TeacherJoin'));
+const ConnectionDiagnostics = lazyChunk(() => import('./pages/ConnectionDiagnostics'));
 
 function RouteFallback() {
   return (
@@ -58,7 +59,7 @@ function RouteFallback() {
 
 
 /** Маршруты со своей страницей; всё остальное — главная. */
-const NON_LANDING_PATHS = ['/dashboard', '/profile', '/join/teacher', '/privacy'];
+const NON_LANDING_PATHS = ['/dashboard', '/profile', '/join/teacher', '/privacy', '/diag'];
 
 function App() {
   const { pathname } = useLocation();
@@ -106,6 +107,7 @@ function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/join/teacher" element={<TeacherJoin />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/diag" element={<ConnectionDiagnostics />} />
         <Route path="*" element={
           <div className="min-h-screen bg-slate-50">
 
