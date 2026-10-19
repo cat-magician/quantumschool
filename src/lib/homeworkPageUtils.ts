@@ -1,4 +1,4 @@
-import type { HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from './types';
+import type { DocumentFile, HomeworkBlockContent, HomeworkBlockType, HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from './types';
 import { yandexFormUrl } from './constants';
 import { normalizeContestUrl, parseYandexFormId } from './selectionConfig';
 import { formatDueDate } from './homeworkUtils';
@@ -6,10 +6,12 @@ import { toSchoolInputValue, type TimeView } from './schoolTime';
 
 export const HOMEWORK_BLOCK_LABELS: Record<HomeworkBlockType, string> = {
   text: 'Задачи (Markdown)',
+  document: 'Файлы задания',
   image: 'Изображение',
   video: 'Видео',
   yandex_form: 'Яндекс.Форма (сдача)',
   contest: 'Яндекс.Контест (сдача)',
+  chat: 'Чат группы (сдача)',
 };
 
 /**
@@ -18,17 +20,19 @@ export const HOMEWORK_BLOCK_LABELS: Record<HomeworkBlockType, string> = {
  */
 export const HOMEWORK_BLOCK_HEADINGS: Record<HomeworkBlockType, string | null> = {
   text: null,
+  document: null,
   image: null,
   video: null,
   yandex_form: 'Сдача ответа',
   contest: null,
+  chat: 'Сдача решения',
 };
 
 /** Блоки с условием задания */
-export const HOMEWORK_CONTENT_BLOCK_TYPES: HomeworkBlockType[] = ['text', 'image', 'video'];
+export const HOMEWORK_CONTENT_BLOCK_TYPES: HomeworkBlockType[] = ['document', 'text', 'image', 'video'];
 
 /** Блоки для приёма ответов */
-export const HOMEWORK_SUBMISSION_BLOCK_TYPES: HomeworkBlockType[] = ['yandex_form', 'contest'];
+export const HOMEWORK_SUBMISSION_BLOCK_TYPES: HomeworkBlockType[] = ['yandex_form', 'contest', 'chat'];
 
 export const HOMEWORK_BLOCK_TYPES: HomeworkBlockType[] = [
   ...HOMEWORK_CONTENT_BLOCK_TYPES,
@@ -43,24 +47,57 @@ export function defaultHomeworkBlockContent(type: HomeworkBlockType): HomeworkBl
       return { url: '', caption: '' };
     case 'video':
       return { url: '' };
+    case 'document':
+      return { files: [] };
     case 'yandex_form':
       return { form_id: '' };
     case 'contest':
       return { url: '' };
+    case 'chat':
+      return { url: '', body: '' };
     default:
       return {};
   }
 }
 
+export type HomeworkSubmissionMode = 'confirm' | 'chat' | 'mark';
+
+/**
+ * Как сдают задание:
+ * - confirm — ответ в форме или контесте, ученик подтверждает сдачу на сайте;
+ * - chat — решение уходит в чат группы;
+ * - mark — блока сдачи нет: как сдавать, договариваются с наставником.
+ * В chat и mark отметка на сайте необязательна, наставник ставит оценку
+ * любому, кому задано.
+ */
+export function homeworkSubmissionMode(
+  blocks: Pick<HomeworkPageBlock, 'block_type'>[],
+): HomeworkSubmissionMode {
+  const types = new Set(blocks.map((block) => block.block_type));
+  if (types.has('yandex_form') || types.has('contest')) return 'confirm';
+  return types.has('chat') ? 'chat' : 'mark';
+}
+
+/** Оценку ставят без обязательной отметки ученика — в очереди проверки все, кому задано. */
+export function gradesWithoutMark(mode: HomeworkSubmissionMode): boolean {
+  return mode !== 'confirm';
+}
+
+/** Файлы блока «Файлы задания». */
+export function homeworkFiles(content: HomeworkBlockContent): DocumentFile[] {
+  return (content.files ?? []).filter((file) => file.url?.trim());
+}
+
+/**
+ * Новое задание — один блок с файлами: выложить листок с задачами можно,
+ * ничего не собирая. Текст, форму или контест добавляют кнопками.
+ */
 export function createDefaultHomeworkBlocks(): {
   block_type: HomeworkBlockType;
   sort_order: number;
   content: HomeworkBlockContent;
 }[] {
-  return [
-    { block_type: 'text', sort_order: 0, content: { body: '' } },
-    { block_type: 'yandex_form', sort_order: 1, content: { form_id: '' } },
-  ];
+  return [{ block_type: 'document', sort_order: 0, content: defaultHomeworkBlockContent('document') }];
 }
 
 export function formatHomeworkDueAt(iso: string | null | undefined, view: TimeView = 'viewer') {
@@ -133,7 +170,7 @@ export function homeworkListDueText(dueAt: string | null | undefined, view: Time
 }
 
 export function isHomeworkSubmissionBlock(type: HomeworkBlockType) {
-  return type === 'yandex_form' || type === 'contest';
+  return type === 'yandex_form' || type === 'contest' || type === 'chat';
 }
 
 /** Восстанавливает LaTeX-команды после кривого JSON/SQL. */
@@ -246,6 +283,12 @@ export function homeworkSubmissionLinksFromBlocks(
           href: url,
           external: true,
         });
+      }
+    }
+    if (block.block_type === 'chat') {
+      const url = block.content.url?.trim();
+      if (url && /^https?:\/\//i.test(url)) {
+        links.push({ label: 'Чат группы', href: url, external: true });
       }
     }
   }

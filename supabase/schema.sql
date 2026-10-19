@@ -1765,6 +1765,13 @@ CREATE POLICY "Staff update homework page submissions" ON public.homework_page_s
   USING (private.staff_can_access_student(user_id))
   WITH CHECK (private.staff_can_access_student(user_id));
 
+-- Сдача не через сайт (чат группы или без блока сдачи): оценку ставят и тому,
+-- кто не отмечал сдачу на сайте, тогда запись создаёт наставник.
+DROP POLICY IF EXISTS "Staff grade unmarked homework page submissions" ON public.homework_page_submissions;
+CREATE POLICY "Staff grade unmarked homework page submissions" ON public.homework_page_submissions
+  FOR INSERT TO authenticated
+  WITH CHECK (private.staff_can_access_student(user_id));
+
 DROP POLICY IF EXISTS "Students read own homework page submissions" ON public.homework_page_submissions;
 DROP POLICY IF EXISTS "Students read own homework page submissions" ON public.homework_page_submissions;
 CREATE POLICY "Students read own homework page submissions" ON public.homework_page_submissions
@@ -1804,6 +1811,11 @@ ALTER TABLE public.homework_page_submissions
 
 /*
   # Блоки сдачи ДЗ: Яндекс.Форма и Яндекс.Контест
+  # document — файлы задания (content.files: загруженные в lesson-documents или ссылки)
+  # chat — решение уходит в чат группы, на сайте только отметка и оценка
+
+  Список типов один на всю схему: ниже его не переопределять, иначе повторный
+  запуск упадёт на уже сохранённых блоках нового типа.
 */
 
 ALTER TABLE public.homework_page_blocks
@@ -1811,7 +1823,7 @@ ALTER TABLE public.homework_page_blocks
 
 ALTER TABLE public.homework_page_blocks
   ADD CONSTRAINT homework_page_blocks_block_type_check
-  CHECK (block_type IN ('text', 'image', 'video', 'yandex_form', 'contest'));
+  CHECK (block_type IN ('text', 'image', 'video', 'document', 'yandex_form', 'contest', 'chat'));
 
 -- ══════════════════════════════════════════════════════════════
 -- 20260629120000_029_landing_content.sql
@@ -2629,7 +2641,7 @@ CREATE POLICY "Staff delete site images" ON storage.objects FOR DELETE
   );
 
 -- ══════════════════════════════════════════════════════════════
--- Документы занятий (PDF, картинки конспектов)
+-- Документы занятий и домашних заданий (PDF, картинки конспектов)
 -- ══════════════════════════════════════════════════════════════
 
 INSERT INTO storage.buckets (id, name, public)

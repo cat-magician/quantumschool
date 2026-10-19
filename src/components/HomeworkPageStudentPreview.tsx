@@ -1,5 +1,5 @@
 import type { HomeworkPageBlock } from '../lib/types';
-import { formatHomeworkDueAt } from '../lib/homeworkPageUtils';
+import { formatHomeworkDueAt, homeworkSubmissionMode } from '../lib/homeworkPageUtils';
 import HomeworkDueBadge from './HomeworkDueBadge';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkSubmissionSection from './HomeworkSubmissionSection';
@@ -41,7 +41,7 @@ export default function HomeworkPageStudentPreview({
         <HomeworkPageBlocks blocks={blocks} />
       )}
 
-      <HomeworkSubmissionSection preview={preview} />
+      <HomeworkSubmissionSection preview={preview} mode={homeworkSubmissionMode(blocks)} />
     </div>
   );
 }

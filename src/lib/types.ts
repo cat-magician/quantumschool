@@ -304,10 +304,21 @@ export type LessonPageType = 'lecture' | 'seminar';
 
 export type LessonBlockType = 'recording' | 'text' | 'materials' | 'homework_link';
 
+/** Файл в блоке «Файлы» занятия или ДЗ: загруженный на сайт или ссылка на Яндекс.Диск/PDF. */
+export type DocumentFile = {
+  url: string;
+  title?: string;
+  /** Размер в байтах — у загруженных файлов; ученик видит его до открытия. */
+  size?: number;
+};
+
 export type LessonBlockContent = {
   url?: string;
   body?: string;
   label?: string;
+  /** Файлы блока «Конспект и материалы». */
+  files?: DocumentFile[];
+  /** Один файл в старых блоках «Конспект и материалы» — до списка files. */
   pdf_url?: string;
   pdf_title?: string;
   /** ID страницы домашнего задания из homework_pages */
@@ -338,12 +349,14 @@ export interface LessonPage {
   blocks?: LessonPageBlock[];
 }
 
-export type HomeworkBlockType = 'text' | 'image' | 'video' | 'yandex_form' | 'contest';
+export type HomeworkBlockType = 'text' | 'image' | 'video' | 'document' | 'yandex_form' | 'contest' | 'chat';
 
 export type HomeworkBlockContent = {
   body?: string;
   url?: string;
   caption?: string;
+  /** Файлы блока «Файлы задания». */
+  files?: DocumentFile[];
   form_id?: string;
 };
 
@@ -385,4 +398,9 @@ export interface HomeworkPageSubmission {
   updated_at: string;
   page?: Pick<HomeworkPage, 'id' | 'title' | 'max_score'>;
   student?: Pick<UserProfile, 'id' | 'display_name' | 'email' | 'avatar_url'>;
+  /**
+   * Только в очереди проверки: записи ещё нет, ученик не отмечал сдачу
+   * (решение в чате группы). Оценка создаст запись.
+   */
+  unmarked?: boolean;
 }

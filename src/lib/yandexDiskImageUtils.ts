@@ -9,6 +9,7 @@ export type YandexPublicResourceMeta = {
   name?: string;
   mime_type?: string;
   type?: 'file' | 'dir';
+  size?: number;
 };
 
 export function isYandexDiskUrl(url: string): boolean {

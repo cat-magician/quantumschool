@@ -17,14 +17,39 @@ import {
   DEFAULT_HOMEWORK_MAX_SCORE,
 } from '../../lib/homeworkUtils';
 import { homeworkPageLoadError } from '../../lib/homeworkPageLoadError';
+import { gradesWithoutMark, homeworkSubmissionMode } from '../../lib/homeworkPageUtils';
+import { visibleToGroup } from '../../lib/groupTargeting';
 import HomeworkGradingWorkspace from '../../components/HomeworkGradingWorkspace';
 import HomeworkPagesTab from './HomeworkPagesTab';
 
 type Section = 'pages' | 'grading';
 type GradingFilter = 'all' | 'ungraded' | 'graded';
+type GradingPage = Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score' | 'group_ids'>;
+type StudentCard = NonNullable<HomeworkPageSubmission['student']>;
 
 function submissionMaxScore(s: HomeworkPageSubmission) {
   return s.page?.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE;
+}
+
+/** Строка очереди для того, кто не отмечал сдачу: при сдаче в чате оценка нужна и ему. */
+function unmarkedRow(page: GradingPage, student: StudentCard): HomeworkPageSubmission {
+  return {
+    id: `unmarked:${page.id}:${student.id}`,
+    page_id: page.id,
+    user_id: student.id,
+    answer_text: '',
+    status: 'draft',
+    score: null,
+    feedback: '',
+    graded_by: null,
+    submitted_at: null,
+    graded_at: null,
+    created_at: '',
+    updated_at: '',
+    page: { id: page.id, title: page.title, max_score: page.max_score },
+    student,
+    unmarked: true,
+  };
 }
 
 export default function HomeworkTab({
@@ -71,7 +96,7 @@ export default function HomeworkTab({
     const [pRes, sRes, gRes, membersRes, gtRows] = await Promise.all([
       supabase
         .from('homework_pages')
-        .select('id, title, due_at')
+        .select('id, title, due_at, max_score, group_ids')
         .eq('is_published', true)
         .order('due_at', { ascending: true, nullsFirst: false }),
       supabase
@@ -83,12 +108,13 @@ export default function HomeworkTab({
       supabase.from('group_members').select('*'),
       loadGroupTeachers(supabase),
     ]);
+    const pageRows = (pRes.data ?? []) as GradingPage[];
     if (pRes.error) setLoadError(homeworkPageLoadError(pRes.error.message));
     else {
-      const pageRows = (pRes.data ?? []) as Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[];
       setPages(pageRows);
       setPageMetaMap(Object.fromEntries(pageRows.map((p) => [p.id, p])));
     }
+    const members = (membersRes.data ?? []) as GroupMember[];
     if (sRes.error) {
       setLoadError(homeworkPageLoadError(sRes.error.message));
       setAllSubmissions([]);
@@ -96,7 +122,8 @@ export default function HomeworkTab({
     } else if (sRes.data) {
       const subs = sRes.data as HomeworkPageSubmission[];
       const userIds = [...new Set(subs.map((s) => s.user_id))];
-      const pageIds = [...new Set(subs.map((s) => s.page_id))];
+      // Блоки всех заданий: по ним видно, где сдача идёт в чате группы.
+      const pageIds = pageRows.map((p) => p.id);
       const [{ data: profiles }, { data: blocks }] = await Promise.all([
         userIds.length
           ? supabase.from('user_profiles').select('id, display_name, email, avatar_url').in('id', userIds)
@@ -105,12 +132,38 @@ export default function HomeworkTab({
           ? supabase.from('homework_page_blocks').select('*').in('page_id', pageIds)
           : Promise.resolve({ data: [] }),
       ]);
-      const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
-      setAllSubmissions(subs.map((s) => ({ ...s, student: profileMap[s.user_id] ?? null })));
       const blocksMap: Record<string, HomeworkPageBlock[]> = {};
       for (const block of (blocks ?? []) as HomeworkPageBlock[]) {
         (blocksMap[block.page_id] ??= []).push(block);
       }
+
+      // Сдача не через сайт (чат группы или без блока сдачи): в очереди все,
+      // кому задано, — отметка на сайте необязательна, а оценку ставят здесь.
+      const rosterPages = pageRows.filter((p) => gradesWithoutMark(homeworkSubmissionMode(blocksMap[p.id] ?? [])));
+      let enrolled: StudentCard[] = [];
+      if (rosterPages.length > 0) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('id, display_name, email, avatar_url')
+          .eq('role', 'student')
+          .eq('is_enrolled', true);
+        enrolled = (data ?? []) as StudentCard[];
+      }
+      const groupOf = studentGroupMap(members);
+      const unmarked: HomeworkPageSubmission[] = [];
+      for (const page of rosterPages) {
+        const marked = new Set(subs.filter((s) => s.page_id === page.id).map((s) => s.user_id));
+        for (const student of enrolled) {
+          if (marked.has(student.id) || !visibleToGroup(page.group_ids, groupOf[student.id])) continue;
+          unmarked.push(unmarkedRow(page, student));
+        }
+      }
+
+      const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+      setAllSubmissions([
+        ...subs.map((s) => ({ ...s, student: profileMap[s.user_id] ?? null })),
+        ...unmarked,
+      ]);
       setPageBlocksMap(blocksMap);
     }
     const rawGroups = (gRes.data ?? []) as Group[];
@@ -119,7 +172,7 @@ export default function HomeworkTab({
       : groupsForTeacher(rawGroups, gtRows, user.id);
     setGroups(visibleGroups);
     setTeacherGroupIds(new Set(visibleGroups.map((g) => g.id)));
-    setStudentGroups(studentGroupMap((membersRes.data ?? []) as GroupMember[]));
+    setStudentGroups(studentGroupMap(members));
     if (silent) setRefreshing(false);
     else setInitialLoading(false);
   };
@@ -135,8 +188,9 @@ export default function HomeworkTab({
     [allSubmissions, studentGroups, teacherGroupIds, isSuperAdmin],
   );
 
+  // Отметившие сдачу: не отмечавшиеся (сдача в чате) работами «на проверке» не считаем.
   const ungradedCount = useMemo(
-    () => submissions.filter((s) => s.status !== 'graded').length,
+    () => submissions.filter((s) => s.status !== 'graded' && !s.unmarked).length,
     [submissions],
   );
 
@@ -154,7 +208,8 @@ export default function HomeworkTab({
     });
   };
 
-  const gradeSubmission = async (s: HomeworkPageSubmission): Promise<boolean> => {
+  /** Сохраняет оценку; возвращает id записи (у не отмечавшегося она появляется только сейчас). */
+  const gradeSubmission = async (s: HomeworkPageSubmission): Promise<string | null> => {
     const draft = gradeDrafts[s.id] ?? {
       score: s.score != null ? formatHomeworkScoreValue(s.score) : '',
       feedback: s.feedback ?? '',
@@ -163,29 +218,35 @@ export default function HomeworkTab({
     const score = parseHomeworkScore(draft.score, maxScore);
     if (score === null) {
       toast(`Укажите оценку от 0 до ${formatHomeworkScoreValue(maxScore)}`, 'warning');
-      return false;
+      return null;
     }
     const feedback = draft.feedback.trim().slice(0, 1000);
     setGradingId(s.id);
     const { data: { user: grader } } = await supabase.auth.getUser();
-    const { data: updated, error: err } = await supabase
-      .from('homework_page_submissions')
-      .update({
-        score,
-        feedback,
-        status: 'graded',
-        graded_at: new Date().toISOString(),
-        graded_by: grader?.id ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', s.id)
+    const now = new Date().toISOString();
+    const grade = {
+      score,
+      feedback,
+      status: 'graded' as const,
+      graded_at: now,
+      graded_by: grader?.id ?? null,
+      updated_at: now,
+    };
+    // Не отмечавшийся мог сохранить черновик — тогда запись уже есть, и
+    // upsert её дополнит.
+    const request = s.unmarked
+      ? supabase
+        .from('homework_page_submissions')
+        .upsert({ page_id: s.page_id, user_id: s.user_id, ...grade }, { onConflict: 'page_id,user_id' })
+      : supabase.from('homework_page_submissions').update(grade).eq('id', s.id);
+    const { data: updated, error: err } = await request
       .select('*, page:homework_pages(id, title, max_score)')
       .single();
 
     if (err || !updated) {
       toast(homeworkPageLoadError(err?.message) ?? 'Не удалось сохранить оценку', 'error');
       setGradingId(null);
-      return false;
+      return null;
     }
 
     const title = s.page?.title ?? 'Домашнее задание';
@@ -195,17 +256,17 @@ export default function HomeworkTab({
     const row = updated as HomeworkPageSubmission;
     setGradeDrafts((prev) => ({
       ...prev,
-      [s.id]: { score: formatHomeworkScoreValue(score), feedback },
+      [row.id]: { score: formatHomeworkScoreValue(score), feedback },
     }));
     setAllSubmissions((prev) =>
       prev.map((sub) => (
         sub.id === s.id
-          ? { ...sub, ...row, student: sub.student, page: row.page ?? sub.page }
+          ? { ...sub, ...row, student: sub.student, page: row.page ?? sub.page, unmarked: false }
           : sub
       )),
     );
     setGradingId(null);
-    return true;
+    return row.id;
   };
 
   return (

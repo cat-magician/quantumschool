@@ -1,5 +1,5 @@
 import type {
-  LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType, ScheduleEvent,
+  DocumentFile, LessonBlockContent, LessonBlockType, LessonPage, LessonPageBlock, LessonPageType, ScheduleEvent,
 } from './types';
 import { schoolDayStartMs } from './schoolTime';
 
@@ -27,9 +27,9 @@ export const LESSON_BLOCK_HEADINGS: Record<LessonBlockType, string | null> = {
 };
 
 export const LESSON_BLOCK_TYPES: LessonBlockType[] = [
+  'materials',
   'recording',
   'text',
-  'materials',
   'homework_link',
 ];
 
@@ -38,8 +38,9 @@ export function defaultBlockContent(type: LessonBlockType): LessonBlockContent {
     case 'recording':
       return { url: '' };
     case 'text':
+      return { body: '' };
     case 'materials':
-      return { body: '', pdf_url: '', pdf_title: '' };
+      return { files: [], body: '' };
     case 'homework_link':
       return { homework_page_id: '', label: 'Перейти к домашнему заданию' };
     default:
@@ -47,16 +48,23 @@ export function defaultBlockContent(type: LessonBlockType): LessonBlockContent {
   }
 }
 
+/**
+ * Новая страница — один блок с файлами: выложить конспект можно, ничего не
+ * собирая. Запись, текст и ссылку на ДЗ добавляют кнопками, когда нужны.
+ */
 export function createDefaultBlocks(): {
   block_type: LessonBlockType;
   sort_order: number;
   content: LessonBlockContent;
 }[] {
-  return LESSON_BLOCK_TYPES.map((block_type, sort_order) => ({
-    block_type,
-    sort_order,
-    content: defaultBlockContent(block_type),
-  }));
+  return [{ block_type: 'materials', sort_order: 0, content: defaultBlockContent('materials') }];
+}
+
+/** Файлы блока «Конспект и материалы»; в старых блоках файл был один — pdf_url. */
+export function materialsFiles(content: LessonBlockContent): DocumentFile[] {
+  if (content.files) return content.files.filter((file) => file.url?.trim());
+  const legacy = content.pdf_url?.trim();
+  return legacy ? [{ url: legacy, title: content.pdf_title }] : [];
 }
 
 export function formatLessonDate(dateStr: string) {
@@ -81,7 +89,7 @@ export function isLessonBlockEmpty(block: Pick<LessonPageBlock, 'block_type' | '
     case 'text':
       return !c.body?.trim();
     case 'materials':
-      return !c.pdf_url?.trim() && !c.body?.trim();
+      return materialsFiles(c).length === 0 && !c.body?.trim();
     case 'homework_link':
       return !c.homework_page_id?.trim() && !c.url?.trim();
     default:

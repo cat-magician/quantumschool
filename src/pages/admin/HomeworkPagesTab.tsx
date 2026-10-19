@@ -36,6 +36,8 @@ import HomeworkPageStudentPreview from '../../components/HomeworkPageStudentPrev
 import AdminPageViewBar from '../../components/AdminPageViewBar';
 import BlockPlaceholder from '../../components/BlockPlaceholder';
 import ImageSourceInput from '../../components/ImageSourceInput';
+import DocumentFilesEditor from '../../components/DocumentFilesEditor';
+import { HomeworkChatCard } from '../../components/HomeworkPageBlocks';
 import { FormDatetime, type DatetimePreset } from '../../components/DateTimeControls';
 import { schoolInputToIso } from '../../lib/schoolTime';
 
@@ -392,11 +394,12 @@ export default function HomeworkPagesTab({
     setPages((prev) => prev.filter((p) => p.id !== page.id));
   };
 
+  // От текущего состояния, а не от снимка рендера: файлы догружаются после
+  // await, и правки, сделанные за это время, не должны пропасть.
   const updateBlockContent = (id: string, patch: Partial<HomeworkBlockContent>) => {
-    if (!editor) return;
-    setEditor({
-      ...editor,
-      blocks: editor.blocks.map((b) => (
+    setEditor((prev) => prev && {
+      ...prev,
+      blocks: prev.blocks.map((b) => (
         b.id === id ? { ...b, content: { ...b.content, ...patch } } : b
       )),
     });
@@ -417,7 +420,8 @@ export default function HomeworkPagesTab({
     const block = editor.blocks.find((b) => b.id === id);
     const content = block?.content ?? {};
     const hasContent = Boolean(
-      content.body?.trim() || content.url?.trim() || content.caption?.trim() || content.form_id?.trim(),
+      content.body?.trim() || content.url?.trim() || content.caption?.trim() || content.form_id?.trim()
+      || content.files?.length,
     );
     if (hasContent) {
       const ok = await confirm({
@@ -616,7 +620,7 @@ export default function HomeworkPagesTab({
 
               {editor.blocks.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center border border-dashed border-white/10 rounded-xl">
-                  Добавьте блок с задачами и блок сдачи (форма или контест)
+                  Пусто — добавьте файлы задания или текст кнопками выше
                 </p>
               ) : (
                 editor.blocks.map((block, index) => (
@@ -681,7 +685,7 @@ export default function HomeworkPagesTab({
   return (
     <div className="space-y-6 max-w-4xl">
       <p className="text-slate-400 text-sm">
-        Условие, срок сдачи и сдача через форму или контест. Проверка — во вкладке «Проверка».
+        Файлы с задачами, срок и, если нужно, сдача через форму, контест или чат группы. Оценки — во вкладке «Проверка».
       </p>
 
       {loadError && (
@@ -800,6 +804,13 @@ function BlockEditor({
         </div>
       )}
 
+      {block.block_type === 'document' && (
+        <DocumentFilesEditor
+          files={block.content.files ?? []}
+          onChange={(files) => onContentChange({ files })}
+        />
+      )}
+
       {block.block_type === 'video' && (
         <div className="space-y-3">
           <input
@@ -849,6 +860,29 @@ function BlockEditor({
               <BlockPlaceholder variant="contest" />
             );
           })()}
+        </div>
+      )}
+
+      {block.block_type === 'chat' && (
+        <div className="space-y-3">
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Решения ученики присылают в чат группы, оценки вы ставите во вкладке «Проверка». Отмечаться
+            на сайте ученику не обязательно — оценку можно поставить любому, кому задано.
+          </p>
+          <input
+            value={block.content.url ?? ''}
+            onChange={(e) => onContentChange({ url: e.target.value })}
+            placeholder="Ссылка на чат (необязательно)"
+            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+          />
+          <textarea
+            value={block.content.body ?? ''}
+            onChange={(e) => onContentChange({ body: e.target.value })}
+            rows={2}
+            placeholder="Подсказка ученикам (необязательно): например, «фото решения одним сообщением до пятницы»"
+            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm resize-y min-h-[3.5rem]"
+          />
+          <HomeworkChatCard body={block.content.body} url={block.content.url} />
         </div>
       )}
     </div>

@@ -26,6 +26,8 @@ export type ResolvedLessonDocument = {
   downloadUrl: string;
   fileName?: string;
   sourceUrl: string;
+  /** Размер в байтах, если источник его сообщает (Яндекс.Диск). */
+  size?: number;
 };
 
 export function extractPdfUrlFromText(text: string): string | null {
@@ -117,6 +119,7 @@ async function resolveYandexDiskDocument(publicUrl: string): Promise<ResolvedLes
       downloadUrl,
       fileName: name,
       sourceUrl: publicUrl,
+      size: meta.size,
     };
   }
 
@@ -127,6 +130,7 @@ async function resolveYandexDiskDocument(publicUrl: string): Promise<ResolvedLes
       downloadUrl,
       fileName: name,
       sourceUrl: publicUrl,
+      size: meta.size,
     };
   }
 
@@ -136,6 +140,7 @@ async function resolveYandexDiskDocument(publicUrl: string): Promise<ResolvedLes
     downloadUrl,
     fileName: name,
     sourceUrl: publicUrl,
+    size: meta.size,
   };
 }
 
@@ -192,19 +197,48 @@ export async function resolvePdfDocumentUrl(rawUrl: string): Promise<string> {
   return doc.viewerUrl;
 }
 
+/** Загруженный на сайт файл лежит под именем <uuid>.pdf — это не заголовок. */
+const STORED_FILE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function titleFromFileName(name: string): string {
+  const base = name.replace(/\.(pdf|pptx?|docx?|xlsx?)$/i, '');
+  if (STORED_FILE_NAME.test(base)) return '';
+  return base.replace(/[-_]+/g, ' ');
+}
+
 export function pdfViewerTitle(
   title: string | undefined,
   url: string,
   fileName?: string,
+  fallback = 'Материалы занятия',
 ): string {
   const custom = title?.trim();
   if (custom) return custom;
   if (fileName?.trim()) {
-    return fileName.replace(/\.(pdf|pptx?|docx?|xlsx?)$/i, '').replace(/[-_]+/g, ' ');
+    return titleFromFileName(fileName) || fallback;
   }
   const fromUrl = filenameFromUrl(url, '');
   if (fromUrl && fromUrl !== 'document.pdf') {
-    return fromUrl.replace(/\.(pdf|pptx?|docx?|xlsx?)$/i, '').replace(/[-_]+/g, ' ');
+    return titleFromFileName(fromUrl) || fallback;
   }
-  return 'Материалы занятия';
+  return fallback;
+}
+
+/**
+ * Ссылка «Скачать». Файл, загруженный на сайт, Supabase по параметру download
+ * отдаёт вложением под заголовком документа, а не как <uuid>.pdf (кириллица
+ * доходит в filename*). Остальные ссылки — как есть.
+ */
+export function lessonDocumentDownloadUrl(url: string, title: string): string {
+  const trimmed = url.trim();
+  if (!isSupabaseLessonDocumentUrl(trimmed)) return trimmed;
+  const ext = filenameFromUrl(trimmed, '').match(/\.[a-z0-9]+$/i)?.[0] ?? '';
+  const name = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'document';
+  try {
+    const target = new URL(trimmed);
+    target.searchParams.set('download', `${name}${ext}`);
+    return target.toString();
+  } catch {
+    return trimmed;
+  }
 }

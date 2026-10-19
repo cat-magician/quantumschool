@@ -18,7 +18,7 @@ import {
   SUBMISSION_STATUS_COLORS,
   DEFAULT_HOMEWORK_MAX_SCORE,
 } from '../lib/homeworkUtils';
-import { homeworkSubmissionLinksFromBlocks } from '../lib/homeworkPageUtils';
+import { gradesWithoutMark, homeworkSubmissionLinksFromBlocks, homeworkSubmissionMode } from '../lib/homeworkPageUtils';
 import { profileAccountLabel } from '../lib/profileUtils';
 import UserAvatar from './UserAvatar';
 import HomeworkPageStudentPreview from './HomeworkPageStudentPreview';
@@ -48,6 +48,8 @@ type AssignmentSummary = {
   pageId: string;
   title: string;
   dueAt: string | null;
+  /** Сдача не через сайт: в очереди все, кому задано, а не только отметившиеся. */
+  roster: boolean;
   submitted: number;
   ungraded: number;
   graded: number;
@@ -56,6 +58,7 @@ type AssignmentSummary = {
 function buildAssignmentSummaries(
   pages: Pick<HomeworkPage, 'id' | 'title' | 'due_at'>[],
   submissions: HomeworkPageSubmission[],
+  rosterPageIds: Set<string>,
 ): AssignmentSummary[] {
   const byPage = new Map<string, HomeworkPageSubmission[]>();
   for (const s of submissions) {
@@ -72,6 +75,7 @@ function buildAssignmentSummaries(
       pageId: page.id,
       title: page.title,
       dueAt: page.due_at,
+      roster: rosterPageIds.has(page.id),
       submitted: items.length,
       ungraded,
       graded,
@@ -103,6 +107,8 @@ function sortQueueItems(
     const aUngraded = !submissionHasGrade(a);
     const bUngraded = !submissionHasGrade(b);
     if (aUngraded !== bUngraded) return aUngraded ? -1 : 1;
+    // Отметившие сдачу — раньше тех, кто не отмечался (сдача не через сайт).
+    if (!!a.unmarked !== !!b.unmarked) return a.unmarked ? 1 : -1;
     const g = groupName(a.user_id).localeCompare(groupName(b.user_id), 'ru');
     if (g !== 0) return g;
     const an = a.student?.display_name ?? '';
@@ -148,7 +154,8 @@ export default function HomeworkGradingWorkspace({
     patch: Partial<{ score: string; feedback: string }>,
     fallback?: HomeworkPageSubmission,
   ) => void;
-  onSaveGrade: (s: HomeworkPageSubmission, advance?: boolean) => Promise<boolean>;
+  /** id сохранённой записи или null; у не отмечавшегося запись появляется при оценке. */
+  onSaveGrade: (s: HomeworkPageSubmission, advance?: boolean) => Promise<string | null>;
   loadError: string | null;
   initialLoading: boolean;
 }) {
@@ -163,13 +170,21 @@ export default function HomeworkGradingWorkspace({
     [pages, pageMetaMap],
   );
 
-  const assignmentSummaries = useMemo(
-    () => buildAssignmentSummaries(pageRows, submissions),
-    [pageRows, submissions],
+  const rosterPageIds = useMemo(
+    () => new Set(pageRows
+      .filter((p) => gradesWithoutMark(homeworkSubmissionMode(pageBlocksMap[p.id] ?? [])))
+      .map((p) => p.id)),
+    [pageRows, pageBlocksMap],
   );
 
+  const assignmentSummaries = useMemo(
+    () => buildAssignmentSummaries(pageRows, submissions, rosterPageIds),
+    [pageRows, submissions, rosterPageIds],
+  );
+
+  // «Ждут оценки» — отмеченные сдачи; не отмечавшиеся сюда не идут.
   const ungradedCount = useMemo(
-    () => submissions.filter((s) => !submissionHasGrade(s)).length,
+    () => submissions.filter((s) => !submissionHasGrade(s) && !s.unmarked).length,
     [submissions],
   );
 
@@ -238,8 +253,13 @@ export default function HomeworkGradingWorkspace({
 
   const handleSave = async (advance: boolean) => {
     if (!selectedSubmission) return;
-    const ok = await onSaveGrade(selectedSubmission, advance);
-    if (!ok || !advance) return;
+    const savedId = await onSaveGrade(selectedSubmission, advance);
+    if (!savedId) return;
+    if (!advance) {
+      // У не отмечавшегося после оценки новый id — остаёмся на нём же.
+      setSelectedSubmissionId(savedId);
+      return;
+    }
 
     const stillHere = queueForPage.filter((s) => s.id !== selectedSubmission.id);
     const nextUngraded = stillHere.find((s) => !submissionHasGrade(s));
@@ -392,7 +412,7 @@ export default function HomeworkGradingWorkspace({
                       <span className="text-slate-600">Пока нет сдач</span>
                     ) : hasPending ? (
                       <span className="text-amber-200/90 font-medium">
-                        {assignment.ungraded} ждут проверки
+                        {assignment.ungraded} {assignment.roster ? 'без оценки' : 'ждут проверки'}
                       </span>
                     ) : (
                       <span className="text-emerald-300/80">Все проверены</span>
@@ -422,7 +442,7 @@ export default function HomeworkGradingWorkspace({
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {([
-              ['ungraded', `Ждут · ${selectedAssignment.ungraded}`],
+              ['ungraded', `${selectedAssignment.roster ? 'Без оценки' : 'Ждут'} · ${selectedAssignment.ungraded}`],
               ['graded', `Проверены · ${selectedAssignment.graded}`],
               ['all', `Все · ${selectedAssignment.submitted}`],
             ] as const).map(([id, label]) => (
@@ -459,7 +479,9 @@ export default function HomeworkGradingWorkspace({
           {studentQuery.trim()
             ? 'Никого не найдено по запросу'
             : gradingFilter === 'ungraded'
-              ? 'По этому заданию все работы уже проверены'
+              ? selectedAssignment?.roster
+                ? 'Оценки стоят у всех, кому задано'
+                : 'По этому заданию все работы уже проверены'
             : gradingFilter === 'graded'
               ? 'Пока нет проверенных работ по этому заданию'
               : 'По этому заданию пока нет сдач'}
@@ -513,8 +535,10 @@ export default function HomeworkGradingWorkspace({
                               {groupLabel(s.user_id)}
                             </span>
                           )}
-                          {when && (
+                          {when ? (
                             <span className="text-[10px] text-slate-600">{when}</span>
+                          ) : s.unmarked && (
+                            <span className="text-[10px] text-slate-600">не отмечал(а) сдачу</span>
                           )}
                         </div>
                       </div>
@@ -662,6 +686,7 @@ function SubmissionGradePanel({
   const scoreValue = parseHomeworkScore(draft.score, maxScore);
   const canSave = scoreValue !== null && !saving;
   const submissionLinks = homeworkSubmissionLinksFromBlocks(blocks);
+  const mode = homeworkSubmissionMode(blocks);
 
   return (
     <article className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden">
@@ -705,7 +730,14 @@ function SubmissionGradePanel({
         </div>
       </header>
 
-      {submissionLinks.length > 0 && (
+      {mode !== 'confirm' ? (
+        (mode === 'chat' || s.unmarked) && (
+          <p className="px-4 pt-3 text-[11px] text-slate-600">
+            {mode === 'chat' && 'Решение — в чате группы. '}
+            {s.unmarked && 'Ученик не отмечал сдачу на сайте, оценку можно поставить и так.'}
+          </p>
+        )
+      ) : submissionLinks.length > 0 && (
         <p className="px-4 pt-3 text-[11px] text-slate-600">
           Ответ ученика — в форме или контесте по ссылке выше
         </p>

@@ -23,18 +23,18 @@ import {
   defaultBlockContent,
   isLessonBlockEmpty,
   lessonDateInputValue,
+  materialsFiles,
   splitLessonsByTime,
   type LessonPageWithEvent,
 } from '../../lib/lessonPageUtils';
 import { lessonPageLoadError, lessonPageSaveError, isSaveSuccessMessage } from '../../lib/lessonPageLoadError';
 import VideoEmbed from '../../components/VideoEmbed';
 import LessonPageCard from '../../components/LessonPageCard';
-import DocumentSourceInput from '../../components/DocumentSourceInput';
+import DocumentFilesEditor from '../../components/DocumentFilesEditor';
 import ImageSourceInput from '../../components/ImageSourceInput';
 import {
   FormDate, FormDatetime, FormDuration, FormLabel, FormSelect, FormSwitch, FormText, FormTextarea,
 } from '../../components/FormControls';
-import LessonMaterialsBlock from '../../components/LessonMaterialsBlock';
 import LessonPageView from '../../components/LessonPageView';
 import AdminPageViewBar from '../../components/AdminPageViewBar';
 import { SchedulePastDivider } from '../../components/ScheduleCard';
@@ -110,6 +110,15 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
 }
 
+/** Старый блок материалов с одним файлом (pdf_url) в редакторе становится списком files. */
+function editorContent(block: LessonPageBlock): LessonBlockContent {
+  if (block.block_type !== 'materials' || block.content.files) return { ...block.content };
+  const content: LessonBlockContent = { ...block.content, files: materialsFiles(block.content) };
+  delete content.pdf_url;
+  delete content.pdf_title;
+  return content;
+}
+
 function blocksFromRows(rows: LessonPageBlock[]): EditorBlock[] {
   return [...rows]
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -117,7 +126,7 @@ function blocksFromRows(rows: LessonPageBlock[]): EditorBlock[] {
       id: b.id,
       block_type: b.block_type,
       sort_order: b.sort_order,
-      content: { ...b.content },
+      content: editorContent(b),
     }));
 }
 
@@ -467,11 +476,12 @@ export default function LessonsTab({
     setPages((prev) => prev.filter((p) => p.id !== page.id));
   };
 
+  // От текущего состояния, а не от снимка рендера: файлы догружаются после
+  // await, и правки, сделанные за это время, не должны пропасть.
   const updateBlockContent = (id: string, patch: Partial<LessonBlockContent>) => {
-    if (!editor) return;
-    setEditor({
-      ...editor,
-      blocks: editor.blocks.map((b) => (
+    setEditor((prev) => prev && {
+      ...prev,
+      blocks: prev.blocks.map((b) => (
         b.id === id ? { ...b, content: { ...b.content, ...patch } } : b
       )),
     });
@@ -735,7 +745,7 @@ export default function LessonsTab({
 
           {editor.blocks.length === 0 ? (
             <p className="text-sm text-slate-500 py-8 text-center border border-dashed border-white/10 rounded-xl">
-              Добавьте хотя бы один блок
+              Пусто — добавьте файлы, запись или текст кнопками выше
             </p>
           ) : (
             editor.blocks.map((block, index) => (
@@ -957,27 +967,17 @@ function BlockEditor({
 
       {block.block_type === 'materials' && (
         <div className="space-y-3">
-          <DocumentSourceInput
-            value={block.content.pdf_url ?? ''}
-            onChange={(pdf_url) => onContentChange({ pdf_url })}
-            placeholder="Загрузите PDF/картинку или вставьте ссылку"
-          />
-          <input
-            value={block.content.pdf_title ?? ''}
-            onChange={(e) => onContentChange({ pdf_title: e.target.value })}
-            placeholder="Название документа (необязательно)"
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm"
+          <DocumentFilesEditor
+            files={block.content.files ?? []}
+            onChange={(files) => onContentChange({ files })}
           />
           <textarea
             value={block.content.body ?? ''}
             onChange={(e) => onContentChange({ body: e.target.value })}
-            rows={3}
-            placeholder="Дополнительные ссылки и материалы…"
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm resize-y min-h-[4rem]"
+            rows={2}
+            placeholder="Дополнительные ссылки и материалы (необязательно)…"
+            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-white text-sm resize-y min-h-[3.5rem]"
           />
-          {(block.content.pdf_url?.trim() || block.content.body?.trim()) && (
-            <LessonMaterialsBlock content={block.content} />
-          )}
         </div>
       )}
 

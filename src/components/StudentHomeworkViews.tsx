@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import type { HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '../lib/types';
 import { homeworkPageLoadError } from '../lib/homeworkPageLoadError';
-import { formatHomeworkDueAt, isHomeworkPendingSubmission, sortHomeworkPagesForStudent, type HomeworkListFilter, type HomeworkListSort } from '../lib/homeworkPageUtils';
+import { formatHomeworkDueAt, homeworkSubmissionMode, isHomeworkPendingSubmission, sortHomeworkPagesForStudent, type HomeworkListFilter, type HomeworkListSort } from '../lib/homeworkPageUtils';
 import { DEFAULT_HOMEWORK_MAX_SCORE } from '../lib/homeworkUtils';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
@@ -278,6 +278,7 @@ export function StudentHomeworkPageView({
       <HomeworkSubmissionSection
         submission={submission}
         maxScore={page.max_score ?? DEFAULT_HOMEWORK_MAX_SCORE}
+        mode={homeworkSubmissionMode(blocks)}
         saving={saving}
         submitError={submitError}
         onSaveDraft={() => upsertSubmission('draft')}
