@@ -1976,13 +1976,7 @@ ALTER TABLE public.superadmin_allowlist ENABLE ROW LEVEL SECURITY;
 -- Только SECURITY DEFINER-функции читают allowlist; клиентам доступ закрыт.
 REVOKE ALL ON TABLE public.superadmin_allowlist FROM PUBLIC, anon, authenticated;
 
-DELETE FROM public.superadmin_allowlist
-WHERE email NOT IN (
-  'marcellau@yandex.ru',
-  'n.tatarinova@rqc.ru',
-  'sokol.dm@phystech.edu'
-);
-
+-- Не удалять строки allowlist: иначе при следующем прогоне сбросятся ручные адреса.
 INSERT INTO public.superadmin_allowlist (email) VALUES
   ('marcellau@yandex.ru'),
   ('n.tatarinova@rqc.ru'),
@@ -2006,16 +2000,13 @@ $$;
 DROP FUNCTION IF EXISTS public.is_allowlisted_superadmin_login(text);
 DROP FUNCTION IF EXISTS public.is_superadmin_email(text);
 
--- Синхронизация ролей при повторном прогоне schema.sql
+-- Повышение до суперадмина по allowlist (только вверх; понижать «чужих»
+-- суперадминов нельзя — иначе после ручного назначения в БД следующий прогон
+-- схемы сбрасывает роль и пропадают вкладки вроде «Награды»).
 UPDATE public.user_profiles p
 SET role = 'superadmin', updated_at = now()
 WHERE private.is_allowlisted_superadmin_email(p.email)
   AND p.role IS DISTINCT FROM 'superadmin';
-
-UPDATE public.user_profiles p
-SET role = 'student', updated_at = now()
-WHERE p.role = 'superadmin'
-  AND NOT private.is_allowlisted_superadmin_email(p.email);
 
 CREATE OR REPLACE FUNCTION public.needs_setup()
 RETURNS boolean
