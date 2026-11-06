@@ -93,6 +93,8 @@ export default function DashboardHeaderActions({
             avatarUrl={profile.avatar_url}
             size="xs"
             className="w-10 h-10"
+            userId={userId}
+            showAchievementBadges
           />
         </button>
       )}

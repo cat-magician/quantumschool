@@ -2,15 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, CheckCircle, Loader2, Send } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/AuthContext';
-import type { Achievement, CourseProgress, HomeworkPage, HomeworkPageSubmission } from '../../lib/types';
+import type { Achievement, AchievementDefinition, CourseProgress, HomeworkPage, HomeworkPageSubmission } from '../../lib/types';
 import {
   buildHomeworkPageProgress,
   computeProgressPercent,
-  formatAchievementsProgress,
   HOMEWORK_STATUS_COLORS,
   HOMEWORK_STATUS_LABELS,
 } from '../../lib/progressUtils';
-import { collectEarnedKeys } from '../../lib/achievementUtils';
+import { collectEarnedCodes, formatAchievementsProgress } from '../../lib/achievementUtils';
+import { loadAchievementCatalog } from '../../lib/achievementApi';
 import {
   computeWeightedHomeworkAvg,
   formatHomeworkScoreValue,
@@ -27,6 +27,7 @@ export default function StudentProgressTab({
   const [submissions, setSubmissions] = useState<HomeworkPageSubmission[]>([]);
   const [modules, setModules] = useState<CourseProgress[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [achievementCatalog, setAchievementCatalog] = useState<AchievementDefinition[]>([]);
   const [lessonCounts, setLessonCounts] = useState({ lectures: 0, seminars: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -38,7 +39,9 @@ export default function StudentProgressTab({
       supabase.from('course_progress').select('*').eq('user_id', user.id).order('module_index'),
       supabase.from('achievements').select('*').eq('user_id', user.id).order('earned_at', { ascending: false }),
       supabase.from('lesson_pages').select('id, lesson_type').eq('is_published', true),
-    ]).then(([pagesRes, subsRes, progRes, achRes, lessonsRes]) => {
+      loadAchievementCatalog(),
+    ]).then(([pagesRes, subsRes, progRes, achRes, lessonsRes, catalog]) => {
+      setAchievementCatalog(catalog);
       if (pagesRes.data) setPublishedPages(pagesRes.data as Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score'>[]);
       if (subsRes.data) setSubmissions(subsRes.data as HomeworkPageSubmission[]);
       if (progRes.data) setModules(progRes.data);
@@ -59,9 +62,9 @@ export default function StudentProgressTab({
     [publishedPages, submissions, user?.id],
   );
 
-  const earnedKeys = useMemo(
-    () => (user?.id ? collectEarnedKeys(achievements, user.id) : []),
-    [achievements, user?.id],
+  const earnedCodes = useMemo(
+    () => (user?.id ? collectEarnedCodes(achievements, user.id, achievementCatalog) : []),
+    [achievements, achievementCatalog, user?.id],
   );
 
   const stats = useMemo(() => {
@@ -100,10 +103,13 @@ export default function StudentProgressTab({
         <div className="bg-slate-900/60 border border-white/5 rounded-xl px-4 py-3 overflow-visible">
           <div className="flex items-center justify-between gap-3 mb-3">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Достижения</h3>
-            <span className="text-xs font-semibold text-white tabular-nums">{formatAchievementsProgress(earnedKeys.length)}</span>
+            <span className="text-xs font-semibold text-white tabular-nums">
+              {formatAchievementsProgress(earnedCodes.length, achievementCatalog.length)}
+            </span>
           </div>
           <AchievementBadgeStrip
-            earnedKeys={earnedKeys}
+            catalog={achievementCatalog}
+            earnedCodes={earnedCodes}
             achievements={achievements}
             userId={user.id}
             size="md"

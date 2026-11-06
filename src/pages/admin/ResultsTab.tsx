@@ -310,7 +310,13 @@ export default function ResultsTab({ isSuperAdmin = false }: { isSuperAdmin?: bo
                     onClick={() => setInfoStudentId(showInfo ? null : s.id)}
                     className="flex items-center gap-2.5 min-w-0 max-w-full text-left rounded-xl hover:bg-white/5 px-2 py-1.5 -mx-2 transition-colors md:col-start-1 md:row-start-1"
                   >
-                    <UserAvatar displayName={profileDisplayName(d)} avatarUrl={d.avatar_url} size="md" />
+                    <UserAvatar
+                      displayName={profileDisplayName(d)}
+                      avatarUrl={d.avatar_url}
+                      size="md"
+                      userId={d.id}
+                      showAchievementBadges
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-white text-sm leading-snug">{profileDisplayName(d)}</div>
                       <div className="text-xs text-slate-500 truncate mt-0.5">{profileAccountLabel(d) ?? '—'}</div>

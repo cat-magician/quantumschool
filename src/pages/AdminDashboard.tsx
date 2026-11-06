@@ -16,6 +16,7 @@ import type { NotificationAction } from '../lib/notificationsUtils';
 import DashboardHeaderActions from '../components/DashboardHeaderActions';
 import {
   Loader2, LogOut, Users, ClipboardList, Calendar, FileText, FlaskConical, CheckCircle, GraduationCap, Presentation, BookOpen, BarChart3, Globe, Home, ClipboardCheck, Link2,
+  Medal,
 } from 'lucide-react';
 import ResultsTab from './admin/ResultsTab';
 import SelectionStage1ConfigTab from './admin/SelectionStage1ConfigTab';
@@ -29,6 +30,7 @@ import LessonsTab from './admin/LessonsTab';
 import ScheduleTab, { type ScheduleContentTarget } from './admin/ScheduleTab';
 import StatisticsTab from './admin/StatisticsTab';
 import SiteContentTab from './admin/SiteContentTab';
+import AchievementsGrantTab from './admin/AchievementsGrantTab';
 import AdminDashboardHome, { type AdminHomeAction } from '../components/AdminDashboardHome';
 import { SIDEBAR_HINT } from '../lib/dashboardHelpCopy';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
@@ -50,7 +52,8 @@ type AdminTab =
   | 'homework'
   | 'grading'
   | 'statistics'
-  | 'site';
+  | 'site'
+  | 'achievements';
 type SelectionAdminSubTab = 'stage1' | 'contest' | 'results' | 'matching';
 
 const SELECTION_ADMIN_SUB_NAV: {
@@ -122,6 +125,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       },
       { id: 'statistics', icon: BarChart3, label: 'Статистика' },
       { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
+      { id: 'achievements', icon: Medal, label: 'Награды', superAdminOnly: true },
     ],
     [gradingLabel, ungradedCount],
   );
@@ -253,6 +257,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     if (id === 'statistics') return 'Статист.';
     if (id === 'homework') return 'ДЗ';
     if (id === 'grading') return 'Проверка';
+    if (id === 'achievements') return 'Награды';
     return label.split(' ')[0];
   };
 
@@ -359,6 +364,8 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               displayName={displayName}
               avatarUrl={profile?.avatar_url}
               size="xs"
+              userId={user?.id}
+              showAchievementBadges
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
@@ -461,7 +468,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             onClick={() => { openProfile(); closeMobileNav(); }}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors text-left"
           >
-            <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" />
+            <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" userId={user?.id} showAchievementBadges />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
               {accountSubtitle && (
@@ -569,6 +576,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           )}
           {tab === 'statistics' && <StatisticsTab isSuperAdmin={isSuperAdmin} />}
           {tab === 'site' && isSuperAdmin && <SiteContentTab />}
+          {tab === 'achievements' && isSuperAdmin && <AchievementsGrantTab />}
         </div>
       </main>
     </div>

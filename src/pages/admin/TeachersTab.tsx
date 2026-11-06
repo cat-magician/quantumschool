@@ -254,7 +254,13 @@ export default function TeachersTab() {
                 className="flex flex-col bg-amber-500/5 border border-amber-500/20 rounded-xl p-3.5 gap-3"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="xs" />
+                  <UserAvatar
+                    displayName={a.display_name}
+                    avatarUrl={a.avatar_url}
+                    size="xs"
+                    userId={a.id}
+                    showAchievementBadges
+                  />
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white truncate">{a.display_name}</div>
                     <div className="text-[11px] text-slate-500 truncate">{profileAccountLabel(a) ?? '—'}</div>
@@ -354,7 +360,13 @@ function TeacherCard({
       }`}
     >
       <div className="h-10 shrink-0 flex items-center gap-2 min-w-0">
-        <UserAvatar displayName={profile.display_name} avatarUrl={profile.avatar_url} size="xs" />
+        <UserAvatar
+          displayName={profile.display_name}
+          avatarUrl={profile.avatar_url}
+          size="xs"
+          userId={profile.id}
+          showAchievementBadges
+        />
         <div className="flex-1 min-w-0 h-full flex flex-col justify-center gap-0.5">
           <TeacherCardName
             displayName={profile.display_name}

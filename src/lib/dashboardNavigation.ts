@@ -18,7 +18,8 @@ export type AdminDashboardState = {
     | 'homework'
     | 'grading'
     | 'statistics'
-    | 'site';
+    | 'site'
+    | 'achievements';
   selectionSubTab?: 'stage1' | 'contest' | 'results' | 'matching';
 };
 
@@ -46,6 +47,7 @@ const ADMIN_TABS = [
   'grading',
   'statistics',
   'site',
+  'achievements',
 ] as const;
 const ADMIN_SELECTION_SUBS = ['stage1', 'contest', 'results', 'matching'] as const;
 const LEGACY_ADMIN_LEARNING_SUBS = ['lectures', 'seminars', 'homework', 'grading'] as const;
@@ -186,6 +188,10 @@ export function normalizeAdminDashboardState(
   }
 
   if (normalized.tab === 'site' && !isSuperAdmin) {
+    return { tab: 'home' };
+  }
+
+  if (normalized.tab === 'achievements' && !isSuperAdmin) {
     return { tab: 'home' };
   }
 

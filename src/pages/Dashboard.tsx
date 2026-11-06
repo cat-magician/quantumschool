@@ -52,7 +52,7 @@ function DashboardSpinner() {
 export default function Dashboard() {
   const {
     user, profile, loading, oauthError, oauthErrorDetail, clearOAuthError, signOut, signingOut, refreshProfile,
-    profileError,
+    profileError, isSuperAdminEffective,
   } = useAuth();
   const navigate = useNavigate();
   const [retrying, setRetrying] = useState(false);
@@ -214,7 +214,7 @@ export default function Dashboard() {
   if (role === 'superadmin' || role === 'admin') {
     return (
       <Suspense fallback={<DashboardSpinner />}>
-        <AdminDashboard isSuperAdmin={role === 'superadmin'} />
+        <AdminDashboard isSuperAdmin={isSuperAdminEffective || role === 'superadmin'} />
       </Suspense>
     );
   }

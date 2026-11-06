@@ -6,6 +6,7 @@ import type { HomeworkPage, HomeworkPageBlock, HomeworkPageSubmission } from '..
 import { homeworkPageLoadError } from '../lib/homeworkPageLoadError';
 import { formatHomeworkDueAt, homeworkSubmissionMode, isHomeworkPendingSubmission, sortHomeworkPagesForStudent, type HomeworkListFilter, type HomeworkListSort } from '../lib/homeworkPageUtils';
 import { DEFAULT_HOMEWORK_MAX_SCORE } from '../lib/homeworkUtils';
+import { requestAchievementCheck } from '../lib/achievementApi';
 import HomeworkPageBlocks from './HomeworkPageBlocks';
 import HomeworkPageCard from './HomeworkPageCard';
 import HomeworkDueBadge from './HomeworkDueBadge';
@@ -213,6 +214,8 @@ export function StudentHomeworkPageView({
       setSubmitError(homeworkPageLoadError(result.error.message) ?? 'Не удалось сохранить статус');
       return;
     }
+    // Достижение за сдачу выдаётся в той же транзакции — окно можно показать сразу.
+    if (status === 'submitted') requestAchievementCheck();
     await loadPage();
   };
 

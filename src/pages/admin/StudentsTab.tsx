@@ -167,7 +167,13 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     subtitle: profileAccountLabel(s) ?? undefined,
     searchText: `${s.display_name} ${profileAccountLabel(s) ?? ''}`,
     leading: (
-      <UserAvatar displayName={profileDisplayName(s)} avatarUrl={s.avatar_url} size="chip" />
+      <UserAvatar
+        displayName={profileDisplayName(s)}
+        avatarUrl={s.avatar_url}
+        size="chip"
+        userId={s.id}
+        showAchievementBadges
+      />
     ),
     trailing: groupNameByStudentId.has(s.id) ? (
       <span className="text-xs text-amber-400 shrink-0">переместить</span>
@@ -207,7 +213,13 @@ export default function StudentsTab({ isSuperAdmin }: { isSuperAdmin: boolean })
     subtitle: `${profileAccountLabel(a) ?? ''}${a.role === 'superadmin' ? ' · суперадмин' : ''}`.trim() || undefined,
     searchText: `${a.display_name} ${profileAccountLabel(a) ?? ''} ${a.role}`,
     leading: (
-      <UserAvatar displayName={a.display_name} avatarUrl={a.avatar_url} size="chip" />
+      <UserAvatar
+        displayName={a.display_name}
+        avatarUrl={a.avatar_url}
+        size="chip"
+        userId={a.id}
+        showAchievementBadges
+      />
     ),
   })), [staffNotInGroup, user?.id]);
 
@@ -861,7 +873,13 @@ function StudentCard({
           onClick={onToggleInfo}
           className="flex items-center gap-3 min-w-0 flex-1 text-left rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 transition-colors"
         >
-          <UserAvatar displayName={profileDisplayName(student)} avatarUrl={student.avatar_url} size="md" />
+          <UserAvatar
+            displayName={profileDisplayName(student)}
+            avatarUrl={student.avatar_url}
+            size="md"
+            userId={student.id}
+            showAchievementBadges
+          />
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-white line-clamp-2 break-words text-sm leading-snug">{profileDisplayName(student)}</div>
             <div className="text-xs text-slate-500 truncate mt-0.5">{profileAccountLabel(student) ?? '—'}</div>

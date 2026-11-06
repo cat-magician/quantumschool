@@ -225,10 +225,26 @@ export interface CourseProgress {
 export interface Achievement {
   id: string;
   user_id: string;
+  /** Код из каталога; у выданных до каталога — null, их узнают по названию. */
+  code?: string | null;
   title: string;
   description: string;
   icon: string;
   earned_at: string;
+  /** Ученик закрыл окно «новое достижение»; null — окно ещё покажут. */
+  seen_at?: string | null;
+}
+
+/** Достижение из каталога: что показать в окне получения и в «Прогрессе». */
+export interface AchievementDefinition {
+  code: string;
+  title: string;
+  description: string;
+  /** Как получить — видно, пока достижение не получено. */
+  hint: string;
+  /** Путь от корня сайта (/achievements/…) или полный адрес; '' — картинки нет. */
+  image_url: string;
+  sort_order: number;
 }
 
 export interface SelectionStageConfig {

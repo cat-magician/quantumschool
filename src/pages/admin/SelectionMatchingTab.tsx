@@ -1073,7 +1073,13 @@ export default function SelectionMatchingTab() {
             profile.recovery_email, profile.contact_email, profile.city, profile.school,
           ].filter(Boolean).join(' '),
           leading: (
-            <UserAvatar displayName={profileDisplayName(profile)} avatarUrl={profile.avatar_url} size="xs" />
+            <UserAvatar
+              displayName={profileDisplayName(profile)}
+              avatarUrl={profile.avatar_url}
+              size="xs"
+              userId={profile.id}
+              showAchievementBadges
+            />
           ),
           trailing: busy ? (
             <span className="text-[11px] text-amber-400 shrink-0">есть ответ</span>
@@ -1642,6 +1648,8 @@ export default function SelectionMatchingTab() {
                                 displayName={profileDisplayName(profile)}
                                 avatarUrl={profile.avatar_url}
                                 size="xs"
+                                userId={profile.id}
+                                showAchievementBadges
                               />
                               <div className="min-w-0">
                                 <p className="text-sm text-white truncate">{profileDisplayName(profile)}</p>

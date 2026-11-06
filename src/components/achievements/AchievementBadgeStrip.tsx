@@ -1,18 +1,28 @@
-import type { Achievement } from '../../lib/types';
+import type { Achievement, AchievementDefinition } from '../../lib/types';
 import {
-  ALL_ACHIEVEMENT_KEYS,
-  achievementEarnedAt,
+  achievementImageSrc,
+  earnedAchievementDates,
   formatAchievementsProgress,
-  type AchievementIconKey,
 } from '../../lib/achievementUtils';
+import { useAchievementCatalog } from '../../hooks/useAchievementCatalog';
 import AchievementBadgeWithHint from './AchievementBadgeWithHint';
-import AchievementBadgeArt from './AchievementBadgeArt';
+import AchievementImage from './AchievementImage';
+
+type BadgeSize = 'sm' | 'md' | 'lg';
+
+const BADGE_SIZE_CLASS: Record<BadgeSize, string> = {
+  sm: 'w-10 h-10',
+  md: 'w-14 h-14',
+  lg: 'w-[4.5rem] h-[4.5rem]',
+};
 
 type Props = {
-  earnedKeys: AchievementIconKey[];
+  /** Не передан — берётся общий каталог из кеша сессии. */
+  catalog?: AchievementDefinition[];
+  earnedCodes: string[];
   achievements?: Achievement[];
   userId?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: BadgeSize;
   showCounter?: boolean;
   showLocked?: boolean;
   showHints?: boolean;
@@ -21,7 +31,8 @@ type Props = {
 };
 
 export default function AchievementBadgeStrip({
-  earnedKeys,
+  catalog,
+  earnedCodes,
   achievements = [],
   userId,
   size = 'sm',
@@ -31,39 +42,44 @@ export default function AchievementBadgeStrip({
   wrap = false,
   className = '',
 }: Props) {
-  const earnedSet = new Set(earnedKeys);
-  const keys = showLocked ? ALL_ACHIEVEMENT_KEYS : earnedKeys;
+  const sharedCatalog = useAchievementCatalog();
+  const definitions = catalog ?? sharedCatalog ?? [];
+  const earned = new Set(earnedCodes);
+  const shown = showLocked ? definitions : definitions.filter((d) => earned.has(d.code));
 
-  if (keys.length === 0 && !showCounter) return null;
+  if (shown.length === 0 && !showCounter) return null;
+
+  const dates = showHints && userId ? earnedAchievementDates(achievements, userId) : null;
 
   return (
     <div className={`${wrap ? 'flex flex-wrap' : 'inline-flex'} items-center gap-2 ${className}`}>
-      {keys.map((key) => {
-        const earned = earnedSet.has(key);
+      {shown.map((definition) => {
+        const isEarned = earned.has(definition.code);
         if (showHints) {
-          const earnedAt = userId ? achievementEarnedAt(achievements, userId, key) : null;
           return (
             <AchievementBadgeWithHint
-              key={key}
-              badgeKey={key}
-              earned={earned}
-              earnedAt={earnedAt}
-              size={size}
+              key={definition.code}
+              definition={definition}
+              earned={isEarned}
+              earnedAt={dates?.get(definition.code) ?? null}
+              sizeClass={BADGE_SIZE_CLASS[size]}
             />
           );
         }
         return (
-          <AchievementBadgeArt
-            key={key}
-            type={key}
-            earned={earned}
-            size={size}
-          />
+          <span key={definition.code} title={definition.title} className="shrink-0">
+            <AchievementImage
+              code={definition.code}
+              imageSrc={achievementImageSrc(definition.image_url)}
+              earned={isEarned}
+              className={`block ${BADGE_SIZE_CLASS[size]}`}
+            />
+          </span>
         );
       })}
       {showCounter && (
         <span className="text-[11px] text-slate-500 tabular-nums ml-0.5">
-          {formatAchievementsProgress(earnedKeys.length)}
+          {formatAchievementsProgress(earned.size, definitions.length)}
         </span>
       )}
     </div>

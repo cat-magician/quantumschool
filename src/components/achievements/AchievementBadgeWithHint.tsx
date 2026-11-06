@@ -1,10 +1,6 @@
-import {
-  ACHIEVEMENT_DEFINITIONS,
-  type AchievementIconKey,
-} from '../../lib/achievementUtils';
-import AchievementBadgeArt from './AchievementBadgeArt';
-
-type BadgeSize = 'sm' | 'md' | 'lg';
+import type { AchievementDefinition } from '../../lib/types';
+import { achievementImageSrc } from '../../lib/achievementUtils';
+import AchievementImage from './AchievementImage';
 
 function formatEarnedDate(iso: string) {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -15,27 +11,34 @@ function formatEarnedDate(iso: string) {
 }
 
 export default function AchievementBadgeWithHint({
-  badgeKey,
+  definition,
   earned,
   earnedAt = null,
-  size = 'sm',
+  sizeClass,
 }: {
-  badgeKey: AchievementIconKey;
+  definition: AchievementDefinition;
   earned: boolean;
   earnedAt?: string | null;
-  size?: BadgeSize;
+  sizeClass: string;
 }) {
-  const def = ACHIEVEMENT_DEFINITIONS.find((d) => d.key === badgeKey);
-  if (!def) return null;
+  // Получено — за что; не получено — как получить.
+  const detail = earned
+    ? definition.description || definition.hint
+    : definition.hint || definition.description;
 
   return (
     <div className="relative group/badge flex-shrink-0">
       <button
         type="button"
-        className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
-        aria-label={`${def.title}. ${def.hint}`}
+        className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50"
+        aria-label={`${definition.title}. ${detail}`}
       >
-        <AchievementBadgeArt type={badgeKey} earned={earned} size={size} />
+        <AchievementImage
+          code={definition.code}
+          imageSrc={achievementImageSrc(definition.image_url)}
+          earned={earned}
+          className={`block ${sizeClass}`}
+        />
       </button>
 
       <div
@@ -43,8 +46,8 @@ export default function AchievementBadgeWithHint({
         className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-0 sm:left-1/2 z-30 w-48 sm:w-56 sm:-translate-x-1/2 opacity-0 invisible translate-y-1 group-hover/badge:opacity-100 group-hover/badge:visible group-hover/badge:translate-y-0 group-focus-within/badge:opacity-100 group-focus-within/badge:visible group-focus-within/badge:translate-y-0 transition-all duration-200"
       >
         <div className="rounded-xl border border-white/10 bg-slate-900/95 px-3 py-2.5 shadow-xl shadow-black/40 backdrop-blur-sm text-left">
-          <div className="text-xs font-semibold text-white">{def.title}</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{def.hint}</p>
+          <div className="text-xs font-semibold text-white">{definition.title}</div>
+          {detail && <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{detail}</p>}
           {earned && earnedAt ? (
             <p className="mt-1.5 text-[10px] text-emerald-400/90">Получено {formatEarnedDate(earnedAt)}</p>
           ) : (

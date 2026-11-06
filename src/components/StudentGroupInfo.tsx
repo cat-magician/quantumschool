@@ -31,6 +31,8 @@ export default function StudentGroupInfo({ context }: { context: StudentGroupCon
                   avatarUrl={t.avatar_url}
                   size="xs"
                   className="ring-2 ring-slate-900"
+                  userId={t.id}
+                  showAchievementBadges
                 />
               ))}
             </div>

@@ -524,6 +524,8 @@ export default function HomeworkGradingWorkspace({
                         displayName={name}
                         avatarUrl={s.student?.avatar_url}
                         size="xs"
+                        userId={s.user_id}
+                        showAchievementBadges
                       />
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm line-clamp-2 break-words ${active ? 'text-white font-medium' : 'text-slate-200'}`}>
@@ -691,7 +693,13 @@ function SubmissionGradePanel({
   return (
     <article className="bg-slate-900/60 border border-white/5 rounded-2xl overflow-hidden">
       <header className="flex flex-wrap items-start gap-3 p-4 pb-3 border-b border-white/5 bg-slate-950/20">
-        <UserAvatar displayName={name} avatarUrl={s.student?.avatar_url} size="md" />
+        <UserAvatar
+          displayName={name}
+          avatarUrl={s.student?.avatar_url}
+          size="md"
+          userId={s.user_id}
+          showAchievementBadges
+        />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-white break-words">{name}</p>
           {studentSubtitle && (

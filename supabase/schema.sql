@@ -286,7 +286,7 @@ CREATE POLICY "Users can read own achievements" ON achievements FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
--- INSERT только через триггер (award_achievement_if_new); клиентам запрещено.
+-- INSERT только через award_achievement (раздел «Достижения»); клиентам запрещено.
 
 -- Seed demo data function (called after user registers)
 -- When a new user registers we auto-create their profile
@@ -669,6 +669,23 @@ AS $$
     WHERE id = auth.uid() AND role = 'superadmin'
   );
 $$;
+
+-- Для интерфейса кабинета: совпадает с private.is_superadmin() и с allowlist-синхронизацией роли.
+CREATE OR REPLACE FUNCTION public.current_user_is_superadmin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_profiles
+    WHERE id = auth.uid() AND role = 'superadmin'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.current_user_is_superadmin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.current_user_is_superadmin() TO authenticated;
 
 -- ── user_profiles policies ────────────────────────────────────
 
@@ -1795,6 +1812,10 @@ CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_page ON public.homework
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_user ON public.homework_page_submissions (user_id);
 CREATE INDEX IF NOT EXISTS idx_homework_page_submissions_status ON public.homework_page_submissions (status);
 
+-- Триггер ссылается на колонку score (UPDATE OF score); иначе ALTER TYPE падает:
+-- cannot alter type of a column used in a trigger definition
+DROP TRIGGER IF EXISTS homework_page_submission_achievements ON public.homework_page_submissions;
+
 ALTER TABLE public.homework_page_submissions
   DROP CONSTRAINT IF EXISTS homework_page_submissions_score_check;
 
@@ -2256,107 +2277,7 @@ DROP POLICY IF EXISTS "Staff insert achievements" ON public.achievements;
 DROP POLICY IF EXISTS "Users can insert own achievements" ON achievements;
 DROP POLICY IF EXISTS "Staff insert achievements" ON achievements;
 
--- Достижения начисляются только триггером по факту сдачи/проверки ДЗ (не через RPC).
-CREATE OR REPLACE FUNCTION public.award_achievement_if_new(
-  p_user_id uuid,
-  p_title text,
-  p_description text,
-  p_icon text
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NULLIF(trim(p_title), '') IS NULL THEN
-    RETURN;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM public.achievements
-    WHERE user_id = p_user_id AND title = trim(p_title)
-  ) THEN
-    INSERT INTO public.achievements (user_id, title, description, icon)
-    VALUES (
-      p_user_id,
-      trim(p_title),
-      COALESCE(p_description, ''),
-      COALESCE(NULLIF(trim(p_icon), ''), 'award')
-    );
-  END IF;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
-
-CREATE OR REPLACE FUNCTION public.trg_homework_page_submission_achievements()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_page_title text;
-  v_max_score numeric;
-  v_score_label text;
-BEGIN
-  IF NEW.status = 'submitted'
-    AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'submitted') THEN
-    PERFORM public.award_achievement_if_new(
-      NEW.user_id,
-      'Первое ДЗ',
-      'Вы отправили работу на проверку',
-      'send'
-    );
-  END IF;
-
-  IF NEW.status = 'graded'
-    AND NEW.score IS NOT NULL
-    AND (
-      TG_OP = 'INSERT'
-      OR OLD.status IS DISTINCT FROM 'graded'
-      OR OLD.score IS DISTINCT FROM NEW.score
-    ) THEN
-    SELECT hp.title, hp.max_score
-    INTO v_page_title, v_max_score
-    FROM public.homework_pages hp
-    WHERE hp.id = NEW.page_id;
-
-    v_score_label :=
-      trim(to_char(NEW.score, 'FM999990.99'))
-      || '/'
-      || trim(to_char(COALESCE(v_max_score, 10), 'FM999990.99'));
-
-    PERFORM public.award_achievement_if_new(
-      NEW.user_id,
-      'ДЗ проверено',
-      'Получена оценка ' || v_score_label || ' за «' || COALESCE(v_page_title, 'Домашнее задание') || '»',
-      'check'
-    );
-
-    IF COALESCE(v_max_score, 10) > 0
-      AND NEW.score / COALESCE(v_max_score, 10) >= 0.8 THEN
-      PERFORM public.award_achievement_if_new(
-        NEW.user_id,
-        'Отличная работа',
-        'Оценка ' || v_score_label || ' за «' || COALESCE(v_page_title, 'Домашнее задание') || '»',
-        'star'
-      );
-    END IF;
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;
-
-DROP TRIGGER IF EXISTS homework_page_submission_achievements ON public.homework_page_submissions;
-CREATE TRIGGER homework_page_submission_achievements
-  AFTER INSERT OR UPDATE ON public.homework_page_submissions
-  FOR EACH ROW
-  EXECUTE PROCEDURE public.trg_homework_page_submission_achievements();
+-- Выдача достижений — в разделе «Достижения» в конце файла.
 
 DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
 
@@ -2716,10 +2637,8 @@ CREATE POLICY "Enrolled students read community config" ON public.community_conf
     )
   );
 
--- Достижения: только триггер, не RPC
+-- Достижения выдаёт только award_achievement (раздел «Достижения»), не клиент
 DROP FUNCTION IF EXISTS public.grant_achievement(uuid, text, text, text);
-REVOKE ALL ON FUNCTION public.award_achievement_if_new(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;
 
 -- ══════════════════════════════════════════════════════════════
 -- Вход по логину и паролю (второй способ рядом с Яндекс ID)
@@ -3999,3 +3918,336 @@ CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
       )
     )
   );
+
+-- ══════════════════════════════════════════════════════════════
+-- Достижения
+-- ══════════════════════════════════════════════════════════════
+--
+-- Каталог achievement_definitions — название, описание, подсказка «как
+-- получить» и картинка каждого достижения. Список ниже — источник правды:
+-- повторный прогон файла обновляет тексты и картинки, а достижения, которых
+-- в списке больше нет, выключает. Выданные остаются в базе, но ученикам и
+-- преподавателям не показываются.
+--
+-- Картинка — путь от корня сайта (файлы лежат в public/achievements) или
+-- полный адрес. Пустая строка — картинки пока нет, кабинет рисует заглушку.
+--
+-- Выдаёт достижения только evaluate_achievements(): условия проверяются по
+-- текущим данным, поэтому выдача повторяема и работает задним числом.
+-- Новое достижение — строка в каталоге и условие в evaluate_achievements();
+-- если условие смотрит в другую таблицу, ей нужен такой же триггер, как
+-- у homework_page_submissions ниже.
+--
+-- seen_at — ученик закрыл окно «Вы получили новое достижение!». Пока поле
+-- пустое, кабинет покажет окно: сразу, если ученик на сайте, иначе при
+-- следующем заходе.
+
+CREATE TABLE IF NOT EXISTS public.achievement_definitions (
+  code text PRIMARY KEY CHECK (code <> '' AND code !~ '[^a-z0-9_]'),
+  title text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  hint text NOT NULL DEFAULT '',
+  image_url text NOT NULL DEFAULT '',
+  sort_order integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  -- Строки из catalog() в schema.sql; ручные — false и не сбрасываются синком.
+  is_system boolean NOT NULL DEFAULT false,
+  -- Можно ли выдавать админам (личные награды). Ученикам — всегда.
+  staff_ok boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.achievement_definitions ADD COLUMN IF NOT EXISTS is_system boolean NOT NULL DEFAULT false;
+ALTER TABLE public.achievement_definitions ADD COLUMN IF NOT EXISTS staff_ok boolean NOT NULL DEFAULT false;
+
+UPDATE public.achievement_definitions SET is_system = true WHERE is_system IS NOT DISTINCT FROM false AND code IN (
+  'homework_first_submit', 'homework_first_graded', 'homework_excellent'
+);
+
+ALTER TABLE public.achievement_definitions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated read achievement definitions" ON public.achievement_definitions;
+CREATE POLICY "Authenticated read achievement definitions" ON public.achievement_definitions
+  FOR SELECT TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "Superadmin insert achievement definitions" ON public.achievement_definitions;
+CREATE POLICY "Superadmin insert achievement definitions" ON public.achievement_definitions
+  FOR INSERT TO authenticated
+  WITH CHECK (private.is_superadmin());
+
+DROP POLICY IF EXISTS "Superadmin update achievement definitions" ON public.achievement_definitions;
+CREATE POLICY "Superadmin update achievement definitions" ON public.achievement_definitions
+  FOR UPDATE TO authenticated
+  USING (private.is_superadmin())
+  WITH CHECK (private.is_superadmin());
+
+-- Встроенный каталог системных достижений пуст: старые три ДЗ-бейджа отключены;
+-- новые достижения задаёт суперадмин через superadmin_grant_personal_achievement.
+WITH catalog (code, title, description, hint, image_url, sort_order) AS (
+  SELECT code, title, description, hint, image_url, sort_order
+  FROM (
+    VALUES (''::text, ''::text, ''::text, ''::text, ''::text, 0::integer)
+  ) AS stub (code, title, description, hint, image_url, sort_order)
+  WHERE false
+),
+synced AS (
+  INSERT INTO public.achievement_definitions AS d
+    (code, title, description, hint, image_url, sort_order, is_active, is_system, staff_ok, updated_at)
+  SELECT code, title, description, hint, image_url, sort_order, true, true, false, now()
+  FROM catalog
+  ON CONFLICT (code) DO UPDATE SET
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    hint = EXCLUDED.hint,
+    image_url = EXCLUDED.image_url,
+    sort_order = EXCLUDED.sort_order,
+    is_active = true,
+    is_system = true,
+    updated_at = now()
+  RETURNING d.code
+)
+UPDATE public.achievement_definitions
+SET is_active = false, updated_at = now()
+WHERE is_active AND is_system AND code NOT IN (SELECT code FROM synced);
+
+-- Старые три ДЗ-достижения убрать с сайта: не показывать в каталоге.
+UPDATE public.achievement_definitions
+SET is_active = false, updated_at = now()
+WHERE code IN ('homework_first_submit', 'homework_first_graded', 'homework_excellent');
+
+ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS code text;
+ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS seen_at timestamptz;
+
+-- Выданные до каталога достижения знали только по названию. Ученик их уже
+-- видел в «Прогрессе» — окно «новое достижение» по ним не показываем.
+UPDATE public.achievements a
+SET code = legacy.code,
+    seen_at = COALESCE(a.seen_at, a.earned_at, now())
+FROM (VALUES
+  ('Первое ДЗ', 'homework_first_submit'),
+  ('ДЗ проверено', 'homework_first_graded'),
+  ('Отличная работа', 'homework_excellent')
+) AS legacy (title, code)
+WHERE a.code IS NULL AND a.title = legacy.title;
+
+-- Убрать с сайта старые три ДЗ-достижения (после присвоения code по title).
+DELETE FROM public.achievements
+WHERE code IN ('homework_first_submit', 'homework_first_graded', 'homework_excellent')
+  OR title IN ('Первое ДЗ', 'ДЗ проверено', 'Отличная работа');
+
+DELETE FROM public.achievements a
+USING public.achievements b
+WHERE a.code IS NOT NULL
+  AND a.user_id = b.user_id
+  AND a.code = b.code
+  AND (COALESCE(a.earned_at, '-infinity'), a.id) > (COALESCE(b.earned_at, '-infinity'), b.id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS achievements_user_code_key
+  ON public.achievements (user_id, code);
+
+CREATE INDEX IF NOT EXISTS achievements_unseen_idx
+  ON public.achievements (user_id)
+  WHERE seen_at IS NULL;
+
+CREATE OR REPLACE FUNCTION public.award_achievement(p_user_id uuid, p_code text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_title text;
+  v_description text;
+  v_id uuid;
+  v_role text;
+  v_staff_ok boolean;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.achievements
+    WHERE user_id = p_user_id AND code = p_code
+  ) THEN
+    RETURN false;
+  END IF;
+
+  SELECT d.title, d.description, d.staff_ok
+  INTO v_title, v_description, v_staff_ok
+  FROM public.achievement_definitions d
+  WHERE d.code = p_code AND d.is_active;
+
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  SELECT role INTO v_role FROM public.user_profiles WHERE id = p_user_id;
+  IF v_role IS NULL THEN
+    RETURN false;
+  END IF;
+
+  IF v_role = 'student' THEN
+    NULL;
+  ELSIF v_role IN ('admin', 'superadmin') THEN
+    IF NOT COALESCE(v_staff_ok, false) THEN
+      RETURN false;
+    END IF;
+  ELSE
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.achievements (user_id, code, title, description, icon)
+  VALUES (p_user_id, p_code, v_title, v_description, p_code)
+  ON CONFLICT (user_id, code) DO NOTHING
+  RETURNING id INTO v_id;
+
+  RETURN v_id IS NOT NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.award_achievement(uuid, text) FROM PUBLIC, anon, authenticated;
+
+/** Суперадмин: создать определение (не системное) и выдать выбранным ученикам и сотрудникам с staff_ok. */
+CREATE OR REPLACE FUNCTION public.superadmin_grant_personal_achievement(
+  p_code text,
+  p_title text,
+  p_description text,
+  p_hint text,
+  p_image_url text,
+  p_sort_order integer,
+  p_staff_ok boolean,
+  p_recipient_ids uuid[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid;
+  v_count int := 0;
+  v_trim_code text;
+  v_is_system boolean;
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
+  v_trim_code := lower(trim(p_code));
+  IF v_trim_code = '' OR v_trim_code !~ '^[a-z0-9_]+$' THEN
+    RAISE EXCEPTION 'invalid code';
+  END IF;
+
+  IF p_recipient_ids IS NULL OR cardinality(p_recipient_ids) = 0 THEN
+    RAISE EXCEPTION 'no recipients';
+  END IF;
+
+  SELECT is_system INTO v_is_system
+  FROM public.achievement_definitions
+  WHERE code = v_trim_code;
+
+  IF FOUND AND v_is_system THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'code_is_system');
+  END IF;
+
+  IF FOUND AND NOT v_is_system THEN
+    UPDATE public.achievement_definitions
+    SET
+      title = trim(p_title),
+      description = COALESCE(trim(p_description), ''),
+      hint = COALESCE(trim(p_hint), ''),
+      image_url = COALESCE(trim(p_image_url), ''),
+      sort_order = COALESCE(p_sort_order, 100),
+      is_active = true,
+      staff_ok = COALESCE(p_staff_ok, false),
+      updated_at = now()
+    WHERE code = v_trim_code;
+  ELSE
+    INSERT INTO public.achievement_definitions
+      (code, title, description, hint, image_url, sort_order, is_active, is_system, staff_ok, updated_at)
+    VALUES (
+      v_trim_code,
+      trim(p_title),
+      COALESCE(trim(p_description), ''),
+      COALESCE(trim(p_hint), ''),
+      COALESCE(trim(p_image_url), ''),
+      COALESCE(p_sort_order, 100),
+      true,
+      false,
+      COALESCE(p_staff_ok, false),
+      now()
+    );
+  END IF;
+
+  FOREACH v_uid IN ARRAY p_recipient_ids
+  LOOP
+    IF public.award_achievement(v_uid, v_trim_code) THEN
+      v_count := v_count + 1;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('ok', true, 'code', v_trim_code, 'awarded', v_count);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_grant_personal_achievement(text, text, text, text, text, integer, boolean, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.superadmin_grant_personal_achievement(text, text, text, text, text, integer, boolean, uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.evaluate_achievements(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Автовыдача по ДЗ отключена: старые достижения homework_* сняты с сайта.
+  NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.evaluate_achievements(uuid) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.trg_homework_page_submission_achievements()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  PERFORM public.evaluate_achievements(NEW.user_id);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.trg_homework_page_submission_achievements() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS homework_page_submission_achievements ON public.homework_page_submissions;
+CREATE TRIGGER homework_page_submission_achievements
+  AFTER INSERT OR UPDATE OF status, score, submitted_at ON public.homework_page_submissions
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.trg_homework_page_submission_achievements();
+
+DROP FUNCTION IF EXISTS public.award_achievement_if_new(uuid, text, text, text);
+
+CREATE OR REPLACE FUNCTION public.mark_achievements_seen(p_ids uuid[])
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  UPDATE public.achievements
+  SET seen_at = now()
+  WHERE user_id = auth.uid()
+    AND id = ANY (p_ids)
+    AND seen_at IS NULL;
+$$;
+
+REVOKE ALL ON FUNCTION public.mark_achievements_seen(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.mark_achievements_seen(uuid[]) TO authenticated;
+
+-- Задним числом: кто уже выполнил условия, получает достижение при прогоне.
+DO $$
+BEGIN
+  PERFORM public.evaluate_achievements(p.id)
+  FROM public.user_profiles p
+  WHERE p.role = 'student';
+END;
+$$;

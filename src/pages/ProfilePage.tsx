@@ -193,6 +193,8 @@ export default function ProfilePage() {
                 displayName={editing ? (form.display_name.trim() || visibleName) : visibleName}
                 avatarUrl={profile.avatar_url}
                 size="lg"
+                userId={user.id}
+                showAchievementBadges
               />
               <button
                 type="button"

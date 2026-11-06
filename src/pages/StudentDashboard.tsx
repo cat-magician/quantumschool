@@ -43,6 +43,7 @@ import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 import NavCountBadge from '../components/NavCountBadge';
 import EnrolledWelcomeModal from '../components/EnrolledWelcomeModal';
+import AchievementUnlockHost from '../components/achievements/AchievementUnlockHost';
 import {
   ExternalFormHint,
   ExternalSubmitConfirm,
@@ -541,6 +542,8 @@ export default function StudentDashboard() {
               displayName={displayName}
               avatarUrl={profile?.avatar_url}
               size="xs"
+              userId={user?.id}
+              showAchievementBadges
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
@@ -704,7 +707,7 @@ export default function StudentDashboard() {
             onClick={() => { openProfile(); closeMobileNav(); }}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-colors text-left"
           >
-            <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" />
+            <UserAvatar displayName={displayName} avatarUrl={profile?.avatar_url} size="xs" userId={user?.id} showAchievementBadges />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-white truncate">{displayName}</div>
               {accountSubtitle && (
@@ -837,6 +840,8 @@ export default function StudentDashboard() {
           onDismiss={dismissEnrollmentWelcome}
         />
       )}
+
+      {user && <AchievementUnlockHost userId={user.id} paused={showEnrollmentWelcome} />}
     </div>
   );
 }

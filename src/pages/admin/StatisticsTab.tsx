@@ -32,6 +32,7 @@ import {
 } from '../../lib/progressUtils';
 import { formatHomeworkScoreShort, formatHomeworkScoreValue } from '../../lib/homeworkUtils';
 import AchievementBadgeStrip from '../../components/achievements/AchievementBadgeStrip';
+import { loadAchievementCatalog } from '../../lib/achievementApi';
 import type { Achievement, CourseProgress, Group, GroupMember, HomeworkPage, HomeworkPageSubmission, UserProfile } from '../../lib/types';
 
 const STATS_AUTO_REFRESH_MS = 60_000;
@@ -48,6 +49,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
   const [teacherGroupId, setTeacherGroupId] = useState<string | null>(null);
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [gradeFilter, setGradeFilter] = useState<string>('all');
+  const [achievementTotal, setAchievementTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
 
   const load = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -55,7 +57,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
     if (silent) setRefreshing(true);
     else setLoading(true);
 
-    const [enrolledRes, pagesRes, subsRes, progressRes, achievementsRes, groupsRes, membersRes, gtRows] =
+    const [enrolledRes, pagesRes, subsRes, progressRes, achievementsRes, groupsRes, membersRes, gtRows, achievementCatalog] =
       await Promise.all([
         supabase.from('user_profiles').select('*').eq('role', 'student').eq('is_enrolled', true).order('display_name'),
         supabase.from('homework_pages').select('id, title, due_at, max_score, group_ids').eq('is_published', true).order('due_at'),
@@ -65,6 +67,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
         supabase.from('groups').select('*').eq('group_type', 'teacher').order('name'),
         supabase.from('group_members').select('*'),
         loadGroupTeachers(supabase),
+        loadAchievementCatalog(),
       ]);
 
     const enrolled = (enrolledRes.data ?? []) as UserProfile[];
@@ -98,6 +101,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
           achievements,
           gid,
           gid ? groupNameById[gid] ?? null : null,
+          achievementCatalog,
         );
       })
       .filter(Boolean) as StudentProgressSnapshot[];
@@ -105,6 +109,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
     setAllGroups(rawGroups);
     setGroups(groupDetails);
     setSnapshots(snaps);
+    setAchievementTotal(achievementCatalog.length);
     if (!isSuperAdmin && visibleGroups.length > 0) {
       setTeacherGroupId((prev) =>
         (prev && visibleGroups.some((g) => g.id === prev) ? prev : visibleGroups[0].id),
@@ -296,7 +301,7 @@ export default function StatisticsTab({ isSuperAdmin }: { isSuperAdmin: boolean 
           <SummaryCard
             icon={Award}
             label="Среднее достижений"
-            value={`${summary.avgAchievements % 1 === 0 ? summary.avgAchievements : summary.avgAchievements.toFixed(1)} из ${filteredSnapshots[0]?.totalAchievementsPossible ?? 3}`}
+            value={`${summary.avgAchievements % 1 === 0 ? summary.avgAchievements : summary.avgAchievements.toFixed(1)} из ${achievementTotal}`}
             compact
           />
         </div>
@@ -597,7 +602,13 @@ function RankRow({
         <span className="w-6 text-center text-xs font-bold text-slate-500 flex-shrink-0 tabular-nums">
           {rank}
         </span>
-        <UserAvatar displayName={snapshot.displayName} avatarUrl={snapshot.avatarUrl} size="chip" />
+        <UserAvatar
+          displayName={snapshot.displayName}
+          avatarUrl={snapshot.avatarUrl}
+          size="chip"
+          userId={snapshot.userId}
+          showAchievementBadges
+        />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-white line-clamp-2 break-words">{snapshot.displayName}</div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
@@ -605,7 +616,7 @@ function RankRow({
               {snapshot.groupName ?? 'Без группы'} · {snapshot.gradeLabel} · {snapshot.gradedCount}/{snapshot.totalPublished} ДЗ
               {' · '}визит {formatLastSeen(snapshot.lastSeenAt)}
             </span>
-            <AchievementBadgeStrip earnedKeys={snapshot.earnedAchievementKeys} size="sm" showLocked={false} wrap />
+            <AchievementBadgeStrip earnedCodes={snapshot.earnedAchievementCodes} size="sm" showLocked={false} wrap />
           </div>
         </div>
         <div className="text-sm font-semibold text-blue-300 flex-shrink-0 tabular-nums">
@@ -630,7 +641,13 @@ function TeacherStudentRow({
   return (
     <div className="border border-white/5 bg-slate-950/40 rounded-xl overflow-hidden">
       <button type="button" onClick={onToggle} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/5 transition-colors">
-        <UserAvatar displayName={snapshot.displayName} avatarUrl={snapshot.avatarUrl} size="chip" />
+        <UserAvatar
+          displayName={snapshot.displayName}
+          avatarUrl={snapshot.avatarUrl}
+          size="chip"
+          userId={snapshot.userId}
+          showAchievementBadges
+        />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-white line-clamp-2 break-words">{snapshot.displayName}</div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
@@ -638,7 +655,7 @@ function TeacherStudentRow({
               {snapshot.gradedCount}/{snapshot.totalPublished} · {snapshot.progressPercent}%
               {' · '}визит {formatLastSeen(snapshot.lastSeenAt)}
             </span>
-            <AchievementBadgeStrip earnedKeys={snapshot.earnedAchievementKeys} size="sm" showLocked={false} wrap />
+            <AchievementBadgeStrip earnedCodes={snapshot.earnedAchievementCodes} size="sm" showLocked={false} wrap />
           </div>
         </div>
         <div className="text-right flex-shrink-0">
@@ -671,7 +688,7 @@ function StudentDetail({
         )}
         <div className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 ml-auto min-w-0">
           <AchievementBadgeStrip
-            earnedKeys={snapshot.earnedAchievementKeys}
+            earnedCodes={snapshot.earnedAchievementCodes}
             size="sm"
             showCounter
             wrap

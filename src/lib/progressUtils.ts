@@ -1,29 +1,18 @@
 import type {
   Achievement,
+  AchievementDefinition,
   CourseProgress,
   HomeworkPage,
   HomeworkPageSubmission,
   UserProfile,
 } from './types';
-import {
-  collectEarnedKeys,
-  formatAchievementsProgress,
-  TOTAL_ACHIEVEMENTS_POSSIBLE,
-  type AchievementIconKey,
-} from './achievementUtils';
+import { collectEarnedCodes, formatAchievementsProgress } from './achievementUtils';
 import {
   computeWeightedHomeworkAvg,
   DEFAULT_HOMEWORK_MAX_SCORE,
   formatHomeworkScoreValue,
 } from './homeworkUtils';
 import { visibleToGroup } from './groupTargeting';
-
-export {
-  ACHIEVEMENT_CATALOG,
-  formatAchievementsProgress,
-  TOTAL_ACHIEVEMENTS_POSSIBLE,
-} from './achievementUtils';
-export type { AchievementIconKey } from './achievementUtils';
 
 export type HomeworkPageProgress = {
   pageId: string;
@@ -55,7 +44,7 @@ export type StudentProgressSnapshot = {
   avgScore: number | null;
   achievementCount: number;
   totalAchievementsPossible: number;
-  earnedAchievementKeys: AchievementIconKey[];
+  earnedAchievementCodes: string[];
   progressPercent: number;
   stage1Score: number | null;
   stage2Score: number | null;
@@ -154,6 +143,7 @@ export function buildStudentProgressSnapshot(
   achievements: Achievement[],
   groupId: string | null,
   groupName: string | null,
+  achievementCatalog: AchievementDefinition[],
 ): StudentProgressSnapshot {
   // Задания других групп ученику не заданы — несданными их не считаем.
   const ownPages = publishedPages.filter((page) => visibleToGroup(page.group_ids, groupId));
@@ -171,7 +161,7 @@ export function buildStudentProgressSnapshot(
   const selectionTotal = stage1 !== null || stage2 !== null
     ? (stage1 ?? 0) + (stage2 ?? 0)
     : null;
-  const earnedKeys = collectEarnedKeys(achievements, student.id);
+  const earnedCodes = collectEarnedCodes(achievements, student.id, achievementCatalog);
 
   return {
     userId: student.id,
@@ -189,9 +179,9 @@ export function buildStudentProgressSnapshot(
     totalPublished: ownPages.length,
     lastSeenAt: student.last_seen_at ?? null,
     avgScore,
-    achievementCount: earnedKeys.length,
-    totalAchievementsPossible: TOTAL_ACHIEVEMENTS_POSSIBLE,
-    earnedAchievementKeys: earnedKeys,
+    achievementCount: earnedCodes.length,
+    totalAchievementsPossible: achievementCatalog.length,
+    earnedAchievementCodes: earnedCodes,
     progressPercent: computeProgressPercent(homeworkPages),
     stage1Score: stage1,
     stage2Score: stage2,
@@ -230,7 +220,7 @@ export function formatRankMetricValue(snapshot: StudentProgressSnapshot, metric:
     case 'progress_percent':
       return `${snapshot.progressPercent}%`;
     case 'achievements':
-      return formatAchievementsProgress(snapshot.achievementCount);
+      return formatAchievementsProgress(snapshot.achievementCount, snapshot.totalAchievementsPossible);
     case 'selection_total':
       return snapshot.selectionTotal !== null ? String(snapshot.selectionTotal) : '—';
     default:

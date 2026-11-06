@@ -122,6 +122,8 @@ interface AuthContextValue {
   clearOAuthError: () => void;
   /** Почему профиль не загрузился; null — загрузился или его просто нет. */
   profileError: ProfileLoadError | null;
+  /** Совпадает с ролью в БД (allowlist и т.д.), а не только с profile.role в ответе. */
+  isSuperAdminEffective: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -149,12 +151,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [oauthErrorDetail, setOauthErrorDetail] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<ProfileLoadError | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [isSuperAdminEffective, setIsSuperAdminEffective] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
   const signingOutRef = useRef(false);
 
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setIsSuperAdminEffective(false);
+      return;
+    }
+    let cancelled = false;
+    void supabase.rpc('current_user_is_superadmin').then(({ data, error }) => {
+      if (cancelled) return;
+      if (!error && typeof data === 'boolean') setIsSuperAdminEffective(data);
+      else setIsSuperAdminEffective(profile?.role === 'superadmin');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, profile?.role]);
 
   const syncOAuthProfile = useCallback(async (
     authUser: User,
@@ -686,7 +705,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user, session, profile, loading, signInWithYandex, signInWithLogin, signUpWithLogin,
       signOut, signingOut, refreshProfile, recordPrivacyConsent, oauthError, oauthErrorDetail, clearOAuthError,
-      profileError,
+      profileError, isSuperAdminEffective,
     }}
     >
       {children}

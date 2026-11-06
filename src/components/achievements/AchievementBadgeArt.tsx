@@ -1,11 +1,12 @@
 import type { AchievementIconKey } from '../../lib/achievementUtils';
 
-type BadgeSize = 'sm' | 'md' | 'lg';
+type BadgeSize = 'sm' | 'md' | 'lg' | 'fill';
 
 const SIZE_MAP: Record<BadgeSize, string> = {
   sm: 'w-10 h-10',
   md: 'w-14 h-14',
   lg: 'w-[4.5rem] h-[4.5rem]',
+  fill: 'w-full h-full',
 };
 
 type Props = {

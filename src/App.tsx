@@ -48,6 +48,10 @@ const QuantumBrandTitle = lazyChunk(() => import('./components/QuantumBrandTitle
 const PrivacyPolicy = lazyChunk(() => import('./pages/PrivacyPolicy'));
 const TeacherJoin = lazyChunk(() => import('./pages/TeacherJoin'));
 const ConnectionDiagnostics = lazyChunk(() => import('./pages/ConnectionDiagnostics'));
+// Только в разработке: в сборку для сайта страница не попадает.
+const AchievementPreview = import.meta.env.DEV
+  ? lazyChunk(() => import('./pages/dev/AchievementPreview'))
+  : null;
 
 function RouteFallback() {
   return (
@@ -59,7 +63,14 @@ function RouteFallback() {
 
 
 /** Маршруты со своей страницей; всё остальное — главная. */
-const NON_LANDING_PATHS = ['/dashboard', '/profile', '/join/teacher', '/privacy', '/diag'];
+const NON_LANDING_PATHS = [
+  '/dashboard',
+  '/profile',
+  '/join/teacher',
+  '/privacy',
+  '/diag',
+  ...(import.meta.env.DEV ? ['/dev'] : []),
+];
 
 function App() {
   const { pathname } = useLocation();
@@ -108,6 +119,7 @@ function App() {
         <Route path="/join/teacher" element={<TeacherJoin />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/diag" element={<ConnectionDiagnostics />} />
+        {AchievementPreview && <Route path="/dev/achievement" element={<AchievementPreview />} />}
         <Route path="*" element={
           <div className="min-h-screen bg-slate-50">
 
