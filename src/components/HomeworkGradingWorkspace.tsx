@@ -27,7 +27,7 @@ import { SECTION_HINT } from '../lib/dashboardHelpCopy';
 import { textMatches } from '../lib/listFilters';
 import { useTimeView } from '../lib/timeView';
 
-type GradingFilter = 'all' | 'ungraded' | 'graded';
+type GradingFilter = 'all' | 'pending' | 'ungraded' | 'graded';
 
 function formatSubmissionWhen(iso: string | null | undefined) {
   if (!iso) return null;
@@ -44,6 +44,10 @@ function submissionHasGrade(s: HomeworkPageSubmission) {
   return s.status === 'graded';
 }
 
+function submissionAwaitsReview(s: HomeworkPageSubmission) {
+  return s.status === 'submitted' && !s.unmarked;
+}
+
 type AssignmentSummary = {
   pageId: string;
   title: string;
@@ -51,6 +55,7 @@ type AssignmentSummary = {
   /** Сдача не через сайт: в очереди все, кому задано, а не только отметившиеся. */
   roster: boolean;
   submitted: number;
+  pending: number;
   ungraded: number;
   graded: number;
 };
@@ -77,6 +82,7 @@ function buildAssignmentSummaries(
       dueAt: page.due_at,
       roster: rosterPageIds.has(page.id),
       submitted: items.length,
+      pending: items.filter(submissionAwaitsReview).length,
       ungraded,
       graded,
     };
@@ -184,7 +190,7 @@ export default function HomeworkGradingWorkspace({
 
   // «Ждут оценки» — отмеченные сдачи; не отмечавшиеся сюда не идут.
   const ungradedCount = useMemo(
-    () => submissions.filter((s) => !submissionHasGrade(s) && !s.unmarked).length,
+    () => submissions.filter(submissionAwaitsReview).length,
     [submissions],
   );
 
@@ -204,9 +210,11 @@ export default function HomeworkGradingWorkspace({
     const forPage = submissions.filter((s) => s.page_id === selectedPageId);
     const filtered = gradingFilter === 'all'
       ? forPage
-      : gradingFilter === 'ungraded'
-        ? forPage.filter((s) => !submissionHasGrade(s))
-        : forPage.filter((s) => submissionHasGrade(s));
+      : gradingFilter === 'pending'
+        ? forPage.filter(submissionAwaitsReview)
+        : gradingFilter === 'ungraded'
+          ? forPage.filter((s) => !submissionHasGrade(s))
+          : forPage.filter((s) => submissionHasGrade(s));
     const byQuery = filtered.filter((s) => textMatches(
       studentQuery,
       [s.student?.display_name, profileAccountLabel(s.student ?? null)],
@@ -439,10 +447,11 @@ export default function HomeworkGradingWorkspace({
       </div>
 
       {selectedAssignment && (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {([
-              ['ungraded', `${selectedAssignment.roster ? 'Без оценки' : 'Ждут'} · ${selectedAssignment.ungraded}`],
+              ['pending', `Ждут проверки · ${selectedAssignment.pending}`],
+              ['ungraded', `Без оценки · ${selectedAssignment.ungraded}`],
               ['graded', `Проверены · ${selectedAssignment.graded}`],
               ['all', `Все · ${selectedAssignment.submitted}`],
             ] as const).map(([id, label]) => (
@@ -450,6 +459,7 @@ export default function HomeworkGradingWorkspace({
                 key={id}
                 type="button"
                 onClick={() => onGradingFilterChange(id)}
+                aria-pressed={gradingFilter === id}
                 className={`px-3 py-2.5 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                   gradingFilter === id
                     ? 'bg-violet-600/20 text-violet-200 border-violet-500/30'
@@ -478,13 +488,15 @@ export default function HomeworkGradingWorkspace({
         <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-10 text-center text-slate-400 text-sm">
           {studentQuery.trim()
             ? 'Никого не найдено по запросу'
-            : gradingFilter === 'ungraded'
-              ? selectedAssignment?.roster
-                ? 'Оценки стоят у всех, кому задано'
-                : 'По этому заданию все работы уже проверены'
-            : gradingFilter === 'graded'
-              ? 'Пока нет проверенных работ по этому заданию'
-              : 'По этому заданию пока нет сдач'}
+            : gradingFilter === 'pending'
+              ? 'По этому заданию нет работ, ожидающих проверки'
+              : gradingFilter === 'ungraded'
+                ? selectedAssignment?.roster
+                  ? 'Оценки стоят у всех, кому задано'
+                  : 'По этому заданию все работы уже проверены'
+                : gradingFilter === 'graded'
+                  ? 'Пока нет проверенных работ по этому заданию'
+                  : 'По этому заданию пока нет сдач'}
         </div>
       ) : (
         <div className="grid lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] gap-4 items-start">

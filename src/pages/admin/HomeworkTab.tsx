@@ -23,7 +23,7 @@ import HomeworkGradingWorkspace from '../../components/HomeworkGradingWorkspace'
 import HomeworkPagesTab from './HomeworkPagesTab';
 
 type Section = 'pages' | 'grading';
-type GradingFilter = 'all' | 'ungraded' | 'graded';
+type GradingFilter = 'all' | 'pending' | 'ungraded' | 'graded';
 type GradingPage = Pick<HomeworkPage, 'id' | 'title' | 'due_at' | 'max_score' | 'group_ids'>;
 type StudentCard = NonNullable<HomeworkPageSubmission['student']>;
 
