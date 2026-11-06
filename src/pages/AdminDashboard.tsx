@@ -76,12 +76,14 @@ const SELECTION_ADMIN_HEADER: Record<SelectionAdminSubTab, string> = {
 
 export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const { user, profile, signOut, signingOut, refreshProfile } = useAuth();
+  /** Вкладки только для суперадмина — и по пропсу из Dashboard, и по profile.role (запас, если RPC не обновили в БД). */
+  const superAdminGate = isSuperAdmin || profile?.role === 'superadmin';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<AdminTab>('home');
   const [selectionSubTab, setSelectionSubTab] = useState<SelectionAdminSubTab>('results');
   const [selectionExpanded, setSelectionExpanded] = useState(false);
-  const ungradedCount = useAdminUngradedCount(isSuperAdmin);
+  const ungradedCount = useAdminUngradedCount(superAdminGate);
   const [viewReady, setViewReady] = useState(false);
   /** Что было в адресе и в состоянии при прошлой синхронизации адреса. */
   const urlSyncRef = useRef<{ stateKey: string; search: string } | null>(null);
@@ -142,13 +144,13 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     const parsed = parseAdminDashboardSearchParams(searchParams);
     const next = normalizeAdminDashboardState(
       parsed ?? defaultAdminDashboardState(),
-      isSuperAdmin,
+      superAdminGate,
     );
     setTab(next.tab);
     setSelectionSubTab(next.selectionSubTab ?? 'results');
     setSelectionExpanded(next.tab === 'results');
     setViewReady(true);
-  }, [searchParams, isSuperAdmin]);
+  }, [searchParams, superAdminGate]);
 
   useEffect(() => {
     void refreshProfile();
@@ -160,7 +162,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
     if (!viewReady) return;
 
     const params = adminDashboardStateToSearchParams(
-      normalizeAdminDashboardState({ tab, selectionSubTab }, isSuperAdmin),
+      normalizeAdminDashboardState({ tab, selectionSubTab }, superAdminGate),
     );
 
     // Как в кабинете ученика: адрес сменился снаружи («Назад»), а состояние
@@ -176,19 +178,19 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       // возвращала в прошлый раздел; уточнение адреса — замена.
       const urlState = normalizeAdminDashboardState(
         parseAdminDashboardSearchParams(searchParams) ?? defaultAdminDashboardState(),
-        isSuperAdmin,
+        superAdminGate,
       );
       const navigation = !dashboardSearchParamsEqual(adminDashboardStateToSearchParams(urlState), params);
       setSearchParams(params, { replace: !navigation });
       if (navigation) window.scrollTo({ top: 0, behavior: 'instant' });
     }
-  }, [tab, selectionSubTab, isSuperAdmin, viewReady, searchParams, setSearchParams]);
+  }, [tab, selectionSubTab, superAdminGate, viewReady, searchParams, setSearchParams]);
 
   const openProfile = () => {
     navigate(profilePathFromDashboardSearch(searchParams));
   };
 
-  const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || superAdminGate);
 
   const selectTab = (nextTab: AdminTab) => {
     setBackToSchedule(false);
@@ -222,7 +224,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   };
 
   const applyAdminNavState = (state: AdminDashboardState) => {
-    const next = normalizeAdminDashboardState(state, isSuperAdmin);
+    const next = normalizeAdminDashboardState(state, superAdminGate);
     setTab(next.tab);
     setSelectionSubTab(next.selectionSubTab ?? 'results');
     setSelectionExpanded(next.tab === 'results');
@@ -248,7 +250,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
 
   const headerTitle = tab === 'home'
     ? 'Личный кабинет'
-    : tab === 'results' && isSuperAdmin
+    : tab === 'results' && superAdminGate
       ? SELECTION_ADMIN_HEADER[selectionSubTab]
       : visibleNavItems.find((n) => n.id === tab)?.label;
 
@@ -275,14 +277,14 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             <img src={publicAsset('/logo_qc.svg')} alt="Квантовый кружок" className="w-9 h-9 brightness-0 invert shrink-0" />
             <div className="min-w-0">
               <span className="font-bold text-white block">Квантовый кружок</span>
-              <span className="text-xs text-slate-500">{isSuperAdmin ? 'Суперадмин' : 'Преподаватель'}</span>
+              <span className="text-xs text-slate-500">{superAdminGate ? 'Суперадмин' : 'Преподаватель'}</span>
             </div>
           </button>
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-site p-4 space-y-1">
           {visibleNavItems.map((item) => {
-            if (item.id === 'results' && isSuperAdmin) {
+            if (item.id === 'results' && superAdminGate) {
               const isSelectionActive = tab === 'results';
               const showSubs = selectionExpanded && isSelectionActive;
               return (
@@ -349,7 +351,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
 
         <div className="shrink-0 px-4 pb-2">
           <p className="text-xs text-slate-500 leading-relaxed px-2">
-            {isSuperAdmin ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
+            {superAdminGate ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
           </p>
         </div>
 
@@ -408,7 +410,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
             active: tab === item.id,
             badge: item.badge,
             onClick: () => {
-              if (item.id === 'results' && isSuperAdmin) {
+              if (item.id === 'results' && superAdminGate) {
                 openSelection(selectionSubTab);
               } else {
                 selectTab(item.id);
@@ -421,7 +423,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
         menuTitle="Разделы кабинета"
       >
         {visibleNavItems.map((item) => {
-          if (item.id === 'results' && isSuperAdmin) {
+          if (item.id === 'results' && superAdminGate) {
             const isSelectionActive = tab === 'results';
             return (
               <MobileMenuCollapsibleSection
@@ -460,7 +462,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           );
         })}
         <p className="text-xs text-slate-500 leading-relaxed px-4 py-2">
-          {isSuperAdmin ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
+          {superAdminGate ? SIDEBAR_HINT.superadmin : SIDEBAR_HINT.admin}
         </p>
         <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
           <button
@@ -512,9 +514,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           </div>
         </header>
 
-        {user && !isSuperAdmin && <TeacherPromotedBanner userId={user.id} />}
+        {user && !superAdminGate && <TeacherPromotedBanner userId={user.id} />}
 
-        {isSuperAdmin && tab === 'results' && (
+        {superAdminGate && tab === 'results' && (
           <MobileSubNavBar
             items={SELECTION_ADMIN_SUB_NAV}
             activeId={selectionSubTab}
@@ -525,19 +527,19 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
         <div className="p-4 sm:p-6 lg:p-8 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8">
           {tab === 'home' && (
             <AdminDashboardHome
-              isSuperAdmin={isSuperAdmin}
+              isSuperAdmin={superAdminGate}
               displayName={displayName}
               onNavigate={handleAdminHomeNavigate}
             />
           )}
-          {tab === 'results' && isSuperAdmin && selectionSubTab === 'stage1' && <SelectionStage1ConfigTab />}
-          {tab === 'results' && isSuperAdmin && selectionSubTab === 'contest' && <SelectionContestConfigTab />}
-          {tab === 'results' && isSuperAdmin && selectionSubTab === 'matching' && <SelectionMatchingTab />}
-          {tab === 'results' && (isSuperAdmin ? selectionSubTab === 'results' : true) && (
-            <ResultsTab isSuperAdmin={isSuperAdmin} />
+          {tab === 'results' && superAdminGate && selectionSubTab === 'stage1' && <SelectionStage1ConfigTab />}
+          {tab === 'results' && superAdminGate && selectionSubTab === 'contest' && <SelectionContestConfigTab />}
+          {tab === 'results' && superAdminGate && selectionSubTab === 'matching' && <SelectionMatchingTab />}
+          {tab === 'results' && (superAdminGate ? selectionSubTab === 'results' : true) && (
+            <ResultsTab isSuperAdmin={superAdminGate} />
           )}
-          {tab === 'students' && <StudentsTab isSuperAdmin={isSuperAdmin} />}
-          {tab === 'teachers' && isSuperAdmin && <TeachersTab />}
+          {tab === 'students' && <StudentsTab isSuperAdmin={superAdminGate} />}
+          {tab === 'teachers' && superAdminGate && <TeachersTab />}
           {tab === 'lectures' && (
             <LessonsTab
               key={`lecture-${contentListResetKey}`}
@@ -564,7 +566,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               {...backFromContent}
             />
           )}
-          {tab === 'grading' && <HomeworkTab isSuperAdmin={isSuperAdmin} mode="grading" />}
+          {tab === 'grading' && <HomeworkTab isSuperAdmin={superAdminGate} mode="grading" />}
           {tab === 'schedule' && (
             <ScheduleTab
               onOpenContent={(target) => {
@@ -574,9 +576,9 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
               }}
             />
           )}
-          {tab === 'statistics' && <StatisticsTab isSuperAdmin={isSuperAdmin} />}
-          {tab === 'site' && isSuperAdmin && <SiteContentTab />}
-          {tab === 'achievements' && isSuperAdmin && <AchievementsGrantTab />}
+          {tab === 'statistics' && <StatisticsTab isSuperAdmin={superAdminGate} />}
+          {tab === 'site' && superAdminGate && <SiteContentTab />}
+          {tab === 'achievements' && superAdminGate && <AchievementsGrantTab />}
         </div>
       </main>
     </div>

@@ -159,21 +159,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profileRef.current = profile;
   }, [profile]);
 
-  useEffect(() => {
-    if (!user?.id) {
+  /** После каждой загрузки профиля: RPC совпадает с RLS; при ошибке — роль из строки профиля. */
+  const refreshSuperAdminFlag = useCallback(async (
+    authUser: User | null,
+    profileRow: UserProfile | null,
+  ) => {
+    if (!authUser?.id) {
       setIsSuperAdminEffective(false);
       return;
     }
-    let cancelled = false;
-    void supabase.rpc('current_user_is_superadmin').then(({ data, error }) => {
-      if (cancelled) return;
-      if (!error && typeof data === 'boolean') setIsSuperAdminEffective(data);
-      else setIsSuperAdminEffective(profile?.role === 'superadmin');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, profile?.role]);
+    const { data, error } = await supabase.rpc('current_user_is_superadmin');
+    if (!error && typeof data === 'boolean') {
+      setIsSuperAdminEffective(data);
+      return;
+    }
+    setIsSuperAdminEffective(profileRow?.role === 'superadmin');
+  }, []);
 
   const syncOAuthProfile = useCallback(async (
     authUser: User,
@@ -333,10 +334,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? prev
           : nextProfile
       ));
+      void refreshSuperAdminFlag(authUser, nextProfile);
     } finally {
       if (!background) setProfileLoading(false);
     }
-  }, [loadProfileRow, syncOAuthProfile, applyTeacherApplicationIfPending, clearStaleTeacherRejection]);
+  }, [loadProfileRow, syncOAuthProfile, applyTeacherApplicationIfPending, clearStaleTeacherRejection, refreshSuperAdminFlag]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await fetchProfile(user, { background: true });
@@ -690,6 +692,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
     setUser(null);
     setProfile(null);
+    setIsSuperAdminEffective(false);
     setProfileError(null);
     setProfileLoading(false);
     signingOutRef.current = false;
