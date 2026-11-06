@@ -97,14 +97,6 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
   const displayName = profile ? profileDisplayName(profile) : 'Админ';
   const accountSubtitle = profileAccountLabel(profile, user?.email);
 
-  const gradingLabel = useMemo(
-    () =>
-      ungradedCount != null && ungradedCount > 0
-        ? `Проверка · ${ungradedCount}`
-        : 'Проверка',
-    [ungradedCount],
-  );
-
   const navItems: {
     id: AdminTab;
     icon: typeof Users;
@@ -123,14 +115,14 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
       {
         id: 'grading',
         icon: ClipboardCheck,
-        label: gradingLabel,
+        label: 'Проверка',
         badge: ungradedCount != null && ungradedCount > 0 ? ungradedCount : undefined,
       },
       { id: 'statistics', icon: BarChart3, label: 'Статистика' },
       { id: 'achievements', icon: Medal, label: 'Награды', superAdminOnly: true },
       { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
     ],
-    [gradingLabel, ungradedCount],
+    [ungradedCount],
   );
 
   const closeMobileNav = () => setMobileNavOpen(false);

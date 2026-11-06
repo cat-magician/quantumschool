@@ -75,7 +75,7 @@ export default function HomeworkTab({
   const [gradingId, setGradingId] = useState<string | null>(null);
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, { score: string; feedback: string }>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [gradingFilter, setGradingFilter] = useState<GradingFilter>('ungraded');
+  const [gradingFilter, setGradingFilter] = useState<GradingFilter>('pending');
   const [pageBlocksMap, setPageBlocksMap] = useState<Record<string, HomeworkPageBlock[]>>({});
   const [pageMetaMap, setPageMetaMap] = useState<Record<string, Pick<HomeworkPage, 'id' | 'title' | 'due_at'>>>({});
 
