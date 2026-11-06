@@ -4005,6 +4005,25 @@ UPDATE public.achievement_definitions
 SET is_active = false, updated_at = now()
 WHERE code IN ('homework_first_submit', 'homework_first_graded', 'homework_excellent');
 
+-- Ручной шаблон no_tails: пока без автоматической выдачи.
+-- Создаём один раз; любые изменения суперадмина, включая выключение,
+-- сохраняются при повторном запуске схемы.
+INSERT INTO public.achievement_definitions
+  (code, title, description, hint, image_url, sort_order, is_active, is_system, staff_ok, updated_at)
+VALUES (
+  'no_tails',
+  'Без хвостов',
+  'Все домашние задания сданы на хорошо и отлично!',
+  'Сдайте все домашние задания курса на оценки от 5 до 10: 5–7 — хорошо, 8–10 — отлично.',
+  '/achievements/no-tails.png',
+  20,
+  true,
+  false,
+  false,
+  now()
+)
+ON CONFLICT (code) DO NOTHING;
+
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS code text;
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS seen_at timestamptz;
 
