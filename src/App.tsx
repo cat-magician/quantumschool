@@ -52,6 +52,9 @@ const ConnectionDiagnostics = lazyChunk(() => import('./pages/ConnectionDiagnost
 const AchievementPreview = import.meta.env.DEV
   ? lazyChunk(() => import('./pages/dev/AchievementPreview'))
   : null;
+const AchievementGallery = import.meta.env.DEV
+  ? lazyChunk(() => import('./pages/dev/AchievementGallery'))
+  : null;
 
 function RouteFallback() {
   return (
@@ -120,6 +123,7 @@ function App() {
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/diag" element={<ConnectionDiagnostics />} />
         {AchievementPreview && <Route path="/dev/achievement" element={<AchievementPreview />} />}
+        {AchievementGallery && <Route path="/dev/achievements" element={<AchievementGallery />} />}
         <Route path="*" element={
           <div className="min-h-screen bg-slate-50">
 

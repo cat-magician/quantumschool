@@ -1,5 +1,6 @@
 import { ArrowRight, BookOpenCheck, Calendar, ClipboardList, GraduationCap, Loader2, Medal, Users } from 'lucide-react';
 import { useAdminUngradedCount } from '../hooks/useAdminUngradedCount';
+import UserAchievementsPanel from './achievements/UserAchievementsPanel';
 
 type AdminTab =
   | 'results'
@@ -24,6 +25,7 @@ export type AdminHomeAction = {
 
 type AdminDashboardHomeProps = {
   isSuperAdmin: boolean;
+  userId: string | undefined;
   displayName: string;
   onNavigate: (action: AdminHomeAction) => void;
 };
@@ -41,6 +43,7 @@ function ActionIcon({ tab }: { tab: AdminTab }) {
 
 export default function AdminDashboardHome({
   isSuperAdmin,
+  userId,
   displayName,
   onNavigate,
 }: AdminDashboardHomeProps) {
@@ -102,6 +105,8 @@ export default function AdminDashboardHome({
             : 'Отбор, материалы, расписание и проверка домашних заданий'}
         </p>
       </div>
+
+      <UserAchievementsPanel userId={userId} compact />
 
       <div className="space-y-2">
         {actions.map((action) => (

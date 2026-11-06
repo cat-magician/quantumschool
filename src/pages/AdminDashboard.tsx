@@ -35,6 +35,7 @@ import AdminDashboardHome, { type AdminHomeAction } from '../components/AdminDas
 import { SIDEBAR_HINT } from '../lib/dashboardHelpCopy';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import UserAvatar from '../components/UserAvatar';
+import AchievementUnlockHost from '../components/achievements/AchievementUnlockHost';
 import DashboardMobileNav, { MobileMenuCollapsibleSection, MobileSubNavBar, mobileMenuBtn, mobileMenuSubBtn } from '../components/DashboardMobileNav';
 import NavCountBadge from '../components/NavCountBadge';
 import { useAdminUngradedCount } from '../hooks/useAdminUngradedCount';
@@ -528,6 +529,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           {tab === 'home' && (
             <AdminDashboardHome
               isSuperAdmin={superAdminGate}
+              userId={user?.id}
               displayName={displayName}
               onNavigate={handleAdminHomeNavigate}
             />
@@ -581,6 +583,7 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
           {tab === 'achievements' && superAdminGate && <AchievementsGrantTab />}
         </div>
       </main>
+      {user && <AchievementUnlockHost userId={user.id} />}
     </div>
     </TimeViewContext.Provider>
   );

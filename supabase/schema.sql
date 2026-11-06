@@ -3914,23 +3914,17 @@ CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
 -- Достижения
 -- ══════════════════════════════════════════════════════════════
 --
--- Каталог achievement_definitions — название, описание, подсказка «как
--- получить» и картинка каждого достижения. Список ниже — источник правды:
--- повторный прогон файла обновляет тексты и картинки, а достижения, которых
--- в списке больше нет, выключает. Выданные остаются в базе, но ученикам и
--- преподавателям не показываются.
+-- Каталог achievement_definitions хранит название, описание и картинку.
+-- Суперадмин создаёт награды в кабинете, загружает картинку в site-images
+-- и выдаёт награду ученикам, админам и суперадминам. Ручные определения
+-- сохраняются при повторном запуске схемы.
 --
--- Картинка — путь от корня сайта (файлы лежат в public/achievements) или
--- полный адрес. Пустая строка — картинки пока нет, кабинет рисует заглушку.
+-- Старые три автоматические награды сняты; evaluate_achievements больше
+-- ничего не выдаёт. Полный адрес картинки хранится в определении, пустая
+-- строка означает фирменную заглушку.
 --
--- Выдаёт достижения только evaluate_achievements(): условия проверяются по
--- текущим данным, поэтому выдача повторяема и работает задним числом.
--- Новое достижение — строка в каталоге и условие в evaluate_achievements();
--- если условие смотрит в другую таблицу, ей нужен такой же триггер, как
--- у homework_page_submissions ниже.
---
--- seen_at — ученик закрыл окно «Вы получили новое достижение!». Пока поле
--- пустое, кабинет покажет окно: сразу, если ученик на сайте, иначе при
+-- seen_at — пользователь закрыл окно «Вы получили новое достижение!». Пока
+-- поле пустое, кабинет покажет окно: сразу, если человек на сайте, иначе при
 -- следующем заходе.
 
 CREATE TABLE IF NOT EXISTS public.achievement_definitions (
@@ -4041,6 +4035,21 @@ CREATE INDEX IF NOT EXISTS achievements_unseen_idx
   ON public.achievements (user_id)
   WHERE seen_at IS NULL;
 
+-- Миниатюры наград рядом с аватаром: видны только для уже доступных профилей.
+-- Вложенный SELECT сохраняет RLS user_profiles (свой профиль, наставники, staff).
+DROP POLICY IF EXISTS "Read achievements of visible profiles" ON public.achievements;
+CREATE POLICY "Read achievements of visible profiles" ON public.achievements
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_profiles p
+      WHERE p.id = achievements.user_id
+    )
+  );
+
+CREATE INDEX IF NOT EXISTS achievements_user_recent_idx
+  ON public.achievements (user_id, earned_at DESC, id DESC);
+
 CREATE OR REPLACE FUNCTION public.award_achievement(p_user_id uuid, p_code text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -4122,13 +4131,13 @@ BEGIN
     RAISE EXCEPTION 'forbidden';
   END IF;
 
-  v_trim_code := lower(trim(p_code));
-  IF v_trim_code = '' OR v_trim_code !~ '^[a-z0-9_]+$' THEN
+  v_trim_code := lower(trim(COALESCE(p_code, '')));
+  IF v_trim_code = '' OR v_trim_code ~ '[^a-z0-9_]' THEN
     RAISE EXCEPTION 'invalid code';
   END IF;
 
-  IF p_recipient_ids IS NULL OR cardinality(p_recipient_ids) = 0 THEN
-    RAISE EXCEPTION 'no recipients';
+  IF NULLIF(trim(p_title), '') IS NULL THEN
+    RAISE EXCEPTION 'title required';
   END IF;
 
   SELECT is_system INTO v_is_system
@@ -4168,7 +4177,8 @@ BEGIN
     );
   END IF;
 
-  FOREACH v_uid IN ARRAY p_recipient_ids
+  -- Пустой список сохраняет новую награду; людей можно выбрать позднее.
+  FOREACH v_uid IN ARRAY COALESCE(p_recipient_ids, ARRAY[]::uuid[])
   LOOP
     IF public.award_achievement(v_uid, v_trim_code) THEN
       v_count := v_count + 1;

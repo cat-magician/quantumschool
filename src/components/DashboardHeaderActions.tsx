@@ -85,7 +85,7 @@ export default function DashboardHeaderActions({
         <button
           type="button"
           onClick={onOpenProfile}
-          className="lg:hidden w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors overflow-hidden p-0"
+          className="lg:hidden min-w-10 h-10 shrink-0 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors px-1"
           aria-label="Профиль"
         >
           <UserAvatar

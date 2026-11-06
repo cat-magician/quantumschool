@@ -24,3 +24,6 @@ dist-ssr
 
 # Python-скрипты в scripts/
 __pycache__/
+
+# Локальные скриншоты и стенд проверки достижений.
+/artifacts/achievements/

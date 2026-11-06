@@ -25,7 +25,7 @@ type UserAvatarProps = {
   /** Если передан — до 3 миниатюр последних достижений; иначе подгружаем по userId. */
   achievementImageUrls?: string[];
   userId?: string;
-  /** По умолчанию: миниатюры только у своего аватара в кабинете и профиле. */
+  /** Миниатюры видны по умолчанию у любого аватара с userId. */
   showAchievementBadges?: boolean;
 };
 
@@ -36,13 +36,13 @@ export default function UserAvatar({
   className = '',
   achievementImageUrls,
   userId,
-  showAchievementBadges = false,
+  showAchievementBadges = true,
 }: UserAvatarProps) {
   const fromHook = useRecentAchievementImages(
     showAchievementBadges && achievementImageUrls == null && userId ? userId : undefined,
     3,
   );
-  const badgeUrls = (achievementImageUrls ?? fromHook).slice(0, 3);
+  const badgeUrls = showAchievementBadges ? (achievementImageUrls ?? fromHook).slice(0, 3) : [];
   const sizeClass = SIZE_CLASS[size];
   const badgeClass = BADGE_SIZE[size];
   const url = avatarUrl?.trim();
@@ -62,25 +62,21 @@ export default function UserAvatar({
     </div>
   );
 
-  if (!showAchievementBadges && achievementImageUrls == null) {
-    return avatarInner;
-  }
-
   if (badgeUrls.length === 0) {
     return avatarInner;
   }
 
   return (
-    <div className="flex items-center shrink-0 gap-0.5">
+    <div className="inline-flex items-center shrink-0 gap-0.5">
       {avatarInner}
       <div className="flex items-center -space-x-1.5 pl-0.5" aria-hidden>
         {badgeUrls.map((src, i) => (
           <span
             key={`${src}-${i}`}
-            className={`relative z-[3] rounded-full border border-slate-950 bg-slate-800 ring-1 ring-white/10 overflow-hidden ${badgeClass}`}
+            className={`relative shrink-0 rounded-full border border-slate-950 bg-slate-800 ring-1 ring-white/10 overflow-hidden ${badgeClass}`}
             style={{ zIndex: 3 - i }}
           >
-            <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+            <img src={src} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
           </span>
         ))}
       </div>

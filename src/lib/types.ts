@@ -238,6 +238,8 @@ export interface Achievement {
 /** Достижение из каталога: что показать в окне получения и в «Прогрессе». */
 export interface AchievementDefinition {
   code: string;
+  is_system?: boolean;
+  staff_ok?: boolean;
   title: string;
   description: string;
   /** Как получить — видно, пока достижение не получено. */

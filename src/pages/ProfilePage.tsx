@@ -31,6 +31,7 @@ import { adminStageLabel, selectionVerdict, type SelectionVerdict } from '../lib
 import type { Group } from '../lib/types';
 import DashboardSiteHomeLink from '../components/DashboardSiteHomeLink';
 import LinkedAccountsSection from '../components/LinkedAccountsSection';
+import UserAchievementsPanel from '../components/achievements/UserAchievementsPanel';
 
 const SELECTION_STATUS_LABELS: Record<SelectionVerdict, string> = {
   accepted: 'Зачислен',
@@ -199,7 +200,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setAvatarModalOpen(true)}
-                className="absolute -bottom-2 -right-2 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 border-2 border-slate-900 flex items-center justify-center transition-colors"
+                className="absolute -bottom-2 left-8 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 border-2 border-slate-900 flex items-center justify-center transition-colors"
                 title="Изменить фото"
                 aria-label="Изменить фото"
               >
@@ -215,6 +216,8 @@ export default function ProfilePage() {
             </div>
           </div>
         </section>
+
+        <UserAchievementsPanel userId={user.id} />
 
         <AvatarUploadModal
           open={avatarModalOpen}

@@ -20,6 +20,7 @@ import { HOME_GUIDE } from '../lib/dashboardHelpCopy';
 import { formatEventDate, formatEventTime } from '../lib/scheduleUtils';
 import type { LearningSubTab } from '../pages/student/LearningTab';
 import { useTimeView } from '../lib/timeView';
+import UserAchievementsPanel from './achievements/UserAchievementsPanel';
 
 export type { StudentNextAction };
 
@@ -122,6 +123,8 @@ export default function StudentDashboardHome({
           </div>
         </button>
       )}
+
+      <UserAchievementsPanel userId={userId} compact />
 
       {!isEnrolled && verdict !== 'rejected' && (
         <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5 space-y-3">

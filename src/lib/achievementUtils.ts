@@ -10,6 +10,11 @@ export const LEGACY_ACHIEVEMENT_ART: Record<string, AchievementIconKey> = {
   homework_excellent: 'star',
 };
 
+/** Снятые награды скрываем и до применения обновлённой SQL-схемы. */
+export function isLegacyAchievementCode(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(LEGACY_ACHIEVEMENT_ART, code);
+}
+
 /** Выданные до каталога достижения хранят только название. */
 const LEGACY_TITLE_CODES: Record<string, string> = {
   'Первое ДЗ': 'homework_first_submit',

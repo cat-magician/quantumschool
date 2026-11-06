@@ -3,6 +3,7 @@ import { BarChart3, Calendar, GraduationCap, Home, Sparkles } from 'lucide-react
 import AchievementUnlockDialog from '../../components/achievements/AchievementUnlockDialog';
 import type { AchievementUnlock } from '../../lib/achievementUtils';
 import { publicAsset } from '../../lib/appPaths';
+import { Link } from 'react-router-dom';
 
 /**
  * Только для разработки (/dev/achievement): окно «новое достижение» без входа
@@ -41,17 +42,17 @@ export default function AchievementPreview() {
       custom('first'),
       {
         id: `preview-${run}-graded`,
-        code: 'homework_first_graded',
-        title: 'ДЗ проверено',
-        description: 'Преподаватель проверил вашу работу и поставил оценку',
-        imageSrc: null,
+        code: 'preview_researcher',
+        title: 'Исследователь',
+        description: 'За самостоятельное исследование и смелую научную идею',
+        imageSrc,
       },
       {
         id: `preview-${run}-excellent`,
-        code: 'homework_excellent',
-        title: 'Отличная работа',
-        description: 'Оценка за домашнее задание — не меньше 80% от максимума',
-        imageSrc: null,
+        code: 'preview_teammate',
+        title: 'Квантовая команда',
+        description: 'За помощь участникам кружка',
+        imageSrc,
       },
     ]);
   };
@@ -112,6 +113,7 @@ export default function AchievementPreview() {
             Три подряд
           </button>
         </div>
+        <Link to="/dev/achievements" className="block py-1 text-center text-xs text-violet-300 hover:text-violet-200">Посмотреть кабинет и миниатюры</Link>
       </div>
 
       {queue.length > 0 && (
