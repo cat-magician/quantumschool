@@ -10,6 +10,7 @@ import UserAvatar from '../../components/UserAvatar';
 import AchievementImage from '../../components/achievements/AchievementImage';
 import AchievementUnlockDialog from '../../components/achievements/AchievementUnlockDialog';
 import AchievementRecipientsPanel from '../../components/achievements/AchievementRecipientsPanel';
+import NoTailsAutomationSettings from '../../components/achievements/NoTailsAutomationSettings';
 import { achievementImageSrc, type AchievementUnlock } from '../../lib/achievementUtils';
 import { loadAchievementAwardCounts, loadAchievementCatalog, requestAchievementCheck, resetAchievementCatalogCache } from '../../lib/achievementApi';
 import { CONTENT_IMAGE_ACCEPT, uploadContentImage, validateContentImageInput } from '../../lib/contentImageUtils';
@@ -89,7 +90,7 @@ export default function AchievementsGrantTab() {
   }, [imageFile]);
 
   const selectedDefinition = definitions.find((definition) => definition.code === selectedCode);
-  const isAutomatic = selectedDefinition?.is_system === true;
+  const isAutomatic = selectedDefinition?.is_system === true || selectedDefinition?.code === 'no_tails';
   const previewTitle = isAutomatic ? selectedDefinition.title : title.trim();
   const previewDescription = isAutomatic ? selectedDefinition.description : description.trim();
   const imageSrc = isAutomatic ? achievementImageSrc(selectedDefinition.image_url) : localImageUrl ?? achievementImageSrc(imageUrl);
@@ -224,7 +225,7 @@ export default function AchievementsGrantTab() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-white truncate">{definition.title}</span>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${definition.is_system ? 'bg-cyan-500/10 text-cyan-300' : 'bg-violet-500/10 text-violet-300'}`}>{definition.is_system ? 'Автоматическая' : 'Ручная'}</span>
+                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${definition.is_system || definition.code === 'no_tails' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-violet-500/10 text-violet-300'}`}>{definition.is_system || definition.code === 'no_tails' ? 'Автоматическая' : 'Ручная'}</span>
                     <span className="text-[11px] text-slate-400">Выдано: {awardCounts.has(definition.code) ? awardCounts.get(definition.code) : countsLoading ? '…' : '—'}</span>
                   </span>
                 </span>
@@ -248,6 +249,10 @@ export default function AchievementsGrantTab() {
               <p className="text-sm text-slate-300 mt-2 leading-relaxed whitespace-pre-wrap break-words">{selectedDefinition.hint || 'Выдаётся автоматически при выполнении условий кружка.'}</p>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">Эту награду выдаёт система. Здесь можно посмотреть её оформление и получателей.</p>
+            {selectedDefinition.code === 'no_tails' && <NoTailsAutomationSettings onSaved={() => {
+              void refreshCounts(definitions);
+              setRecipientsRefreshKey((key) => key + 1);
+            }} />}
           </section>
         ) : (
         <section className="rounded-2xl border border-white/10 bg-slate-900/50 p-5 sm:p-6 space-y-5" aria-labelledby="award-editor-title">

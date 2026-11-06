@@ -3919,8 +3919,9 @@ CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
 -- и выдаёт награду ученикам, админам и суперадминам. Ручные определения
 -- сохраняются при повторном запуске схемы.
 --
--- Системная награда quantum_leap выдаётся ученику за зачисление. Старые три
--- автоматические награды за ДЗ сняты. Адрес картинки хранится в определении,
+-- Системная награда quantum_leap выдаётся за зачисление, no_tails — за все
+-- ДЗ после срока, связанного с финальным семинаром. Старые три награды за ДЗ
+-- сняты. Адрес картинки хранится в определении,
 -- пустая строка означает фирменную заглушку.
 --
 -- seen_at — пользователь закрыл окно «Вы получили новое достижение!». Пока
@@ -3977,6 +3978,13 @@ WITH catalog (code, title, description, hint, image_url, sort_order) AS (
     'Пройдите отбор и дождитесь зачисления в Квантовый кружок.',
     '/achievements/quantum-leap.png',
     10
+  ), (
+    'no_tails',
+    'Без хвостов',
+    'Все домашние задания сданы на хорошо и отлично!',
+    'Получите за все доступные вам опубликованные домашние задания оценки не ниже 5 из 10. Награда выдаётся автоматически через 14 дней после даты финального семинара курса.',
+    '/achievements/no-tails.png',
+    20
   )
 ),
 synced AS (
@@ -4004,25 +4012,6 @@ WHERE is_active AND is_system AND code NOT IN (SELECT code FROM synced);
 UPDATE public.achievement_definitions
 SET is_active = false, updated_at = now()
 WHERE code IN ('homework_first_submit', 'homework_first_graded', 'homework_excellent');
-
--- Ручной шаблон no_tails: пока без автоматической выдачи.
--- Создаём один раз; любые изменения суперадмина, включая выключение,
--- сохраняются при повторном запуске схемы.
-INSERT INTO public.achievement_definitions
-  (code, title, description, hint, image_url, sort_order, is_active, is_system, staff_ok, updated_at)
-VALUES (
-  'no_tails',
-  'Без хвостов',
-  'Все домашние задания сданы на хорошо и отлично!',
-  'Сдайте все домашние задания курса на оценки от 5 до 10: 5–7 — хорошо, 8–10 — отлично.',
-  '/achievements/no-tails.png',
-  20,
-  true,
-  false,
-  false,
-  now()
-)
-ON CONFLICT (code) DO NOTHING;
 
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS code text;
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS seen_at timestamptz;
@@ -4306,3 +4295,227 @@ BEGIN
   WHERE p.role = 'student' AND p.is_enrolled = true;
 END;
 $$;
+
+-- no_tails-automation:start
+-- Изолированная автоматизация: не меняет evaluate_achievements и quantum_leap.
+-- Ни создание настройки, ни установка схемы не выбирают семинар за суперадмина.
+CREATE TABLE IF NOT EXISTS public.no_tails_achievement_settings (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  final_seminar_id uuid REFERENCES public.lesson_pages(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE public.no_tails_achievement_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.no_tails_achievement_settings FROM PUBLIC, anon, authenticated;
+
+INSERT INTO public.no_tails_achievement_settings (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING;
+
+-- Служебное состояние для RPC и проверки из SQL Editor; клиентам вызов закрыт.
+CREATE OR REPLACE FUNCTION public.no_tails_automation_status()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_final_seminar_id uuid;
+  v_award_starts_at timestamptz;
+  v_is_published boolean;
+  v_updated_at timestamptz;
+  v_scheduler_ready boolean := false;
+BEGIN
+  SELECT
+    settings.final_seminar_id,
+    COALESCE(event.scheduled_at, seminar.lesson_date::timestamp AT TIME ZONE 'Europe/Moscow') + interval '336 hours',
+    seminar.is_published,
+    settings.updated_at
+  INTO v_final_seminar_id, v_award_starts_at, v_is_published, v_updated_at
+  FROM public.no_tails_achievement_settings settings
+  LEFT JOIN public.lesson_pages seminar
+    ON seminar.id = settings.final_seminar_id AND seminar.lesson_type = 'seminar'
+  LEFT JOIN public.schedule_events event ON event.lesson_page_id = seminar.id
+  WHERE settings.singleton = true;
+
+  -- Не ссылаемся на cron.job статически: API работает и до установки pg_cron.
+  IF pg_catalog.to_regclass('cron.job') IS NOT NULL THEN
+    BEGIN
+      EXECUTE 'SELECT EXISTS (
+        SELECT 1 FROM cron.job
+        WHERE jobname = ''award-no-tails'' AND active AND schedule = ''*/5 * * * *''
+          AND database = pg_catalog.current_database()
+          AND command = ''SELECT public.award_due_no_tails();''
+      )' INTO v_scheduler_ready;
+    EXCEPTION WHEN undefined_table OR invalid_schema_name OR insufficient_privilege THEN
+      v_scheduler_ready := false;
+    END;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'final_seminar_id', v_final_seminar_id,
+    'award_starts_at', v_award_starts_at,
+    'is_published', COALESCE(v_is_published, false),
+    'scheduler_ready', v_scheduler_ready,
+    'updated_at', v_updated_at
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.no_tails_automation_status() FROM PUBLIC, anon, authenticated;
+
+-- Планировщик проверяет единый согласованный снимок данных. Правки оценок,
+-- публикации и групп учитываются следующим запуском; уже выданное не отзываем.
+CREATE OR REPLACE FUNCTION public.award_due_no_tails()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_awarded integer;
+BEGIN
+  WITH due AS (
+    SELECT 1
+    FROM public.no_tails_achievement_settings settings
+    JOIN public.lesson_pages seminar
+      ON seminar.id = settings.final_seminar_id
+        AND seminar.lesson_type = 'seminar' AND seminar.is_published = true
+    LEFT JOIN public.schedule_events event ON event.lesson_page_id = seminar.id
+    WHERE settings.singleton = true
+      AND now() >= COALESCE(event.scheduled_at, seminar.lesson_date::timestamp AT TIME ZONE 'Europe/Moscow') + interval '336 hours'
+  )
+  INSERT INTO public.achievements (user_id, code, title, description, icon)
+  SELECT p.id, definition.code, definition.title, definition.description, definition.code
+  FROM public.user_profiles p
+  JOIN public.achievement_definitions definition
+    ON definition.code = 'no_tails' AND definition.is_active = true
+  WHERE p.role = 'student' AND p.is_enrolled = true
+    AND EXISTS (SELECT 1 FROM due)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.achievements earned
+      WHERE earned.user_id = p.id AND earned.code = 'no_tails'
+    )
+    -- Пустой набор ДЗ не считается выполненным курсом.
+    AND EXISTS (
+      SELECT 1 FROM public.homework_pages homework
+      WHERE homework.is_published = true
+        AND (
+          homework.group_ids = '{}'
+          OR EXISTS (
+            SELECT 1 FROM public.group_members member
+            WHERE member.user_id = p.id AND member.group_id = ANY (homework.group_ids)
+          )
+        )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM public.homework_pages homework
+      WHERE homework.is_published = true
+        AND (
+          homework.group_ids = '{}'
+          OR EXISTS (
+            SELECT 1 FROM public.group_members member
+            WHERE member.user_id = p.id AND member.group_id = ANY (homework.group_ids)
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM public.homework_page_submissions submission
+          WHERE submission.page_id = homework.id AND submission.user_id = p.id
+            AND submission.status = 'graded' AND submission.score IS NOT NULL
+            AND homework.max_score > 0
+            AND submission.score >= 0 AND submission.score <= homework.max_score
+            -- Нормализация к шкале 0–10 без округления: минимум 5 из 10.
+            AND submission.score * 2 >= homework.max_score
+        )
+    )
+  ON CONFLICT (user_id, code) DO NOTHING;
+
+  GET DIAGNOSTICS v_awarded = ROW_COUNT;
+  RETURN v_awarded;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.award_due_no_tails() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.superadmin_get_no_tails_automation()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+  RETURN public.no_tails_automation_status();
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_get_no_tails_automation() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.superadmin_get_no_tails_automation() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.superadmin_set_no_tails_final_seminar(p_seminar_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NOT private.is_superadmin() THEN
+    RAISE EXCEPTION 'forbidden' USING ERRCODE = '42501';
+  END IF;
+  IF p_seminar_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.lesson_pages seminar
+    WHERE seminar.id = p_seminar_id AND seminar.lesson_type = 'seminar'
+  ) THEN
+    RAISE EXCEPTION 'invalid_final_seminar' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.no_tails_achievement_settings (singleton, final_seminar_id, updated_at, updated_by)
+  VALUES (true, p_seminar_id, now(), auth.uid())
+  ON CONFLICT (singleton) DO UPDATE SET
+    final_seminar_id = EXCLUDED.final_seminar_id,
+    updated_at = EXCLUDED.updated_at,
+    updated_by = EXCLUDED.updated_by;
+
+  -- Уже прошедший срок проверяем сразу, без ожидания следующего тика cron.
+  PERFORM public.award_due_no_tails();
+  RETURN public.no_tails_automation_status();
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.superadmin_set_no_tails_final_seminar(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.superadmin_set_no_tails_final_seminar(uuid) TO authenticated;
+-- no_tails-automation:end
+
+-- no_tails-scheduler:start
+-- Полная схема работает и без доступного pg_cron, но явно сообщает об этом.
+-- Готовность автоматической выдачи видна в RPC superadmin_get_no_tails_automation.
+DO $no_tails_scheduler$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_available_extensions WHERE name = 'pg_cron') THEN
+      BEGIN
+        EXECUTE 'CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog';
+      EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'no_tails: pg_cron could not be installed: %. Run supabase/award-no-tails.sql after enabling pg_cron.', SQLERRM;
+      END;
+    ELSE
+      RAISE NOTICE 'no_tails: pg_cron is unavailable. Automatic timed issuance is not configured; enable pg_cron and run supabase/award-no-tails.sql.';
+    END IF;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pg_cron') THEN
+    BEGIN
+      EXECUTE 'SELECT cron.schedule(''award-no-tails'', ''*/5 * * * *'', ''SELECT public.award_due_no_tails();'')';
+      IF NOT (public.no_tails_automation_status()->>'scheduler_ready')::boolean THEN
+        RAISE NOTICE 'no_tails: award-no-tails is not active in this database. Check pg_cron and run supabase/award-no-tails.sql.';
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'no_tails: the award-no-tails job could not be scheduled: %. Run supabase/award-no-tails.sql after fixing pg_cron.', SQLERRM;
+    END;
+  END IF;
+END;
+$no_tails_scheduler$;
+-- no_tails-scheduler:end

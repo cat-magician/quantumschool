@@ -20,7 +20,6 @@ try {
 }
 const schema = await fs.readFile(path.join(root, 'supabase/schema.sql'), 'utf8');
 const migration = await fs.readFile(path.join(root, 'supabase/award-quantum-leap.sql'), 'utf8');
-const templateMigration = await fs.readFile(path.join(root, 'supabase/create-no-tails-template.sql'), 'utf8');
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalize = (value) => value.replace(/\r\n/g, '\n').trim();
 
@@ -41,15 +40,7 @@ function policySql(name) {
 function triggerSql(name, text = schema) {
   return lastStatement(text, new RegExp(`^CREATE TRIGGER ${escaped(name)}\\b[\\s\\S]*?;`, 'gm'));
 }
-function noTailsSeed(text) {
-  const start = text.indexOf('-- Ручной шаблон no_tails: пока без автоматической выдачи.');
-  assert.ok(start >= 0, 'The manual template seed marker must exist');
-  const match = text.slice(start).match(/^INSERT INTO public\.achievement_definitions[\s\S]*?^ON CONFLICT \(code\) DO NOTHING;/m);
-  assert.ok(match, 'The marked no_tails seed must be insert-once');
-  return match[0];
-}
 const catalogSync = lastStatement(schema, /^WITH catalog \(code,[\s\S]*?^WHERE is_active AND is_system AND code NOT IN \(SELECT code FROM synced\);/gm);
-assert.equal(normalize(noTailsSeed(schema)), normalize(noTailsSeed(templateMigration)), 'Full schema and focused SQL must seed the same manual template');
 
 for (const name of ['public.evaluate_achievements', 'public.trg_user_profile_enrollment_achievement']) {
   assert.equal(normalize(functionSql(name)), normalize(functionSql(name, migration)), `${name}: full schema and focused migration must agree`);
@@ -85,19 +76,6 @@ async function asAuthenticated(id, action) {
 }
 async function permissionDenied(sql, parameters = []) {
   await assert.rejects(db.query(sql, parameters), (error) => error.code === '42501', sql);
-}
-async function awardMechanisms() {
-  const functions = (await db.query(`
-    SELECT p.oid::regprocedure::text AS signature, pg_get_functiondef(p.oid) AS definition
-    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' ORDER BY 1
-  `)).rows;
-  const triggers = (await db.query(`
-    SELECT t.tgname, pg_get_triggerdef(t.oid) AS definition
-    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY t.tgname
-  `)).rows;
-  return { functions, triggers };
 }
 
 try {
@@ -230,38 +208,7 @@ try {
   assert.deepEqual((await db.query("SELECT title,description,hint,image_url,sort_order,is_active,is_system,staff_ok FROM public.achievement_definitions WHERE code='quantum_leap'")).rows[0], definitionBefore, 'Full schema catalog and focused migration define exactly the same award');
   assert.deepEqual(await awards(enrolled), earnedBefore);
 
-  const beforeTemplateAwards = (await db.query('SELECT row_to_json(a) AS data FROM public.achievements a ORDER BY id')).rows;
-  const beforeTemplateMechanisms = await awardMechanisms();
-  const seededTemplate = await db.exec(templateMigration);
-  const expectedTemplate = {
-    code: 'no_tails', title: 'Без хвостов', description: 'Все домашние задания сданы на хорошо и отлично!',
-    hint: 'Сдайте все домашние задания курса на оценки от 5 до 10: 5–7 — хорошо, 8–10 — отлично.',
-    image_url: '/achievements/no-tails.png', sort_order: 20, is_active: true, is_system: false, staff_ok: false,
-  };
-  assert.deepEqual(seededTemplate.at(-1).rows, [expectedTemplate], 'Focused SQL creates exactly the approved manual template');
-  await db.exec(catalogSync);
-  assert.equal((await db.query("SELECT is_active FROM public.achievement_definitions WHERE code='no_tails'")).rows[0].is_active, true, 'System catalog synchronization does not deactivate the manual template');
-  await db.query('SELECT public.evaluate_achievements(id) FROM public.user_profiles');
-  assert.deepEqual((await db.query('SELECT row_to_json(a) AS data FROM public.achievements a ORDER BY id')).rows, beforeTemplateAwards, 'Template creation and normal evaluation issue no new achievements');
-
-  await asAuthenticated(superadmin, async () => {
-    const edited = await db.query(`SELECT public.superadmin_grant_personal_achievement(
-      'no_tails','Ручное название','Ручное описание','Ручная подсказка','/custom-green.png',321,true,ARRAY[]::uuid[]) AS result`);
-    assert.deepEqual(edited.rows[0].result, { ok: true, code: 'no_tails', awarded: 0 }, 'The template can be edited through the existing manual award workflow without issuing it');
-  });
-  await db.query("UPDATE public.achievement_definitions SET is_active=false WHERE code='no_tails'");
-  const editedTemplate = (await db.query("SELECT row_to_json(d) AS data FROM public.achievement_definitions d WHERE code='no_tails'")).rows;
-  await db.exec(templateMigration);
-  await db.exec(catalogSync);
-  await db.exec(noTailsSeed(schema));
-  assert.deepEqual((await db.query("SELECT row_to_json(d) AS data FROM public.achievement_definitions d WHERE code='no_tails'")).rows, editedTemplate, 'Focused and full-schema seeds preserve every manual edit, inactive status and update timestamp');
-  assert.equal(Number((await db.query("SELECT count(*) AS total FROM public.achievement_definitions WHERE code='no_tails'")).rows[0].total), 1, 'Repeated seeding creates only one template');
-  assert.deepEqual((await db.query('SELECT row_to_json(a) AS data FROM public.achievements a ORDER BY id')).rows, beforeTemplateAwards, 'Repeated template seeding never issues or rewrites achievements');
-  assert.deepEqual(await awardMechanisms(), beforeTemplateMechanisms, 'Template SQL adds or changes no evaluator, helper function or trigger');
-  assert.deepEqual((await db.query("SELECT title,description,hint,image_url,sort_order,is_active,is_system,staff_ok FROM public.achievement_definitions WHERE code='quantum_leap'")).rows[0], definitionBefore, 'The existing quantum enrollment award stays unchanged');
-  assert.deepEqual(await awards(enrolled), earnedBefore);
   console.log('ок: PostgreSQL — зачисление INSERT/UPDATE, backfill, роли, повторный прогон/seen_at, RLS, запрет самозачисления и прямой выдачи, сохранность ручных наград');
-  console.log('ок: no_tails — точный ручной шаблон, без автовыдачи, сохранение правок и выключения при повторных прогонах, системные награды без изменений');
 } finally {
   await db.close();
 }
