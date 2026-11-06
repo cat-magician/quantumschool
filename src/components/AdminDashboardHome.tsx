@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpenCheck, Calendar, ClipboardList, GraduationCap, Loader2, Users } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, Calendar, ClipboardList, GraduationCap, Loader2, Medal, Users } from 'lucide-react';
 import { useAdminUngradedCount } from '../hooks/useAdminUngradedCount';
 
 type AdminTab =
@@ -11,7 +11,8 @@ type AdminTab =
   | 'homework'
   | 'grading'
   | 'statistics'
-  | 'site';
+  | 'site'
+  | 'achievements';
 
 export type AdminHomeAction = {
   label: string;
@@ -34,6 +35,7 @@ function ActionIcon({ tab }: { tab: AdminTab }) {
   if (tab === 'grading' || tab === 'homework') return <BookOpenCheck className={`${cls} text-violet-400`} />;
   if (tab === 'students') return <Users className={`${cls} text-emerald-400`} />;
   if (tab === 'schedule') return <Calendar className={`${cls} text-cyan-400`} />;
+  if (tab === 'achievements') return <Medal className={`${cls} text-amber-300`} />;
   return <ClipboardList className={`${cls} text-slate-400`} />;
 }
 
@@ -82,6 +84,11 @@ export default function AdminDashboardHome({
       label: 'Преподаватели',
       description: 'Заявки и назначение в группы',
       tab: 'teachers',
+    });
+    actions.push({
+      label: 'Награды',
+      description: 'Персональные достижения для учеников и сотрудников',
+      tab: 'achievements',
     });
   }
 

@@ -126,8 +126,8 @@ export default function AdminDashboard({ isSuperAdmin }: { isSuperAdmin: boolean
         badge: ungradedCount != null && ungradedCount > 0 ? ungradedCount : undefined,
       },
       { id: 'statistics', icon: BarChart3, label: 'Статистика' },
-      { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
       { id: 'achievements', icon: Medal, label: 'Награды', superAdminOnly: true },
+      { id: 'site', icon: Globe, label: 'Контент', superAdminOnly: true },
     ],
     [gradingLabel, ungradedCount],
   );
