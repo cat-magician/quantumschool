@@ -507,7 +507,7 @@ export default function HomeworkGradingWorkspace({
               {queueForPage.map((s, index) => {
                 const active = s.id === selectedSubmissionId;
                 const hasGrade = submissionHasGrade(s);
-                const awaitingReview = s.status === 'submitted' && !s.unmarked;
+                const hasSubmitted = !s.unmarked && (s.status === 'submitted' || !!s.submitted_at);
                 const name = s.student?.display_name ?? 'Ученик';
                 const when = formatSubmissionWhen(s.submitted_at);
 
@@ -533,9 +533,19 @@ export default function HomeworkGradingWorkspace({
                         showAchievementBadges
                       />
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm line-clamp-2 break-words ${active ? 'text-white font-medium' : 'text-slate-200'}`}>
-                          {name}
-                        </p>
+                        <div className="flex items-start gap-2">
+                          {hasSubmitted && (
+                            <span
+                              className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400"
+                              title="Отправлено на проверку"
+                            >
+                              <span className="sr-only">Отправлено на проверку</span>
+                            </span>
+                          )}
+                          <p className={`min-w-0 text-sm line-clamp-2 break-words ${active ? 'text-white font-medium' : 'text-slate-200'}`}>
+                            {name}
+                          </p>
+                        </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
                           {isSuperAdmin && (
                             <span className="text-[10px] text-slate-600 truncate max-w-[8rem]">
@@ -549,19 +559,23 @@ export default function HomeworkGradingWorkspace({
                           )}
                         </div>
                       </div>
-                      {hasGrade ? (
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${SUBMISSION_STATUS_COLORS.graded}`}>
+                      {s.score != null || hasGrade ? (
+                        <span
+                          className={`shrink-0 whitespace-nowrap text-[11px] font-semibold px-2 py-1 rounded border ${SUBMISSION_STATUS_COLORS.graded}`}
+                          title={s.score != null ? `Оценка: ${formatHomeworkScoreShort(s.score, submissionMaxScore(s))}` : 'Проверено'}
+                        >
+                          <span className="sr-only">Оценка: </span>
                           {s.score != null
                             ? formatHomeworkScoreShort(s.score, submissionMaxScore(s))
-                            : '·'}
+                            : 'Проверено'}
                         </span>
-                      ) : awaitingReview && (
+                      ) : (
                         <span
-                          className="flex h-5 w-5 shrink-0 items-center justify-center"
-                          title="Отправлено на проверку"
+                          className="shrink-0 px-2 py-1 text-[11px] text-slate-500"
+                          title="Оценка пока не выставлена"
                         >
-                          <span className="h-2.5 w-2.5 rounded-full bg-sky-400 ring-4 ring-sky-400/10" aria-hidden />
-                          <span className="sr-only">Отправлено на проверку</span>
+                          <span aria-hidden>—</span>
+                          <span className="sr-only">Оценка пока не выставлена</span>
                         </span>
                       )}
                       <span className="sr-only">{index + 1} из {queueForPage.length}</span>
