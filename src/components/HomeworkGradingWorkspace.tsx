@@ -498,11 +498,16 @@ export default function HomeworkGradingWorkspace({
                   {selectedAssignment.title}
                 </p>
               )}
+              <p className="mt-2 flex items-center gap-2 text-[11px] text-sky-300">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" aria-hidden />
+                Отправлено на проверку
+              </p>
             </div>
             <ul className="flex-1 min-h-0 overflow-y-auto lg:overscroll-contain scrollbar-site divide-y divide-white/5">
               {queueForPage.map((s, index) => {
                 const active = s.id === selectedSubmissionId;
                 const hasGrade = submissionHasGrade(s);
+                const awaitingReview = s.status === 'submitted' && !s.unmarked;
                 const name = s.student?.display_name ?? 'Ученик';
                 const when = formatSubmissionWhen(s.submitted_at);
 
@@ -544,13 +549,21 @@ export default function HomeworkGradingWorkspace({
                           )}
                         </div>
                       </div>
-                      <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${
-                        hasGrade ? SUBMISSION_STATUS_COLORS.graded : SUBMISSION_STATUS_COLORS.submitted
-                      }`}>
-                        {hasGrade && s.score != null
-                          ? formatHomeworkScoreShort(s.score, submissionMaxScore(s))
-                          : '·'}
-                      </span>
+                      {hasGrade ? (
+                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${SUBMISSION_STATUS_COLORS.graded}`}>
+                          {s.score != null
+                            ? formatHomeworkScoreShort(s.score, submissionMaxScore(s))
+                            : '·'}
+                        </span>
+                      ) : awaitingReview && (
+                        <span
+                          className="flex h-5 w-5 shrink-0 items-center justify-center"
+                          title="Отправлено на проверку"
+                        >
+                          <span className="h-2.5 w-2.5 rounded-full bg-sky-400 ring-4 ring-sky-400/10" aria-hidden />
+                          <span className="sr-only">Отправлено на проверку</span>
+                        </span>
+                      )}
                       <span className="sr-only">{index + 1} из {queueForPage.length}</span>
                     </button>
                   </li>
