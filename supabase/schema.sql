@@ -3919,9 +3919,9 @@ CREATE POLICY "Enrolled students read schedule events" ON public.schedule_events
 -- и выдаёт награду ученикам, админам и суперадминам. Ручные определения
 -- сохраняются при повторном запуске схемы.
 --
--- Старые три автоматические награды сняты; evaluate_achievements больше
--- ничего не выдаёт. Полный адрес картинки хранится в определении, пустая
--- строка означает фирменную заглушку.
+-- Системная награда quantum_leap выдаётся ученику за зачисление. Старые три
+-- автоматические награды за ДЗ сняты. Адрес картинки хранится в определении,
+-- пустая строка означает фирменную заглушку.
 --
 -- seen_at — пользователь закрыл окно «Вы получили новое достижение!». Пока
 -- поле пустое, кабинет покажет окно: сразу, если человек на сайте, иначе при
@@ -3967,14 +3967,17 @@ CREATE POLICY "Superadmin update achievement definitions" ON public.achievement_
   USING (private.is_superadmin())
   WITH CHECK (private.is_superadmin());
 
--- Встроенный каталог системных достижений пуст: старые три ДЗ-бейджа отключены;
--- новые достижения задаёт суперадмин через superadmin_grant_personal_achievement.
+-- Системный каталог; ручные награды суперадмина синхронизация не меняет.
+-- Старые три ДЗ-бейджа остаются отключёнными.
 WITH catalog (code, title, description, hint, image_url, sort_order) AS (
-  SELECT code, title, description, hint, image_url, sort_order
-  FROM (
-    VALUES (''::text, ''::text, ''::text, ''::text, ''::text, 0::integer)
-  ) AS stub (code, title, description, hint, image_url, sort_order)
-  WHERE false
+  VALUES (
+    'quantum_leap',
+    'Квантовый скачок',
+    'Вы прошли отбор и оказались по эту сторону портала. Добро пожаловать в Квантовый кружок! Этот кот предупреждал, что будет интересно. Про домашки он почему-то промолчал',
+    'Пройдите отбор и дождитесь зачисления в Квантовый кружок.',
+    '/achievements/quantum-leap.png',
+    10
+  )
 ),
 synced AS (
   INSERT INTO public.achievement_definitions AS d
@@ -3989,6 +3992,7 @@ synced AS (
     sort_order = EXCLUDED.sort_order,
     is_active = true,
     is_system = true,
+    staff_ok = EXCLUDED.staff_ok,
     updated_at = now()
   RETURNING d.code
 )
@@ -4196,15 +4200,45 @@ CREATE OR REPLACE FUNCTION public.evaluate_achievements(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = ''
 AS $$
 BEGIN
-  -- Автовыдача по ДЗ отключена: старые достижения homework_* сняты с сайта.
-  NULL;
+  -- Условие проверяем в базе; вход ученика на сайт для выдачи не нужен.
+  -- Сотрудникам награда не выдаётся только за преподавание или роль.
+  IF EXISTS (
+    SELECT 1 FROM public.user_profiles p
+    WHERE p.id = p_user_id AND p.role = 'student' AND p.is_enrolled = true
+  ) THEN
+    PERFORM public.award_achievement(p_user_id, 'quantum_leap');
+  END IF;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.evaluate_achievements(uuid) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.trg_user_profile_enrollment_achievement()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  PERFORM public.evaluate_achievements(NEW.id);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.trg_user_profile_enrollment_achievement() FROM PUBLIC, anon, authenticated;
+
+-- AFTER видит итоговые role/is_enrolled после BEFORE-проверок профиля.
+-- Повторное зачисление и перевод в student безопасны: award_achievement
+-- не создаёт вторую выдачу (уникальная пара user_id/code).
+DROP TRIGGER IF EXISTS user_profile_enrollment_achievement ON public.user_profiles;
+CREATE TRIGGER user_profile_enrollment_achievement
+  AFTER INSERT OR UPDATE OF is_enrolled, role ON public.user_profiles
+  FOR EACH ROW
+  WHEN (NEW.role = 'student' AND NEW.is_enrolled = true)
+  EXECUTE FUNCTION public.trg_user_profile_enrollment_achievement();
 
 CREATE OR REPLACE FUNCTION public.trg_homework_page_submission_achievements()
 RETURNS trigger
@@ -4244,11 +4278,12 @@ $$;
 REVOKE ALL ON FUNCTION public.mark_achievements_seen(uuid[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.mark_achievements_seen(uuid[]) TO authenticated;
 
--- Задним числом: кто уже выполнил условия, получает достижение при прогоне.
+-- Уже зачисленные ученики получают награду сразу при прогоне схемы.
+-- Выданное не отзываем при последующем отчислении или смене роли.
 DO $$
 BEGIN
   PERFORM public.evaluate_achievements(p.id)
   FROM public.user_profiles p
-  WHERE p.role = 'student';
+  WHERE p.role = 'student' AND p.is_enrolled = true;
 END;
 $$;
